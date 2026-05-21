@@ -42,23 +42,24 @@ def load_secrets_to_env():
 load_secrets_to_env()
 
 # ============ Authentication ============
-# Only enforce auth when running on Streamlit Cloud (not localhost)
 
-def is_running_on_cloud():
-    """Check if running on Streamlit Cloud."""
-    # Streamlit Cloud sets this environment variable
-    return os.environ.get("STREAMLIT_SHARING_MODE") == "streamlit" or \
-           os.environ.get("STREAMLIT_SERVER_ADDRESS") is not None
+def auth_is_configured():
+    """Check if authentication is configured in secrets."""
+    try:
+        # Auth is configured if passwords or OAuth providers are set
+        return "passwords" in st.secrets or "auth" in st.secrets
+    except Exception:
+        return False
 
 
 def check_authentication():
     """Check if user is authenticated. Returns True if auth passes or not required."""
-    # Skip auth for local development
+    # Skip auth for explicit local development
     if os.environ.get("STREAMLIT_LOCAL_DEV") == "true":
         return True
 
-    # Skip auth if not on Streamlit Cloud
-    if not is_running_on_cloud():
+    # Skip auth if no auth is configured (local dev without secrets)
+    if not auth_is_configured():
         return True
 
     # Check password-based login (session state)
