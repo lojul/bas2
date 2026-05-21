@@ -691,6 +691,140 @@ def render_chat_tab():
                             st.write(f"• **{src['file_name']}** ({format_doc_type(src['document_type'])})")
 
 
+# ============ Search Tab ============
+
+def render_search_tab():
+    """Render direct search tab - keyword search without LLM."""
+    from src.nodes.chatbot import keyword_search
+
+    st.caption("Direct Property Search | 直接物業搜尋")
+
+    # Search form
+    col1, col2, col3 = st.columns([3, 1, 1])
+
+    with col1:
+        search_query = st.text_input(
+            "Search keywords 搜尋關鍵字",
+            placeholder="e.g. 中環 / Central / building name",
+            key="search_query"
+        )
+
+    with col2:
+        doc_type_filter = st.selectbox(
+            "Type 類型",
+            options=["All", "listing", "listing_list", "news", "contact"],
+            format_func=lambda x: {
+                "All": "All Types",
+                "listing": "Single Listing",
+                "listing_list": "Multi Listing",
+                "news": "News",
+                "contact": "Contact"
+            }.get(x, x),
+            key="search_doc_type"
+        )
+
+    with col3:
+        st.write("")  # Spacing
+        search_clicked = st.button("Search 搜尋", type="primary", use_container_width=True)
+
+    st.divider()
+
+    # Perform search
+    if search_clicked or search_query:
+        filters = {}
+        if doc_type_filter != "All":
+            filters["document_type"] = doc_type_filter
+
+        with st.spinner("Searching... 搜尋中..."):
+            results = keyword_search(
+                query=search_query,
+                filters=filters,
+                top_k=20
+            )
+
+        if not results:
+            st.info("No results found. 找不到結果。")
+        else:
+            st.success(f"Found {len(results)} results 找到 {len(results)} 個結果")
+
+            # Display results as cards
+            for doc in results:
+                doc_type = doc.get("document_type", "unknown")
+                file_name = doc.get("file_name", "Unknown")
+                extracted = doc.get("extracted_data", {})
+
+                with st.container():
+                    # Header with document type badge
+                    type_colors = {
+                        "listing": "🏢",
+                        "listing_list": "🏗️",
+                        "news": "📰",
+                        "contact": "👤"
+                    }
+                    icon = type_colors.get(doc_type, "📄")
+
+                    st.markdown(f"### {icon} {file_name}")
+
+                    if doc_type == "listing":
+                        col_a, col_b, col_c = st.columns(3)
+                        with col_a:
+                            st.write(f"**Building:** {extracted.get('building_name', 'N/A')}")
+                            st.write(f"**Address:** {extracted.get('address', 'N/A')}")
+                        with col_b:
+                            st.write(f"**Size:** {extracted.get('size_sqft', 'N/A')} sqft")
+                            st.write(f"**Rent:** HK${extracted.get('rent_monthly', 'N/A')}/mo")
+                        with col_c:
+                            st.write(f"**Type:** {extracted.get('property_type', 'N/A')}")
+                            st.write(f"**Contact:** {extracted.get('contact_phone', 'N/A')}")
+
+                    elif doc_type == "listing_list":
+                        st.write(f"**Building:** {extracted.get('building_name', 'N/A')}")
+                        st.write(f"**Address:** {extracted.get('address', 'N/A')}")
+                        units = extracted.get("units", [])
+                        if units:
+                            st.write(f"**Units:** {len(units)} available")
+                            # Show units as table
+                            unit_data = []
+                            for u in units[:10]:
+                                unit_data.append({
+                                    "Floor": u.get("floor", ""),
+                                    "Unit": u.get("unit", ""),
+                                    "Size (sqft)": u.get("size", ""),
+                                    "Rent (HK$)": u.get("rent", ""),
+                                })
+                            if unit_data:
+                                st.dataframe(unit_data, use_container_width=True, hide_index=True)
+
+                    elif doc_type == "news":
+                        st.write(f"**Title:** {extracted.get('title', '')} {extracted.get('title_zh', '')}")
+                        st.write(f"**Date:** {extracted.get('date', 'N/A')} | **Source:** {extracted.get('source', 'N/A')}")
+                        if extracted.get("summary"):
+                            st.write(f"**Summary:** {extracted.get('summary', '')[:200]}...")
+
+                    elif doc_type == "contact":
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.write(f"**Name:** {extracted.get('name', 'N/A')}")
+                            st.write(f"**Company:** {extracted.get('company', 'N/A')}")
+                        with col_b:
+                            st.write(f"**Phone:** {extracted.get('phone', 'N/A')}")
+                            st.write(f"**Email:** {extracted.get('email', 'N/A')}")
+
+                    else:
+                        # Generic display
+                        st.json(extracted)
+
+                    st.divider()
+    else:
+        # Show instructions
+        st.info("🔍 Enter keywords to search the property database directly.")
+        st.caption("**Tips:**")
+        st.caption("• Search by building name, address, or district")
+        st.caption("• Filter by document type for specific results")
+        st.caption("• Results show extracted data - no LLM processing")
+        st.caption("• For AI-powered answers, use the Chat tab")
+
+
 # ============ Main ============
 
 def main():
@@ -734,7 +868,7 @@ def main():
 
     st.title("Document Processor")
 
-    tab1, tab2, tab3 = st.tabs(["Processing Status", "Vector Database", "Chat"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Processing Status", "Vector Database", "Search", "Chat"])
 
     with tab1:
         render_processing_tab()
@@ -743,6 +877,9 @@ def main():
         render_vector_db_tab()
 
     with tab3:
+        render_search_tab()
+
+    with tab4:
         render_chat_tab()
 
     # Footer

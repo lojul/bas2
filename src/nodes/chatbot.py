@@ -125,8 +125,14 @@ CHATBOT_PROJECT = "property-chatbot"  # Separate LangSmith project
 # ============ Node Functions ============
 
 @traceable(name="search_documents", run_type="retriever", project_name=CHATBOT_PROJECT)
-def search_documents(query: str, top_k: int = 5) -> list[dict]:
-    """Search vector database for relevant documents."""
+def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[dict]:
+    """Search vector database for relevant documents using hybrid search.
+
+    Args:
+        query: Search query text
+        top_k: Number of results to return
+        hybrid: If True, use vector + keyword search. If False, vector only.
+    """
     endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
     api_key = os.environ.get("AZURE_SEARCH_API_KEY")
     index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
@@ -137,7 +143,7 @@ def search_documents(query: str, top_k: int = 5) -> list[dict]:
     # Get embedding for query
     query_embedding = get_embedding(query)
 
-    # Build search request with vector search
+    # Build search request with hybrid search (vector + keyword)
     search_url = f"{endpoint}/indexes/{index_name}/docs/search?api-version=2024-07-01"
     headers = {
         "Content-Type": "application/json",
@@ -156,6 +162,11 @@ def search_documents(query: str, top_k: int = 5) -> list[dict]:
         "select": "id,file_name,document_type,content,extracted_data,processed_at",
         "top": top_k,
     }
+
+    # Add keyword search for hybrid mode
+    if hybrid:
+        body["search"] = query  # Full-text search on searchable fields
+        body["searchFields"] = "content,file_name"  # Fields to search
 
     client = get_http_client()
     response = client.post(search_url, headers=headers, json=body)
@@ -178,6 +189,80 @@ def search_documents(query: str, top_k: int = 5) -> list[dict]:
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:2000],
             "extracted_data": extracted,
+            "score": doc.get("@search.score", 0),
+        })
+
+    return documents
+
+
+def keyword_search(
+    query: str = "",
+    filters: dict = None,
+    top_k: int = 20,
+) -> list[dict]:
+    """Direct keyword search without LLM - for Search tab.
+
+    Args:
+        query: Search keywords (optional)
+        filters: Dict with optional keys: document_type, district, min_rent, max_rent
+        top_k: Number of results
+
+    Returns:
+        List of matching documents with extracted data
+    """
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+
+    if not all([endpoint, api_key]):
+        return []
+
+    search_url = f"{endpoint}/indexes/{index_name}/docs/search?api-version=2024-07-01"
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": api_key,
+    }
+
+    body = {
+        "search": query if query else "*",  # * returns all if no query
+        "searchFields": "content,file_name",
+        "select": "id,file_name,document_type,content,extracted_data,processed_at",
+        "top": top_k,
+        "orderby": "processed_at desc",
+    }
+
+    # Build filter string
+    filter_parts = []
+    if filters:
+        if filters.get("document_type"):
+            filter_parts.append(f"document_type eq '{filters['document_type']}'")
+
+    if filter_parts:
+        body["filter"] = " and ".join(filter_parts)
+
+    client = get_http_client()
+    response = client.post(search_url, headers=headers, json=body)
+    response.raise_for_status()
+
+    results = response.json().get("value", [])
+
+    # Format results
+    documents = []
+    for doc in results:
+        extracted = doc.get("extracted_data", "{}")
+        if isinstance(extracted, str):
+            try:
+                extracted = json.loads(extracted)
+            except:
+                extracted = {}
+
+        documents.append({
+            "id": doc.get("id", ""),
+            "file_name": doc.get("file_name", "Unknown"),
+            "document_type": doc.get("document_type", "unknown"),
+            "content": doc.get("content", "")[:500],
+            "extracted_data": extracted,
+            "processed_at": doc.get("processed_at", ""),
             "score": doc.get("@search.score", 0),
         })
 

@@ -56,3 +56,4 @@ obj/
 
 # Data files
 data/
+streamlit_secrets.txt
