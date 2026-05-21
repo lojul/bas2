@@ -148,8 +148,12 @@ def hide_langsmith_run(run_id: str) -> bool:
 
 @st.cache_data(ttl=30)  # Cache for 30 seconds
 def get_langsmith_runs(hours: int = 72) -> list:
-    client = Client()
-    project_name = os.environ.get("LANGCHAIN_PROJECT", "document-processor")
+    # Get API key from secrets or environment
+    api_key = st.secrets.get("LANGCHAIN_API_KEY") if hasattr(st, "secrets") else None
+    api_key = api_key or os.environ.get("LANGCHAIN_API_KEY")
+    client = Client(api_key=api_key)
+    project_name = st.secrets.get("LANGCHAIN_PROJECT") if hasattr(st, "secrets") else None
+    project_name = project_name or os.environ.get("LANGCHAIN_PROJECT", "document-processor")
     start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     runs = list(client.list_runs(
         project_name=project_name,
