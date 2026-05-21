@@ -153,17 +153,6 @@ def format_doc_type(doc_type: str) -> str:
 
 # ============ LangSmith Functions ============
 
-def hide_langsmith_run(run_id: str) -> bool:
-    """Hide a run from the dashboard (LangSmith doesn't support run deletion).
-
-    Runs are stored in session_state and will persist until browser refresh.
-    """
-    if "hidden_runs" not in st.session_state:
-        st.session_state["hidden_runs"] = set()
-    st.session_state["hidden_runs"].add(run_id)
-    return True
-
-
 @st.cache_data(ttl=30)  # Cache for 30 seconds
 def get_langsmith_runs(hours: int = 72) -> list:
     # Get API key from secrets or environment
@@ -370,13 +359,12 @@ def render_processing_tab():
         end_idx = min(start_idx + page_size, total_files)
         page_runs = grouped_runs[start_idx:end_idx]
 
-        h1, h2, h3, h4, h5, h6 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5, 0.4])
+        h1, h2, h3, h4, h5 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5])
         with h1: st.caption("**File Name**")
         with h2: st.caption("**Type**")
         with h3: st.caption("**Updated**")
         with h4: st.caption("**Status**")
         with h5: st.caption("**Data**")
-        with h6: st.caption("")
 
         for idx, record in enumerate(page_runs):
             row_id = start_idx + idx  # Unique ID across pages
@@ -397,7 +385,7 @@ def render_processing_tab():
             confidence = record.get("confidence", 0) * 100
             has_data = bool(record["extracted_data"])
 
-            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5, 0.4])
+            c1, c2, c3, c4, c5 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5])
             with c1: st.markdown(f"**{record['file_name']}**")
             with c2: st.write(f"{doc_type} ({confidence:.0f}%)")
             with c3:
@@ -412,10 +400,6 @@ def render_processing_tab():
                         st.rerun()
                 else:
                     st.write("-")
-            with c6:
-                if st.button("X", key=f"hide_{row_id}", help="Hide from dashboard"):
-                    if hide_langsmith_run(record["run_id"]):
-                        st.rerun()
 
             # Show data below if toggled
             if st.session_state.get(f"show_data_{row_id}", False) and has_data:
@@ -440,18 +424,12 @@ def render_processing_tab():
 
     # Footer
     st.divider()
-    hidden_count = len(st.session_state.get("hidden_runs", set()))
-    col_btn1, col_btn2, col_btn3, _ = st.columns([1, 1, 1.5, 1])
+    col_btn1, col_btn2, _ = st.columns([1, 1.5, 2])
     with col_btn1:
         if st.button("Refresh"):
             st.cache_data.clear()
             st.rerun()
     with col_btn2:
-        if hidden_count > 0:
-            if st.button(f"Show Hidden ({hidden_count})"):
-                st.session_state["hidden_runs"] = set()
-                st.rerun()
-    with col_btn3:
         if st.button("Process Now"):
             function_url = os.environ.get("AZURE_FUNCTION_URL")
             if function_url:
