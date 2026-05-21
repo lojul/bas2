@@ -132,6 +132,168 @@ Based ONLY on the above property information, help the user. Stay strictly withi
 CHATBOT_PROJECT = "property-chatbot"  # Separate LangSmith project
 
 
+# ============ Reranking ============
+
+RERANK_PROMPT = """Score how relevant each document is to the query. Return ONLY a JSON array of scores (0-10).
+
+Query: {query}
+
+Documents:
+{documents}
+
+Return JSON array of scores, one per document (0=not relevant, 10=highly relevant):
+Example: [8, 3, 9, 5, 2]
+
+Scores:"""
+
+
+@traceable(name="rerank_documents", run_type="chain", project_name=CHATBOT_PROJECT)
+def rerank_documents(query: str, documents: list[dict], top_k: int = 5) -> list[dict]:
+    """Rerank documents using LLM for better relevance.
+
+    Uses OpenRouter (DeepSeek) to score document relevance - no extra API key needed.
+
+    Args:
+        query: Original search query
+        documents: List of documents from initial search
+        top_k: Number of top results to return after reranking
+
+    Returns:
+        Reranked list of documents (most relevant first)
+    """
+    if not documents:
+        return []
+
+    if len(documents) <= top_k:
+        return documents  # No need to rerank if we have fewer than top_k
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        return documents[:top_k]
+
+    try:
+        # Prepare document summaries for reranking
+        doc_summaries = []
+        for i, doc in enumerate(documents):
+            summary_parts = [f"[{i}] {doc.get('file_name', 'Unknown')}"]
+            extracted = doc.get("extracted_data", {})
+            if extracted:
+                for key in ["building_name", "address", "district", "rent_monthly", "size_sqft"]:
+                    if extracted.get(key):
+                        summary_parts.append(f"{key}: {extracted[key]}")
+            if doc.get("content"):
+                summary_parts.append(doc["content"][:200])
+            doc_summaries.append(" | ".join(summary_parts))
+
+        documents_text = "\n".join(doc_summaries)
+
+        # Call LLM to score relevance
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "model": "deepseek/deepseek-chat",
+            "messages": [
+                {"role": "user", "content": RERANK_PROMPT.format(query=query, documents=documents_text)}
+            ],
+            "max_tokens": 100,
+            "temperature": 0,
+        }
+
+        client = get_http_client()
+        response = client.post(url, headers=headers, json=body, timeout=15)
+        response.raise_for_status()
+
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+
+        # Parse scores from response
+        import re
+        match = re.search(r'\[[\d,\s\.]+\]', content)
+        if match:
+            scores = json.loads(match.group())
+            # Pair documents with scores and sort
+            scored_docs = list(zip(documents, scores))
+            scored_docs.sort(key=lambda x: float(x[1]), reverse=True)
+            return [doc for doc, _ in scored_docs[:top_k]]
+
+        return documents[:top_k]
+
+    except Exception:
+        # On error, return original order
+        return documents[:top_k]
+
+
+# ============ Multi-Query Generation ============
+
+MULTI_QUERY_PROMPT = """You are an AI assistant helping to generate alternative search queries for a Hong Kong commercial property search system.
+
+Given the original query, generate 3 alternative versions that:
+1. Use different wording but same intent
+2. Include both English AND Chinese variations if original is in one language
+3. Focus on different aspects (location, size, price, property type)
+
+Original query: {query}
+
+Return ONLY a JSON array of 3 alternative queries, no explanation:
+["query 1", "query 2", "query 3"]"""
+
+
+@traceable(name="generate_query_variations", run_type="llm", project_name=CHATBOT_PROJECT)
+def generate_query_variations(query: str) -> list[str]:
+    """Generate alternative search queries using LLM.
+
+    Args:
+        query: Original user query
+
+    Returns:
+        List of query variations (including original)
+    """
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        return [query]  # Fallback to original only
+
+    try:
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        body = {
+            "model": "deepseek/deepseek-chat",  # Fast and cheap
+            "messages": [
+                {"role": "user", "content": MULTI_QUERY_PROMPT.format(query=query)}
+            ],
+            "max_tokens": 200,
+            "temperature": 0.7,  # Some creativity for variations
+        }
+
+        client = get_http_client()
+        response = client.post(url, headers=headers, json=body, timeout=10)
+        response.raise_for_status()
+
+        data = response.json()
+        content = data["choices"][0]["message"]["content"]
+
+        # Parse JSON array
+        import re
+        # Find JSON array in response
+        match = re.search(r'\[.*?\]', content, re.DOTALL)
+        if match:
+            variations = json.loads(match.group())
+            # Return original + variations (deduplicated)
+            all_queries = [query] + [v for v in variations if v != query]
+            return all_queries[:4]  # Max 4 queries total
+
+        return [query]
+
+    except Exception:
+        return [query]  # Fallback to original on any error
+
+
 # ============ Node Functions ============
 
 @traceable(name="search_documents", run_type="retriever", project_name=CHATBOT_PROJECT)
@@ -203,6 +365,69 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
         })
 
     return documents
+
+
+@traceable(name="multi_query_search", run_type="retriever", project_name=CHATBOT_PROJECT)
+def multi_query_search(query: str, top_k: int = 5, use_rerank: bool = True) -> list[dict]:
+    """Search using multiple query variations for better recall, with optional reranking.
+
+    Pipeline:
+    1. Generate 3-4 query variations (including bilingual)
+    2. Search with each variation IN PARALLEL
+    3. Combine and deduplicate results
+    4. Rerank using LLM (if enabled)
+    5. Return top results
+
+    Args:
+        query: Original search query
+        top_k: Final number of results to return
+        use_rerank: Whether to apply reranking (default True)
+
+    Returns:
+        List of unique documents, reranked for relevance
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    # Generate query variations
+    queries = generate_query_variations(query)
+
+    # Search with each query IN PARALLEL - fetch more for reranking
+    fetch_k = 15 if use_rerank else top_k
+    seen_files = {}  # file_name -> (doc, count)
+
+    # Run all searches in parallel
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_query = {
+            executor.submit(search_documents, q, fetch_k, True): q
+            for q in queries
+        }
+
+        for future in future_to_query:
+            try:
+                results = future.result(timeout=15)
+                for doc in results:
+                    fname = doc["file_name"]
+                    if fname in seen_files:
+                        seen_files[fname] = (doc, seen_files[fname][1] + 1)
+                    else:
+                        seen_files[fname] = (doc, 1)
+            except Exception:
+                pass  # Continue with other results
+
+    # Sort by frequency (found by more queries = more relevant)
+    sorted_results = sorted(
+        seen_files.values(),
+        key=lambda x: (x[1], x[0].get("score", 0)),  # frequency, then score
+        reverse=True
+    )
+
+    candidates = [doc for doc, _ in sorted_results]
+
+    # Apply reranking if enabled
+    if use_rerank and candidates:
+        return rerank_documents(query, candidates, top_k=top_k)
+
+    return candidates[:top_k]
 
 
 def keyword_search(
@@ -471,6 +696,8 @@ def route_query(query: str) -> str:
 
 def retrieve_node(state: ChatState) -> dict:
     """Node: Search for relevant documents and/or web based on query type."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     question = state["current_question"]
 
     # Route query to determine search strategy
@@ -479,13 +706,25 @@ def retrieve_node(state: ChatState) -> dict:
     documents = []
     web_results = []
 
-    if route in ("vector", "hybrid"):
-        # Search vector database (your documents)
-        documents = search_documents(question, top_k=5)
+    # Run searches in PARALLEL for better latency
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = {}
 
-    if route in ("web", "hybrid"):
-        # Search web for latest information
-        web_results = web_search(question, max_results=3)
+        if route in ("vector", "hybrid"):
+            futures["docs"] = executor.submit(multi_query_search, question, 5)
+
+        if route in ("web", "hybrid"):
+            futures["web"] = executor.submit(web_search, question, 3)
+
+        # Collect results as they complete
+        for key, future in futures.items():
+            try:
+                if key == "docs":
+                    documents = future.result(timeout=30)
+                elif key == "web":
+                    web_results = future.result(timeout=15)
+            except Exception:
+                pass  # Continue with partial results
 
     # Build combined context
     context = build_context(documents, web_results)
@@ -720,11 +959,25 @@ def chat_stream(
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
-    # Step 1: Retrieve documents (non-streaming)
-    documents = search_documents(question, top_k=5)
+    # Step 1: Retrieve documents AND web results IN PARALLEL
+    from concurrent.futures import ThreadPoolExecutor
 
-    # Step 1b: Search web for latest information
-    web_results = web_search(question, max_results=3)
+    documents = []
+    web_results = []
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        doc_future = executor.submit(multi_query_search, question, 5)
+        web_future = executor.submit(web_search, question, 3)
+
+        try:
+            documents = doc_future.result(timeout=30)
+        except Exception:
+            documents = []
+
+        try:
+            web_results = web_future.result(timeout=15)
+        except Exception:
+            web_results = []
 
     # Build combined context
     context = build_context(documents, web_results)
@@ -739,11 +992,12 @@ def chat_stream(
             "type": "document",
         })
     for r in web_results:
-        sources.append({
-            "file_name": r.get("title", "Web Result"),
-            "url": r.get("url", ""),
-            "type": "web",
-        })
+        if "error" not in r:
+            sources.append({
+                "file_name": r.get("title", "Web Result"),
+                "url": r.get("url", ""),
+                "type": "web",
+            })
 
     # Store sources for retrieval after streaming
     _stream_metadata[thread_id] = StreamingChatResponse(sources=sources)

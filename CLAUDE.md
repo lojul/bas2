@@ -78,6 +78,10 @@ langgraph/
 - [x] Streaming responses (real-time answer display)
 - [x] Phase 1: Hybrid Search (Vector + Web via Tavily)
 - [x] Smart Query Router (vector/web/hybrid based on query type)
+- [x] Multi-query retrieval (bilingual query variations)
+- [x] LLM reranking (DeepSeek relevance scoring)
+- [x] Parallel execution (ThreadPoolExecutor)
+- [x] Token usage tracking in dashboard
 
 ## Graph Flow
 ```
@@ -346,8 +350,15 @@ admin = "your-password-here"
 ## Roadmap
 
 ### Completed
-- [x] Phase 1: Hybrid Search (Vector + Web)
+- [x] Phase 1: Hybrid Search + Advanced RAG
+  - Hybrid search (Vector + Web via Tavily)
+  - Multi-query retrieval (bilingual query variations)
+  - LLM reranking (DeepSeek relevance scoring)
+  - Parallel execution (ThreadPoolExecutor)
+  - Token usage tracking in dashboard
 
 ### Planned
-- [ ] Phase 2: Tool-Calling Agent (LangChain) - PDF/PPT generation
-- [ ] Phase 3: Advanced RAG - Reranking, multi-query retrieval
+- [ ] Phase 2: Tool-Calling Agent (LangChain)
+  - PDF report generation
+  - PPT presentation creation
+  - Email with attachments

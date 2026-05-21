@@ -176,17 +176,84 @@ def get_langsmith_runs(hours: int = 72) -> list:
         project_name = None
     project_name = project_name or os.environ.get("LANGCHAIN_PROJECT", "document-processor")
     start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # Get parent runs (process_file)
     runs = list(client.list_runs(
         project_name=project_name,
         filter='eq(name, "process_file")',
         start_time=start_time,
         limit=100,
     ))
+
     # Convert to serializable format for caching
     # Only include completed runs (have outputs or error)
-    return [{"inputs": r.inputs, "outputs": r.outputs, "error": r.error,
-             "start_time": r.start_time, "end_time": r.end_time, "id": str(r.id)}
-            for r in runs if r.outputs is not None or r.error is not None]
+    # Note: Per-file token tracking requires fetching grandchild runs which hits API limits
+    # Token aggregate stats are fetched separately in get_token_stats()
+    return [{
+        "inputs": r.inputs,
+        "outputs": r.outputs,
+        "error": r.error,
+        "start_time": r.start_time,
+        "end_time": r.end_time,
+        "id": str(r.id),
+    } for r in runs if r.outputs is not None or r.error is not None]
+
+
+@st.cache_data(ttl=30)  # Cache for 30 seconds
+def get_token_stats(hours: int = 72) -> dict:
+    """Get aggregate token usage from LLM runs."""
+    try:
+        api_key = st.secrets.get("LANGCHAIN_API_KEY", None)
+    except Exception:
+        api_key = None
+    api_key = api_key or os.environ.get("LANGCHAIN_API_KEY")
+
+    if not api_key:
+        return {"total": 0, "prompt": 0, "completion": 0}
+
+    client = Client(api_key=api_key)
+    try:
+        project_name = st.secrets.get("LANGCHAIN_PROJECT", None)
+    except Exception:
+        project_name = None
+    project_name = project_name or os.environ.get("LANGCHAIN_PROJECT", "document-processor")
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    # Get LLM runs (classifier and extractor)
+    llm_runs = list(client.list_runs(
+        project_name=project_name,
+        filter='eq(run_type, "llm")',
+        start_time=start_time,
+        limit=100,
+    ))
+
+    total_tokens = 0
+    prompt_tokens = 0
+    completion_tokens = 0
+
+    for r in llm_runs:
+        # Check direct attributes first
+        total = getattr(r, 'total_tokens', 0) or 0
+        prompt = getattr(r, 'prompt_tokens', 0) or 0
+        completion = getattr(r, 'completion_tokens', 0) or 0
+
+        # Also check extra.usage_metadata (where we store it from OpenRouter)
+        extra = getattr(r, 'extra', {}) or {}
+        usage_meta = extra.get('usage_metadata', {})
+        if usage_meta:
+            total = total or usage_meta.get('total_tokens', 0)
+            prompt = prompt or usage_meta.get('input_tokens', 0)
+            completion = completion or usage_meta.get('output_tokens', 0)
+
+        total_tokens += total
+        prompt_tokens += prompt
+        completion_tokens += completion
+
+    return {
+        "total": total_tokens,
+        "prompt": prompt_tokens,
+        "completion": completion_tokens,
+    }
 
 
 def parse_run(run: dict) -> dict[str, Any]:
@@ -329,7 +396,20 @@ def render_processing_tab():
     today_hk = datetime.now(HK_TZ).date()
     today_count = sum(1 for r in parsed_runs if r["processed_at"] and r["processed_at"].astimezone(HK_TZ).date() == today_hk)
 
-    col1, col2, col3, col4 = st.columns(4)
+    # Token stats from LLM runs
+    token_stats = get_token_stats(hours=72)
+    total_tokens = token_stats["total"]
+    total_prompt = token_stats["prompt"]
+    total_completion = token_stats["completion"]
+
+    # Cost estimate (DeepSeek via OpenRouter pricing - approximate)
+    # Input: $0.14/1M tokens, Output: $0.28/1M tokens
+    COST_PER_1M_INPUT = 0.14
+    COST_PER_1M_OUTPUT = 0.28
+    estimated_cost = (total_prompt / 1_000_000 * COST_PER_1M_INPUT +
+                      total_completion / 1_000_000 * COST_PER_1M_OUTPUT)
+
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     with col1:
         st.metric("Today", today_count, f"{success} success" if today_count > 0 else None)
     with col2:
@@ -339,6 +419,10 @@ def render_processing_tab():
         st.metric("Success Rate", f"{success_rate:.0f}%")
     with col4:
         st.metric("Errors", errors, delta_color="inverse")
+    with col5:
+        st.metric("Total Tokens", f"{total_tokens:,}")
+    with col6:
+        st.metric("Est. Cost", f"${estimated_cost:.4f}")
 
     st.divider()
     st.subheader("Recent Files")

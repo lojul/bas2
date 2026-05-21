@@ -3,6 +3,7 @@
 import os
 import httpx
 from langsmith import traceable
+from langsmith.run_helpers import get_current_run_tree
 
 from src.state import DocumentState, DocumentType, ProcessingStatus, ExtractedData
 from src.utils.json_parser import parse_json_response
@@ -186,6 +187,17 @@ def call_openrouter(prompt: str) -> dict:
         response = client.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
+
+    # Report token usage to LangSmith
+    usage = data.get("usage", {})
+    run_tree = get_current_run_tree()
+    if run_tree and usage:
+        run_tree.extra = run_tree.extra or {}
+        run_tree.extra["usage_metadata"] = {
+            "input_tokens": usage.get("prompt_tokens", 0),
+            "output_tokens": usage.get("completion_tokens", 0),
+            "total_tokens": usage.get("total_tokens", 0),
+        }
 
     # Extract and parse content
     content = data["choices"][0]["message"]["content"]
