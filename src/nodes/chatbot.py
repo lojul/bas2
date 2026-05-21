@@ -291,7 +291,8 @@ def web_search(query: str, max_results: int = 3) -> list[dict]:
     """
     api_key = os.environ.get("TAVILY_API_KEY")
     if not api_key:
-        return []
+        # Return error info so it's visible in LangSmith
+        return [{"error": "TAVILY_API_KEY not set", "source": "web"}]
 
     try:
         from tavily import TavilyClient
@@ -315,11 +316,15 @@ def web_search(query: str, max_results: int = 3) -> list[dict]:
                 "source": "web",
             })
 
+        # If no results, return info message
+        if not results:
+            return [{"error": "No web results found", "query": search_query, "source": "web"}]
+
         return results
 
     except Exception as e:
-        print(f"Web search error: {e}")
-        return []
+        # Return error info so it's visible in LangSmith
+        return [{"error": f"Web search failed: {str(e)}", "source": "web"}]
 
 
 def build_context(documents: list[dict], web_results: list[dict] = None) -> str:
@@ -392,11 +397,13 @@ Content Preview:
 {content[:500]}
 """)
 
-    # Add web results if available
+    # Add web results if available (skip error objects)
     if web_results:
-        context_parts.append("\n---\n## Web Search Results (Latest Information)\n")
-        for i, r in enumerate(web_results, 1):
-            context_parts.append(f"""
+        valid_results = [r for r in web_results if "error" not in r]
+        if valid_results:
+            context_parts.append("\n---\n## Web Search Results (Latest Information)\n")
+            for i, r in enumerate(valid_results, 1):
+                context_parts.append(f"""
 **Web Result {i}: {r.get('title', 'N/A')}**
 Source: {r.get('url', 'N/A')}
 {r.get('content', '')}
