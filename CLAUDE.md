@@ -1,0 +1,320 @@
+# Document Processor - Development Rules
+
+## Project Overview
+LangGraph + LangSmith document processor running in parallel with n8n workflow.
+
+## Product Design Philosophy
+
+### User-Friendly First
+- **Users will never see a terminal** - this is a background service
+- **Users only interact with OneDrive** - drop files in `/In`, find results in `/Processed`
+- **LangSmith is the monitoring UI** - all traces, errors, and debugging happen there
+- **No technical knowledge required** - clients just drop files and get results
+
+### OneDrive Workflow
+```
+/Document Processor/In        ← Client drops files here
+/Document Processor/Processed ← System moves completed files here
+```
+
+## Development Rules
+
+### 1. Testing
+- **Always run tests** before marking a sprint complete
+- Test command: `cd langgraph && source .venv/bin/activate && pytest -v`
+- All new nodes must have corresponding tests
+- Use mocks for external Azure services in unit tests
+
+### 2. Code Standards
+- Python 3.11+
+- Use type hints throughout
+- Dataclasses for state objects
+- `@traceable` decorator on all nodes for LangSmith observability
+- Keep functions small and focused
+
+### 3. Project Structure
+```
+langgraph/
+├── src/           # Source code
+│   ├── nodes/     # Processing nodes
+│   ├── state.py   # State schema
+│   ├── graph.py   # Workflow graph
+│   └── config.py  # Configuration
+├── tests/         # Test files (mirror src structure)
+└── .env           # Local secrets (never commit)
+```
+
+### 4. Sprint Workflow
+1. Implement feature
+2. Write/update tests
+3. Run `pytest -v` to verify
+4. Check LangSmith traces for observability
+5. Update README progress checklist
+
+### 5. Environment
+- Virtual env: `langgraph/.venv`
+- Activate: `source .venv/bin/activate`
+- Install: `pip install -e ".[dev]"`
+
+### 6. Key Configurations
+- LangSmith projects:
+  - `document-processor` - Document processing pipeline logs
+  - `property-chatbot` - Chatbot conversation logs
+- Azure region: Hong Kong / Sweden Central (OpenAI)
+- Blob container: `property-pdf`
+
+## Current Status
+- [x] Project setup & LangSmith tracing
+- [x] OneDrive integration (list files, get download URL, move files)
+- [x] Azure Document Intelligence OCR
+- [x] Folder watcher script (process_inbox.py)
+- [x] AI Classification (listing/listing_list/news/contact) via OpenRouter
+- [x] Streamlit Dashboard (pulls data from LangSmith + Process Now button)
+- [x] Data Extraction (structured fields via DeepSeek AI)
+- [x] Azure AI Search indexing (vector search with embeddings)
+- [x] Azure Functions deployed (timer + HTTP triggers)
+- [x] COMPLETE - Full pipeline running in Azure
+- [x] RAG Chatbot (Property Intelligence Assistant)
+- [x] Streaming responses (real-time answer display)
+
+## Graph Flow
+```
+__start__ → get_download_url → run_ocr → classify → extract → index → __end__
+```
+
+## Document Types & Extracted Fields
+- **Single Listing** (`listing`): One property per file (building_name, address, size, rent, contact)
+- **Multi Listing** (`listing_list`): Multiple properties in a table (building info + units array)
+- **News** (`news`): Article (title, date, source, summary, topics)
+- **Contact** (`contact`): Business card (name, company, phone, email)
+
+## Key Services
+
+### Azure AI Search
+- Endpoint: `aisearch-eastasia-basic.search.windows.net`
+- Index: `processed-documents`
+- Features: Vector search with embeddings
+
+### Azure OpenAI
+- Endpoint: `swedencentral.api.cognitive.microsoft.com`
+- Embedding model: `text-embedding-3-small` (1536 dimensions)
+
+### AI Classification/Extraction
+- Provider: OpenRouter
+- Model: `deepseek/deepseek-chat`
+
+### AI Classification/Extraction Notes
+- Good for Chinese/English documents
+- Classifier uses Hong Kong property keywords (樓盤編號, 已吉, 招租, 成交, etc.)
+- Auto-detection logic for listing_list (multiple properties) and contact (short text with email/phone)
+
+## RAG Chatbot
+
+### Architecture
+```
+User Question → Vector Search → Build Context → LLM → Answer with Sources
+     ↓              ↓                ↓           ↓
+  thread_id    Azure AI Search   Top 5 docs   Llama 3.3 70B
+```
+
+### Configuration
+- Provider: OpenRouter
+- Model: `meta-llama/llama-3.3-70b-instruct`
+- LangSmith project: `property-chatbot`
+- Vector index: `processed-documents` (same as document processor)
+
+### Features
+- **Streaming Responses**: Real-time answer display via SSE
+- **Bilingual**: Auto-detects Traditional Chinese / English
+- **Property Search**: Find offices, retail, industrial units
+- **Recommendations**: Suggests properties based on criteria
+- **Market Analysis**: Compare rents, identify trends
+- **Source Citations**: Shows which documents were used
+- **Scope Restriction**: ONLY answers property-related questions
+
+### Conversation Memory
+- Uses **LangGraph Checkpointing** with `MemorySaver`
+- Each session gets unique `thread_id` stored in `st.session_state`
+- Memory persists within session (follow-up questions work)
+- "Clear" button resets memory (generates new thread_id)
+- For persistent memory across sessions, use `PostgresSaver`
+
+### Key Files
+- `src/nodes/chatbot.py` - RAG implementation with LangGraph
+- `dashboard.py` - Chat tab UI with memory integration
+
+### System Prompt Guardrails
+The chatbot ONLY answers Hong Kong commercial property questions:
+- Property listings, leasing, recommendations, market analysis
+- Declines off-topic questions (cooking, coding, travel, etc.)
+- Redirects user to property-related queries
+
+## Dashboard
+- URL: `http://localhost:8501`
+- Data source: LangSmith (real-time) + Azure AI Search (vector DB)
+- Timezone: HKT (GMT+8)
+- Theme: Light (configured in `~/.streamlit/config.toml`)
+- Run: `streamlit run dashboard.py`
+- Features:
+  - Three tabs: Processing Status + Vector Database + Chat
+  - **Processing Status**: LangSmith traces, file status, pagination
+  - **Vector Database**: Azure AI Search indexed documents, filter by type
+  - **Chat**: Property Intelligence Assistant (RAG chatbot with memory)
+  - Chat input at TOP, newest messages displayed first (near input)
+  - Pagination: 20 files per page with Prev/Next navigation
+  - Grouped by filename (no duplicate rows), sorted newest first
+  - Status: OK, ERR, Fixed (reprocessed), x2/x3 (run count)
+  - View button to expand extracted data, X button to hide row
+  - Show Hidden button to restore hidden runs
+  - Display names: "Single Listing" / "Multi Listing" (internal: listing/listing_list)
+
+## Code Structure
+
+### Shared Utilities
+- `src/utils/json_parser.py` - Shared JSON parsing for AI responses
+  - Handles markdown code blocks, trailing commas, partial JSON
+  - Used by classifier and extractor
+
+### Node Functions
+All node functions have:
+- `@traceable` decorator for LangSmith observability
+- Type hints
+- Proper error handling (distinguishes API errors vs parse errors)
+
+### Performance Optimizations
+- Reusable HTTP client in `indexer.py` (avoids creating new connections per call)
+- Single-pass stats calculation in dashboard
+- Text truncation done once, not redundantly
+
+## Azure Functions Deployment
+
+### Files
+- `function_app.py` - Main entry point (timer + HTTP triggers)
+- `host.json` - Azure Functions config
+- `requirements.txt` - Python dependencies
+- `local.settings.json` - Local dev settings
+
+### Triggers
+- **Timer**: Every 5 minutes (`0 */5 * * * *`) - processes 7 files per batch
+- **HTTP**: `POST /api/process` for manual trigger
+- Files moved to `/Processed` after successful processing
+
+### Production Settings
+- Function App: `doc-processor-c21`
+- Resource Group: `blob-storage-hk-rg`
+- Region: East Asia
+- Batch Size: 7 files per run (to avoid timeout)
+- URL: `https://doc-processor-c21.azurewebsites.net`
+
+### Control Timer Trigger
+```bash
+# Disable timer (manual only)
+az functionapp config appsettings set --name doc-processor-c21 \
+  --resource-group blob-storage-hk-rg \
+  --settings "AzureWebJobs.timer_trigger.Disabled=true"
+
+# Enable timer (auto-processing)
+az functionapp config appsettings delete --name doc-processor-c21 \
+  --resource-group blob-storage-hk-rg \
+  --setting-names "AzureWebJobs.timer_trigger.Disabled"
+```
+
+### Deploy Commands
+```bash
+# Deploy to Azure
+cd langgraph
+func azure functionapp publish doc-processor-c21 --python
+
+# Check logs
+az monitor app-insights query --app doc-processor-c21 \
+  --resource-group blob-storage-hk-rg \
+  --analytics-query "traces | where timestamp > ago(30m) | project timestamp, message | order by timestamp desc | take 20"
+```
+
+## Known Issues & Fixes
+
+### 409 Conflict on Move to /Processed
+**Problem:** Files fail to move from /In to /Processed with 409 Conflict error when a file with the same name already exists.
+
+**Fix:** Added `@microsoft.graph.conflictBehavior: replace` to `move_to_processed()` in `src/nodes/onedrive.py`. This overwrites existing files instead of failing.
+
+**Symptoms:** Files stuck in /In, timer reprocessing same files repeatedly, dashboard showing x9/x10 run counts.
+
+### Dashboard Tabs
+Using `st.tabs()` for navigation between Processing Status and Vector Database views. Multi-page apps with `pages/` folder had issues with Streamlit version.
+
+### LangSmith Run Deletion Not Supported
+**Problem:** LangSmith API doesn't support deleting individual runs (DELETE returns 405 Method Not Allowed).
+
+**Solution:** Dashboard has "Hide" button instead of "Delete". Hidden runs are stored in session_state and filtered from display. Use "Show Hidden (N)" button to restore them. Hidden runs reset on browser refresh.
+
+### View Button Performance
+Using View/X buttons in each row. Data expands below the row when clicked.
+
+### LangSmith API Limits
+- Maximum 100 runs per query (400 error if exceeded)
+- Cache TTL: 30 seconds
+- Incomplete runs (no outputs) are filtered from cache to avoid stale "Unknown" types
+
+### Dashboard Data Sorting
+Runs are sorted by time (newest first) before grouping by filename. When grouping, if a run has "unknown" type but another run for the same file has valid data, the valid data is used.
+
+### Streamlit Theme
+Light theme configured in `~/.streamlit/config.toml`:
+```toml
+[theme]
+base = "light"
+```
+
+## Streamlit Cloud Deployment
+
+### Production URL
+- **URL**: https://c21-document-processing.streamlit.app/
+- **GitHub Repo**: https://github.com/lojul/c21-document-processor (private)
+
+### Authentication
+- **Method**: Username/Password only (OAuth removed)
+- **Credentials**: Stored in Streamlit Cloud secrets under `[passwords]`
+- **Login**: Centered responsive form
+
+### Secrets Configuration
+Secrets are stored in Streamlit Cloud (Settings → Secrets), NOT in code.
+
+Required secrets:
+```toml
+# API Keys
+LANGCHAIN_API_KEY = "..."
+LANGCHAIN_PROJECT = "document-processor"
+AZURE_SEARCH_ENDPOINT = "..."
+AZURE_SEARCH_API_KEY = "..."
+AZURE_SEARCH_INDEX = "processed-documents"
+AZURE_OPENAI_ENDPOINT = "..."
+AZURE_OPENAI_KEY = "..."
+OPENROUTER_API_KEY = "..."
+AZURE_FUNCTION_URL = "..."
+
+# Authentication
+[passwords]
+admin = "your-password-here"
+```
+
+### Deployment Workflow
+1. Push to GitHub: `git push origin master`
+2. Streamlit Cloud auto-deploys on push
+3. Manual reboot: Streamlit dashboard → App settings → Reboot
+
+### Local Development
+- Auth is skipped when secrets are not configured
+- Set `STREAMLIT_LOCAL_DEV=true` to explicitly skip auth
+- Run: `streamlit run dashboard.py`
+
+### Monthly Costs
+| Service | Cost |
+|---------|------|
+| Streamlit Cloud | Free |
+| Azure AI Search | ~$70/mo |
+| Azure OpenAI | ~$5-20/mo |
+| Azure Functions | ~$0-5/mo |
+| OpenRouter (LLM) | ~$1-5/mo |
+| LangSmith | Free tier |
+| **Total** | **~$80-100/mo** |
