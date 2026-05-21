@@ -90,40 +90,46 @@ def check_password_login(username: str, password: str) -> bool:
 
 def render_login_page():
     """Render the login page."""
-    st.title("Document Processor")
-    st.subheader("Century 21 Property Intelligence")
-    st.write("")
-    st.write("Please sign in to access the dashboard.")
-    st.write("")
+    # Center the login box with responsive margins
+    _, center, _ = st.columns([1, 2, 1])
 
-    # Password login form
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+    with center:
+        st.write("")
+        st.write("")
+        st.title("Document Processor")
+        st.subheader("Century 21 Property Intelligence")
+        st.write("")
+        st.write("Please sign in to access the dashboard.")
+        st.write("")
 
-        if submitted:
-            if check_password_login(username, password):
-                st.session_state["authenticated"] = True
-                st.session_state["auth_user"] = username
-                st.rerun()
-            else:
-                st.error("Invalid username or password")
+        # Password login form
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
 
-    st.write("")
-    st.divider()
-    st.write("Or sign in with:")
+            if submitted:
+                if check_password_login(username, password):
+                    st.session_state["authenticated"] = True
+                    st.session_state["auth_user"] = username
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
 
-    col1, col2, col3 = st.columns([1, 1, 2])
-    with col1:
-        if st.button("Google", use_container_width=True):
-            st.login("google")
-    with col2:
-        if st.button("Microsoft", use_container_width=True):
-            st.login("microsoft")
+        st.write("")
+        st.divider()
+        st.write("Or sign in with:")
 
-    st.write("")
-    st.caption("Access is restricted to authorized users only.")
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("Google", use_container_width=True):
+                st.login("google")
+        with btn_col2:
+            if st.button("Microsoft", use_container_width=True):
+                st.login("microsoft")
+
+        st.write("")
+        st.caption("Access is restricted to authorized users only.")
 
 
 # Check authentication before loading the rest of the app
