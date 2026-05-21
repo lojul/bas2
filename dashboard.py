@@ -61,26 +61,30 @@ def check_authentication():
     if not is_running_on_cloud():
         return True
 
-    # Check if st.user is available and has is_logged_in
-    try:
-        if not st.user.is_logged_in:
-            return False
-    except (AttributeError, KeyError):
-        # st.user not available, skip auth
+    # Check password-based login (session state)
+    if st.session_state.get("authenticated"):
         return True
 
-    # Optional: Restrict to specific email domains or addresses
-    # allowed_emails = ["admin@c21hk.com", "user@c21hk.com"]
-    # allowed_domains = ["c21hk.com"]
-    # email = st.user.email or ""
-    # domain = email.split("@")[-1] if "@" in email else ""
-    # if email not in allowed_emails and domain not in allowed_domains:
-    #     st.error("Access denied. Contact admin for access.")
-    #     if st.button("Logout"):
-    #         st.logout()
-    #     st.stop()
+    # Check if st.user is available and has is_logged_in (OAuth)
+    try:
+        if st.user.is_logged_in:
+            return True
+    except (AttributeError, KeyError):
+        pass
 
-    return True
+    return False
+
+
+def check_password_login(username: str, password: str) -> bool:
+    """Verify username/password against secrets."""
+    try:
+        if "passwords" in st.secrets:
+            stored_password = st.secrets["passwords"].get(username)
+            if stored_password and stored_password == password:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 def render_login_page():
@@ -91,12 +95,30 @@ def render_login_page():
     st.write("Please sign in to access the dashboard.")
     st.write("")
 
+    # Password login form
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Sign In", use_container_width=True, type="primary")
+
+        if submitted:
+            if check_password_login(username, password):
+                st.session_state["authenticated"] = True
+                st.session_state["auth_user"] = username
+                st.rerun()
+            else:
+                st.error("Invalid username or password")
+
+    st.write("")
+    st.divider()
+    st.write("Or sign in with:")
+
     col1, col2, col3 = st.columns([1, 1, 2])
     with col1:
-        if st.button("Sign in with Google", use_container_width=True, type="primary"):
+        if st.button("Google", use_container_width=True):
             st.login("google")
     with col2:
-        if st.button("Sign in with Microsoft", use_container_width=True):
+        if st.button("Microsoft", use_container_width=True):
             st.login("microsoft")
 
     st.write("")
@@ -690,19 +712,30 @@ def main():
         </style>
     """, unsafe_allow_html=True)
 
-    # Sidebar with user info and logout (only when authenticated on cloud)
+    # Sidebar with user info and logout
+    is_oauth_logged_in = False
     try:
-        is_logged_in = st.user.is_logged_in
+        is_oauth_logged_in = st.user.is_logged_in
     except (AttributeError, KeyError):
-        is_logged_in = False
+        pass
 
-    if is_logged_in:
+    is_password_logged_in = st.session_state.get("authenticated", False)
+
+    if is_oauth_logged_in or is_password_logged_in:
         with st.sidebar:
-            st.write(f"**Logged in as:**")
-            st.write(st.user.email or "User")
+            st.write("**Logged in as:**")
+            if is_oauth_logged_in:
+                st.write(st.user.email or "User")
+            else:
+                st.write(st.session_state.get("auth_user", "User"))
             st.write("")
             if st.button("Logout", use_container_width=True):
-                st.logout()
+                if is_password_logged_in:
+                    st.session_state["authenticated"] = False
+                    st.session_state["auth_user"] = None
+                    st.rerun()
+                else:
+                    st.logout()
 
     st.title("Document Processor")
 
