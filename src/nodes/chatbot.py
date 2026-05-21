@@ -49,6 +49,7 @@ class ChatState(TypedDict):
     context: str
     sources: list[dict]
     answer: str
+    search_route: str  # "vector", "web", or "hybrid"
 
 
 # ============ System Prompt ============
@@ -412,15 +413,79 @@ Source: {r.get('url', 'N/A')}
     return "\n".join(context_parts)
 
 
+@traceable(name="route_query", run_type="chain", project_name=CHATBOT_PROJECT)
+def route_query(query: str) -> str:
+    """Determine which search method to use based on query content.
+
+    Returns:
+        "vector" - search internal documents only
+        "web" - search web only
+        "hybrid" - search both
+    """
+    query_lower = query.lower()
+
+    # Keywords indicating web search (news, trends, market analysis)
+    web_keywords = [
+        "趨勢", "走勢", "市場", "新聞", "最新", "預測", "分析報告",
+        "trend", "news", "market", "forecast", "outlook", "analysis",
+        "2024", "2025", "2026",  # Recent year queries
+        "今年", "去年", "最近",
+    ]
+
+    # Keywords indicating vector search (specific property queries)
+    vector_keywords = [
+        "有什麼", "有咩", "邊度有", "搵", "找", "出租", "招租",
+        "寫字樓", "商舖", "工廈", "倉庫", "office", "retail", "industrial",
+        "呎租", "租金", "面積", "聯絡", "contact",
+        "中環", "尖沙咀", "旺角", "觀塘", "葵涌",  # District names
+        "central", "tsim sha tsui", "mongkok", "kwun tong",
+    ]
+
+    # Keywords indicating hybrid (comparison, both needed)
+    hybrid_keywords = [
+        "比較", "對比", "compare", "versus", "vs",
+        "同埋", "以及", "and also",
+    ]
+
+    # Check for hybrid first (comparison queries)
+    if any(kw in query_lower for kw in hybrid_keywords):
+        return "hybrid"
+
+    # Count matches for web vs vector
+    web_score = sum(1 for kw in web_keywords if kw in query_lower)
+    vector_score = sum(1 for kw in vector_keywords if kw in query_lower)
+
+    # Decide based on scores
+    if web_score > 0 and vector_score == 0:
+        return "web"
+    elif vector_score > 0 and web_score == 0:
+        return "vector"
+    elif web_score > vector_score:
+        return "web"
+    elif vector_score > web_score:
+        return "vector"
+    else:
+        # Default to hybrid when unclear
+        return "hybrid"
+
+
 def retrieve_node(state: ChatState) -> dict:
-    """Node: Search for relevant documents and web."""
+    """Node: Search for relevant documents and/or web based on query type."""
     question = state["current_question"]
 
-    # Search vector database (your documents)
-    documents = search_documents(question, top_k=5)
+    # Route query to determine search strategy
+    route = route_query(question)
 
-    # Search web for latest information
-    web_results = web_search(question, max_results=3)
+    documents = []
+    web_results = []
+
+    if route in ("vector", "hybrid"):
+        # Search vector database (your documents)
+        documents = search_documents(question, top_k=5)
+
+    if route in ("web", "hybrid"):
+        # Search web for latest information
+        web_results = web_search(question, max_results=3)
 
     # Build combined context
     context = build_context(documents, web_results)
@@ -434,14 +499,16 @@ def retrieve_node(state: ChatState) -> dict:
             "score": doc.get("score", 0),
             "type": "document",
         })
+    # Only add valid web results (not errors)
     for r in web_results:
-        sources.append({
-            "file_name": r.get("title", "Web Result"),
-            "url": r.get("url", ""),
-            "type": "web",
-        })
+        if "error" not in r:
+            sources.append({
+                "file_name": r.get("title", "Web Result"),
+                "url": r.get("url", ""),
+                "type": "web",
+            })
 
-    return {"context": context, "sources": sources}
+    return {"context": context, "sources": sources, "search_route": route}
 
 
 def _build_llm_messages(question: str, context: str, messages: list[dict]) -> list[dict]:
