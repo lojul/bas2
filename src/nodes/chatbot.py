@@ -480,8 +480,11 @@ def create_chatbot_graph() -> StateGraph:
 # In-memory checkpointer for conversation persistence
 memory = MemorySaver()
 
-# Compile graph with memory
+# Compile graph with memory (for dashboard use)
 chatbot_graph = create_chatbot_graph().compile(checkpointer=memory)
+
+# Compile graph without checkpointer (for LangGraph Studio - it provides its own)
+chatbot_graph_studio = create_chatbot_graph().compile()
 
 
 # ============ Public API ============
