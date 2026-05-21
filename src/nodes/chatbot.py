@@ -801,6 +801,7 @@ def call_llm(question: str, context: str, messages: list[dict]) -> str:
     return data["choices"][0]["message"]["content"]
 
 
+@traceable(name="generate_answer_stream", run_type="llm", project_name=CHATBOT_PROJECT)
 def call_llm_stream(question: str, context: str, messages: list[dict]):
     """Call LLM with streaming - yields text chunks."""
     api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -948,6 +949,7 @@ class StreamingChatResponse:
     error: Optional[str] = None
 
 
+@traceable(name="chat_stream", run_type="chain", project_name=CHATBOT_PROJECT)
 def chat_stream(
     question: str,
     thread_id: str = None,

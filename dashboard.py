@@ -747,17 +747,38 @@ def render_chat_tab():
         st.caption("• Recommend a 2000 sqft office under HK$50,000")
         st.caption("• 比較銅鑼灣和尖沙咀的租金")
     else:
-        # Reverse order: newest at top, oldest at bottom
-        for msg in reversed(st.session_state["chat_messages"]):
-            with st.chat_message(msg["role"]):
-                st.markdown(msg["content"])
-                if msg.get("sources") and msg["role"] == "assistant":
-                    with st.expander("Sources / 資料來源", expanded=False):
-                        for src in msg["sources"]:
-                            if src.get("type") == "web":
-                                st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
-                            else:
-                                st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+        # Group messages into Q&A pairs, then reverse pairs (newest first)
+        # Each pair: [user question, assistant answer]
+        messages = st.session_state["chat_messages"]
+        pairs = []
+        i = 0
+        while i < len(messages):
+            if messages[i]["role"] == "user":
+                pair = [messages[i]]
+                # Check if next message is assistant response
+                if i + 1 < len(messages) and messages[i + 1]["role"] == "assistant":
+                    pair.append(messages[i + 1])
+                    i += 2
+                else:
+                    i += 1
+                pairs.append(pair)
+            else:
+                # Orphan assistant message (shouldn't happen normally)
+                pairs.append([messages[i]])
+                i += 1
+
+        # Display pairs in reverse order (newest first), but Q then A within each pair
+        for pair in reversed(pairs):
+            for msg in pair:
+                with st.chat_message(msg["role"]):
+                    st.markdown(msg["content"])
+                    if msg.get("sources") and msg["role"] == "assistant":
+                        with st.expander("Sources / 資料來源", expanded=False):
+                            for src in msg["sources"]:
+                                if src.get("type") == "web":
+                                    st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
+                                else:
+                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
 
 
 # ============ Search Tab ============
