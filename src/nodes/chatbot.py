@@ -649,12 +649,23 @@ def route_query(query: str) -> str:
     """
     query_lower = query.lower()
 
+    # Strong web indicators - if ANY of these, go web-only
+    web_only_patterns = [
+        "市場趨勢", "市場走勢", "樓市", "房地產市場", "地產市場",
+        "market trend", "market outlook", "property market",
+        "分析報告", "市場分析", "行情", "前景", "展望",
+    ]
+
+    # If query is clearly about market trends, go web only
+    if any(pattern in query_lower for pattern in web_only_patterns):
+        return "web"
+
     # Keywords indicating web search (news, trends, market analysis)
     web_keywords = [
-        "趨勢", "走勢", "市場", "新聞", "最新", "預測", "分析報告",
+        "趨勢", "走勢", "市場", "新聞", "最新", "預測",
         "trend", "news", "market", "forecast", "outlook", "analysis",
         "2024", "2025", "2026",  # Recent year queries
-        "今年", "去年", "最近",
+        "今年", "去年", "最近", "未來",
     ]
 
     # Keywords indicating vector search (specific property queries)
@@ -680,18 +691,15 @@ def route_query(query: str) -> str:
     web_score = sum(1 for kw in web_keywords if kw in query_lower)
     vector_score = sum(1 for kw in vector_keywords if kw in query_lower)
 
-    # Decide based on scores
+    # Decide based on scores - prefer web when scores are close
     if web_score > 0 and vector_score == 0:
         return "web"
     elif vector_score > 0 and web_score == 0:
         return "vector"
-    elif web_score > vector_score:
-        return "web"
-    elif vector_score > web_score:
-        return "vector"
+    elif web_score >= vector_score:
+        return "web"  # Prefer web when tied
     else:
-        # Default to hybrid when unclear
-        return "hybrid"
+        return "vector"
 
 
 def retrieve_node(state: ChatState) -> dict:
