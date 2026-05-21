@@ -76,6 +76,8 @@ langgraph/
 - [x] COMPLETE - Full pipeline running in Azure
 - [x] RAG Chatbot (Property Intelligence Assistant)
 - [x] Streaming responses (real-time answer display)
+- [x] Phase 1: Hybrid Search (Vector + Web via Tavily)
+- [x] Smart Query Router (vector/web/hybrid based on query type)
 
 ## Graph Flow
 ```
@@ -103,6 +105,12 @@ __start__ → get_download_url → run_ocr → classify → extract → index �
 - Provider: OpenRouter
 - Model: `deepseek/deepseek-chat`
 
+### Tavily Web Search
+- API: `tavily.com`
+- Used for: Market trends, news, real-time information
+- Integrated in chatbot hybrid search
+- Free tier: 1,000 searches/month
+
 ### AI Classification/Extraction Notes
 - Good for Chinese/English documents
 - Classifier uses Hong Kong property keywords (樓盤編號, 已吉, 招租, 成交, etc.)
@@ -110,26 +118,38 @@ __start__ → get_download_url → run_ocr → classify → extract → index �
 
 ## RAG Chatbot
 
-### Architecture
+### Architecture (Hybrid Search)
 ```
-User Question → Vector Search → Build Context → LLM → Answer with Sources
-     ↓              ↓                ↓           ↓
-  thread_id    Azure AI Search   Top 5 docs   Llama 3.3 70B
+User Question → Route Query → Search(es) → Build Context → LLM → Answer
+     ↓              ↓            ↓              ↓           ↓
+  thread_id    vector/web/   Azure AI      Combined    Llama 3.3
+               hybrid        + Tavily      context       70B
 ```
+
+### Query Router
+Smart routing based on query keywords:
+| Route | Keywords | Example |
+|-------|----------|---------|
+| `vector` | 出租, 寫字樓, district names | "中環有什麼寫字樓出租" |
+| `web` | 趨勢, 市場, 新聞, forecast | "香港商業地產市場趨勢" |
+| `hybrid` | 比較, compare | "比較中環租金同市場走勢" |
 
 ### Configuration
 - Provider: OpenRouter
 - Model: `meta-llama/llama-3.3-70b-instruct`
 - LangSmith project: `property-chatbot`
 - Vector index: `processed-documents` (same as document processor)
+- Web search: Tavily API
 
 ### Features
+- **Hybrid Search**: Combines vector DB (documents) + web search (Tavily)
+- **Smart Routing**: Auto-selects search method based on query type
 - **Streaming Responses**: Real-time answer display via SSE
 - **Bilingual**: Auto-detects Traditional Chinese / English
 - **Property Search**: Find offices, retail, industrial units
 - **Recommendations**: Suggests properties based on criteria
-- **Market Analysis**: Compare rents, identify trends
-- **Source Citations**: Shows which documents were used
+- **Market Analysis**: Compare rents, identify trends (uses web search)
+- **Source Citations**: Shows documents (📄) and web results (🌐)
 - **Scope Restriction**: ONLY answers property-related questions
 
 ### Conversation Memory
@@ -151,21 +171,21 @@ The chatbot ONLY answers Hong Kong commercial property questions:
 
 ## Dashboard
 - URL: `http://localhost:8501`
-- Data source: LangSmith (real-time) + Azure AI Search (vector DB)
+- Data source: LangSmith (real-time) + Azure AI Search (vector DB) + Tavily (web)
 - Timezone: HKT (GMT+8)
 - Theme: Light (configured in `~/.streamlit/config.toml`)
 - Run: `streamlit run dashboard.py`
 - Features:
-  - Three tabs: Processing Status + Vector Database + Chat
+  - Four tabs: Processing Status + Vector Database + Search + Chat
   - **Processing Status**: LangSmith traces, file status, pagination
   - **Vector Database**: Azure AI Search indexed documents, filter by type
-  - **Chat**: Property Intelligence Assistant (RAG chatbot with memory)
+  - **Search**: Direct vector search without AI (keyword-based)
+  - **Chat**: Property Intelligence Assistant (RAG chatbot with hybrid search)
   - Chat input at TOP, newest messages displayed first (near input)
   - Pagination: 20 files per page with Prev/Next navigation
   - Grouped by filename (no duplicate rows), sorted newest first
   - Status: OK, ERR, Fixed (reprocessed), x2/x3 (run count)
-  - View button to expand extracted data, X button to hide row
-  - Show Hidden button to restore hidden runs
+  - View button to expand extracted data
   - Display names: "Single Listing" / "Multi Listing" (internal: listing/listing_list)
 
 ## Code Structure
@@ -246,10 +266,10 @@ Using `st.tabs()` for navigation between Processing Status and Vector Database v
 ### LangSmith Run Deletion Not Supported
 **Problem:** LangSmith API doesn't support deleting individual runs (DELETE returns 405 Method Not Allowed).
 
-**Solution:** Dashboard has "Hide" button instead of "Delete". Hidden runs are stored in session_state and filtered from display. Use "Show Hidden (N)" button to restore them. Hidden runs reset on browser refresh.
+**Note:** Dashboard no longer has hide/delete functionality. Runs are permanent in LangSmith.
 
 ### View Button Performance
-Using View/X buttons in each row. Data expands below the row when clicked.
+Using View button in each row. Data expands below the row when clicked.
 
 ### LangSmith API Limits
 - Maximum 100 runs per query (400 error if exceeded)
@@ -282,7 +302,8 @@ Secrets are stored in Streamlit Cloud (Settings → Secrets), NOT in code.
 
 Required secrets:
 ```toml
-# API Keys
+# API Keys (MUST be at root level, BEFORE any [section])
+TAVILY_API_KEY = "..."
 LANGCHAIN_API_KEY = "..."
 LANGCHAIN_PROJECT = "document-processor"
 AZURE_SEARCH_ENDPOINT = "..."
@@ -293,10 +314,12 @@ AZURE_OPENAI_KEY = "..."
 OPENROUTER_API_KEY = "..."
 AZURE_FUNCTION_URL = "..."
 
-# Authentication
+# Authentication (sections MUST come after root-level keys)
 [passwords]
 admin = "your-password-here"
 ```
+
+**Important:** In TOML format, once you declare a `[section]`, all subsequent keys belong to that section. Always put API keys at the TOP before any `[section]` headers.
 
 ### Deployment Workflow
 1. Push to GitHub: `git push origin master`
@@ -316,5 +339,15 @@ admin = "your-password-here"
 | Azure OpenAI | ~$5-20/mo |
 | Azure Functions | ~$0-5/mo |
 | OpenRouter (LLM) | ~$1-5/mo |
+| Tavily (Web Search) | Free (1k/mo) |
 | LangSmith | Free tier |
 | **Total** | **~$80-100/mo** |
+
+## Roadmap
+
+### Completed
+- [x] Phase 1: Hybrid Search (Vector + Web)
+
+### Planned
+- [ ] Phase 2: Tool-Calling Agent (LangChain) - PDF/PPT generation
+- [ ] Phase 3: Advanced RAG - Reranking, multi-query retrieval
