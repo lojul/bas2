@@ -959,25 +959,30 @@ def chat_stream(
     if not thread_id:
         thread_id = str(uuid.uuid4())
 
-    # Step 1: Retrieve documents AND web results IN PARALLEL
+    # Step 1: Route query and retrieve accordingly
     from concurrent.futures import ThreadPoolExecutor
 
+    route = route_query(question)
     documents = []
     web_results = []
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        doc_future = executor.submit(multi_query_search, question, 5)
-        web_future = executor.submit(web_search, question, 3)
+        futures = {}
 
-        try:
-            documents = doc_future.result(timeout=30)
-        except Exception:
-            documents = []
+        if route in ("vector", "hybrid"):
+            futures["docs"] = executor.submit(multi_query_search, question, 5)
 
-        try:
-            web_results = web_future.result(timeout=15)
-        except Exception:
-            web_results = []
+        if route in ("web", "hybrid"):
+            futures["web"] = executor.submit(web_search, question, 3)
+
+        for key, future in futures.items():
+            try:
+                if key == "docs":
+                    documents = future.result(timeout=30)
+                elif key == "web":
+                    web_results = future.result(timeout=15)
+            except Exception:
+                pass  # Continue with partial results
 
     # Build combined context
     context = build_context(documents, web_results)
