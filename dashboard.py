@@ -13,6 +13,34 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+# ============ Load Secrets into Environment ============
+# Streamlit Cloud stores secrets in st.secrets, but some libraries (like LangSmith)
+# expect environment variables. Load them early before any imports that use them.
+
+def load_secrets_to_env():
+    """Load Streamlit secrets into environment variables."""
+    secret_keys = [
+        "LANGCHAIN_API_KEY",
+        "LANGCHAIN_PROJECT",
+        "LANGCHAIN_TRACING_V2",
+        "AZURE_SEARCH_ENDPOINT",
+        "AZURE_SEARCH_API_KEY",
+        "AZURE_SEARCH_INDEX",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_KEY",
+        "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
+        "OPENROUTER_API_KEY",
+        "AZURE_FUNCTION_URL",
+    ]
+    try:
+        for key in secret_keys:
+            if key in st.secrets and key not in os.environ:
+                os.environ[key] = st.secrets[key]
+    except Exception:
+        pass  # Secrets not available (local dev)
+
+load_secrets_to_env()
+
 # ============ Authentication ============
 # Only enforce auth when running on Streamlit Cloud (not localhost)
 
