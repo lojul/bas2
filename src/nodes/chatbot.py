@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from operator import add
 
 import httpx
-from langsmith import traceable
+from langsmith import traceable, trace
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -949,27 +949,9 @@ class StreamingChatResponse:
     error: Optional[str] = None
 
 
-@traceable(name="chat_stream", run_type="chain", project_name=CHATBOT_PROJECT)
-def chat_stream(
-    question: str,
-    thread_id: str = None,
-):
-    """Streaming chat function - yields text chunks.
-
-    Args:
-        question: User's question
-        thread_id: Conversation thread ID (for memory persistence)
-
-    Yields:
-        str: Text chunks as they arrive from LLM
-
-    Returns:
-        After iteration, call get_stream_metadata() to get sources
-    """
-    if not thread_id:
-        thread_id = str(uuid.uuid4())
-
-    # Step 1: Route query and retrieve accordingly
+@traceable(name="chat_retrieve", run_type="chain", project_name=CHATBOT_PROJECT)
+def _chat_retrieve(question: str, thread_id: str) -> dict:
+    """Retrieve documents and web results for chat (traced separately)."""
     from concurrent.futures import ThreadPoolExecutor
 
     route = route_query(question)
@@ -992,12 +974,10 @@ def chat_stream(
                 elif key == "web":
                     web_results = future.result(timeout=15)
             except Exception:
-                pass  # Continue with partial results
+                pass
 
-    # Build combined context
     context = build_context(documents, web_results)
 
-    # Build sources list
     sources = []
     for doc in documents:
         sources.append({
@@ -1014,6 +994,33 @@ def chat_stream(
                 "type": "web",
             })
 
+    return {"context": context, "sources": sources, "route": route}
+
+
+def chat_stream(
+    question: str,
+    thread_id: str = None,
+):
+    """Streaming chat function - yields text chunks.
+
+    Args:
+        question: User's question
+        thread_id: Conversation thread ID (for memory persistence)
+
+    Yields:
+        str: Text chunks as they arrive from LLM
+
+    Returns:
+        After iteration, call get_stream_metadata() to get sources
+    """
+    if not thread_id:
+        thread_id = str(uuid.uuid4())
+
+    # Step 1: Retrieve (traced)
+    retrieval = _chat_retrieve(question, thread_id)
+    context = retrieval["context"]
+    sources = retrieval["sources"]
+
     # Store sources for retrieval after streaming
     _stream_metadata[thread_id] = StreamingChatResponse(sources=sources)
 
@@ -1025,7 +1032,7 @@ def chat_stream(
     except:
         messages = []
 
-    # Step 3: Stream LLM response
+    # Step 3: Stream LLM response (traced via @traceable on call_llm_stream)
     full_answer = []
     try:
         for chunk in call_llm_stream(question, context, messages):
@@ -1039,7 +1046,6 @@ def chat_stream(
     # Step 4: Update conversation memory after streaming completes
     answer = "".join(full_answer)
     try:
-        # Manually update the graph state with new messages
         config = {"configurable": {"thread_id": thread_id}}
         chatbot_graph.update_state(
             config,
@@ -1055,7 +1061,7 @@ def chat_stream(
             }
         )
     except Exception:
-        pass  # Memory update failure shouldn't break the response
+        pass  # Memory update failure shouldn't break chat
 
 
 # Storage for streaming metadata (sources, errors)
