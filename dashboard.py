@@ -1,0 +1,681 @@
+"""Streamlit Dashboard for Document Processor."""
+
+import os
+import json
+import streamlit as st
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+st.set_page_config(
+    page_title="Document Processor",
+    page_icon="📄",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
+# ============ Authentication ============
+# Only enforce auth when running on Streamlit Cloud (not localhost)
+
+def is_running_on_cloud():
+    """Check if running on Streamlit Cloud."""
+    # Streamlit Cloud sets this environment variable
+    return os.environ.get("STREAMLIT_SHARING_MODE") == "streamlit" or \
+           os.environ.get("STREAMLIT_SERVER_ADDRESS") is not None
+
+
+def check_authentication():
+    """Check if user is authenticated. Returns True if auth passes or not required."""
+    # Skip auth for local development
+    if os.environ.get("STREAMLIT_LOCAL_DEV") == "true":
+        return True
+
+    # Skip auth if not on Streamlit Cloud
+    if not is_running_on_cloud():
+        return True
+
+    # Check if st.user is available and has is_logged_in
+    try:
+        if not st.user.is_logged_in:
+            return False
+    except (AttributeError, KeyError):
+        # st.user not available, skip auth
+        return True
+
+    # Optional: Restrict to specific email domains or addresses
+    # allowed_emails = ["admin@c21hk.com", "user@c21hk.com"]
+    # allowed_domains = ["c21hk.com"]
+    # email = st.user.email or ""
+    # domain = email.split("@")[-1] if "@" in email else ""
+    # if email not in allowed_emails and domain not in allowed_domains:
+    #     st.error("Access denied. Contact admin for access.")
+    #     if st.button("Logout"):
+    #         st.logout()
+    #     st.stop()
+
+    return True
+
+
+def render_login_page():
+    """Render the login page."""
+    st.title("Document Processor")
+    st.subheader("Century 21 Property Intelligence")
+    st.write("")
+    st.write("Please sign in to access the dashboard.")
+    st.write("")
+
+    col1, col2, col3 = st.columns([1, 1, 2])
+    with col1:
+        if st.button("Sign in with Google", use_container_width=True, type="primary"):
+            st.login("google")
+    with col2:
+        if st.button("Sign in with Microsoft", use_container_width=True):
+            st.login("microsoft")
+
+    st.write("")
+    st.caption("Access is restricted to authorized users only.")
+
+
+# Check authentication before loading the rest of the app
+if not check_authentication():
+    render_login_page()
+    st.stop()
+
+# ============ Load Dependencies After Auth ============
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from langsmith import Client
+import httpx
+
+
+HK_TZ = timezone(timedelta(hours=8))
+
+# Display names for document types
+DOC_TYPE_LABELS = {
+    "listing": "Single Listing",
+    "listing_list": "Multi Listing",
+    "news": "News",
+    "contact": "Contact",
+    "unknown": "Unknown",
+}
+
+def format_doc_type(doc_type: str) -> str:
+    """Convert internal doc type to display label."""
+    return DOC_TYPE_LABELS.get(doc_type, doc_type.replace("_", " ").title())
+
+
+# ============ LangSmith Functions ============
+
+def hide_langsmith_run(run_id: str) -> bool:
+    """Hide a run from the dashboard (LangSmith doesn't support run deletion).
+
+    Runs are stored in session_state and will persist until browser refresh.
+    """
+    if "hidden_runs" not in st.session_state:
+        st.session_state["hidden_runs"] = set()
+    st.session_state["hidden_runs"].add(run_id)
+    return True
+
+
+@st.cache_data(ttl=30)  # Cache for 30 seconds
+def get_langsmith_runs(hours: int = 72) -> list:
+    client = Client()
+    project_name = os.environ.get("LANGCHAIN_PROJECT", "document-processor")
+    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
+    runs = list(client.list_runs(
+        project_name=project_name,
+        filter='eq(name, "process_file")',
+        start_time=start_time,
+        limit=100,
+    ))
+    # Convert to serializable format for caching
+    # Only include completed runs (have outputs or error)
+    return [{"inputs": r.inputs, "outputs": r.outputs, "error": r.error,
+             "start_time": r.start_time, "end_time": r.end_time, "id": str(r.id)}
+            for r in runs if r.outputs is not None or r.error is not None]
+
+
+def parse_run(run: dict) -> dict[str, Any]:
+    inputs = run.get("inputs") or {}
+    outputs = run.get("outputs") or {}
+    file_name = inputs.get("file_name", "Unknown")
+    doc_type = "unknown"
+    status = "error" if run.get("error") else "success"
+    extracted_data: dict[str, Any] = {}
+    confidence = 0.0
+
+    output = outputs.get("output")
+    if output:
+        doc_type = output.get("document_type", "unknown") or "unknown"
+        confidence = output.get("classification_confidence", 0.0) or 0.0
+        extracted = output.get("extracted")
+        if extracted:
+            extracted_data = extracted.get("raw", {}) or {}
+        state_status = output.get("status")
+        if state_status and state_status.lower() == "error":
+            status = "error"
+        elif output.get("error_message"):
+            status = "error"
+
+    duration_ms = 0
+    start_time = run.get("start_time")
+    end_time = run.get("end_time")
+    if end_time and start_time:
+        duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+    return {
+        "file_name": file_name,
+        "document_type": doc_type,
+        "confidence": confidence,
+        "status": status,
+        "extracted_data": extracted_data,
+        "duration_ms": duration_ms,
+        "processed_at": start_time,
+        "run_id": run.get("id", ""),
+    }
+
+
+# ============ Vector DB Functions ============
+
+@st.cache_data(ttl=30)  # Cache for 30 seconds
+def get_vector_db_data() -> dict[str, Any]:
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    index = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+
+    if not all([endpoint, api_key]):
+        return {"error": "Azure Search not configured"}
+
+    headers = {"api-key": api_key, "Content-Type": "application/json"}
+
+    try:
+        with httpx.Client(timeout=10) as client:
+            count_url = f"{endpoint}/indexes/{index}/docs/$count?api-version=2024-07-01"
+            count_resp = client.get(count_url, headers=headers)
+            total_count = int(count_resp.text) if count_resp.status_code == 200 else 0
+
+            search_url = f"{endpoint}/indexes/{index}/docs/search?api-version=2024-07-01"
+            body = {
+                "search": "*",
+                "top": 1000,
+                "select": "id,file_name,document_type,processed_at,extracted_data",
+                "orderby": "processed_at desc"
+            }
+            search_resp = client.post(search_url, headers=headers, json=body)
+            docs = search_resp.json().get("value", []) if search_resp.status_code == 200 else []
+
+            files: dict[str, dict] = {}
+            by_type: dict[str, int] = {}
+            for doc in docs:
+                fname = doc.get("file_name", "Unknown")
+                dtype = doc.get("document_type", "unknown")
+                if fname not in files:
+                    files[fname] = {
+                        "file_name": fname,
+                        "document_type": dtype,
+                        "processed_at": doc.get("processed_at"),
+                        "extracted_data": doc.get("extracted_data"),
+                        "chunk_count": 1,
+                        "chunk_ids": [doc.get("id")]
+                    }
+                    by_type[dtype] = by_type.get(dtype, 0) + 1
+                else:
+                    files[fname]["chunk_count"] += 1
+                    files[fname]["chunk_ids"].append(doc.get("id"))
+
+            return {
+                "total_chunks": total_count,
+                "total_files": len(files),
+                "by_type": by_type,
+                "files": list(files.values())
+            }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============ Processing Tab ============
+
+def render_processing_tab():
+    st.caption("Real-time data from LangSmith")
+
+    try:
+        runs = get_langsmith_runs(hours=72)
+        parsed_runs = [parse_run(r) for r in runs]
+        # Filter out hidden runs
+        hidden = st.session_state.get("hidden_runs", set())
+        parsed_runs = [r for r in parsed_runs if r["run_id"] not in hidden]
+    except Exception as e:
+        st.error(f"Failed to fetch from LangSmith: {e}")
+        parsed_runs = []
+
+    # Sort by time (newest first) then group by filename
+    parsed_runs.sort(key=lambda x: x["processed_at"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+
+    files_grouped: dict[str, dict] = {}
+    for r in parsed_runs:
+        name = r["file_name"]
+        if name not in files_grouped:
+            files_grouped[name] = {**r, "run_count": 1, "had_error": r["status"] == "error"}
+        else:
+            files_grouped[name]["run_count"] += 1
+            if r["status"] == "error":
+                files_grouped[name]["had_error"] = True
+            # Prefer run with complete data if current entry has unknown type
+            if files_grouped[name]["document_type"] == "unknown" and r["document_type"] != "unknown":
+                files_grouped[name]["document_type"] = r["document_type"]
+                files_grouped[name]["confidence"] = r["confidence"]
+                files_grouped[name]["extracted_data"] = r["extracted_data"]
+
+    grouped_runs = list(files_grouped.values())
+
+    # Stats
+    total = len(parsed_runs)
+    success = sum(1 for r in parsed_runs if r["status"] == "success")
+    errors = total - success
+    today_hk = datetime.now(HK_TZ).date()
+    today_count = sum(1 for r in parsed_runs if r["processed_at"] and r["processed_at"].astimezone(HK_TZ).date() == today_hk)
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Today", today_count, f"{success} success" if today_count > 0 else None)
+    with col2:
+        st.metric("Total Processed", total)
+    with col3:
+        success_rate = (success / total * 100) if total > 0 else 100
+        st.metric("Success Rate", f"{success_rate:.0f}%")
+    with col4:
+        st.metric("Errors", errors, delta_color="inverse")
+
+    st.divider()
+    st.subheader("Recent Files")
+
+    if not grouped_runs:
+        st.info("No files processed yet.")
+    else:
+        # Pagination
+        page_size = 20
+        total_files = len(grouped_runs)
+        total_pages = (total_files + page_size - 1) // page_size
+
+        if "proc_page" not in st.session_state:
+            st.session_state["proc_page"] = 0
+
+        current_page = st.session_state["proc_page"]
+        start_idx = current_page * page_size
+        end_idx = min(start_idx + page_size, total_files)
+        page_runs = grouped_runs[start_idx:end_idx]
+
+        h1, h2, h3, h4, h5, h6 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5, 0.4])
+        with h1: st.caption("**File Name**")
+        with h2: st.caption("**Type**")
+        with h3: st.caption("**Updated**")
+        with h4: st.caption("**Status**")
+        with h5: st.caption("**Data**")
+        with h6: st.caption("")
+
+        for idx, record in enumerate(page_runs):
+            row_id = start_idx + idx  # Unique ID across pages
+            run_count = record.get("run_count", 1)
+            had_error = record.get("had_error", False)
+
+            if record["status"] == "success":
+                if run_count > 1 and had_error:
+                    status_text, status_color = "Fixed", "blue"
+                elif run_count > 1:
+                    status_text, status_color = f"x{run_count}", "orange"
+                else:
+                    status_text, status_color = "OK", "green"
+            else:
+                status_text, status_color = "ERR", "red"
+
+            doc_type = format_doc_type(record["document_type"])
+            confidence = record.get("confidence", 0) * 100
+            has_data = bool(record["extracted_data"])
+
+            c1, c2, c3, c4, c5, c6 = st.columns([2.5, 1.2, 0.8, 0.5, 0.5, 0.4])
+            with c1: st.markdown(f"**{record['file_name']}**")
+            with c2: st.write(f"{doc_type} ({confidence:.0f}%)")
+            with c3:
+                if record["processed_at"]:
+                    hk_time = record["processed_at"].astimezone(HK_TZ)
+                    st.write(hk_time.strftime("%m/%d %H:%M"))
+            with c4: st.markdown(f":{status_color}[{status_text}]")
+            with c5:
+                if has_data:
+                    if st.button("View", key=f"view_{row_id}"):
+                        st.session_state[f"show_data_{row_id}"] = not st.session_state.get(f"show_data_{row_id}", False)
+                        st.rerun()
+                else:
+                    st.write("-")
+            with c6:
+                if st.button("X", key=f"hide_{row_id}", help="Hide from dashboard"):
+                    if hide_langsmith_run(record["run_id"]):
+                        st.rerun()
+
+            # Show data below if toggled
+            if st.session_state.get(f"show_data_{row_id}", False) and has_data:
+                st.json(record["extracted_data"])
+
+        # Pagination controls
+        if total_pages > 1:
+            st.write("")
+            p1, p2, p3 = st.columns([1, 2, 1])
+            with p1:
+                if current_page > 0:
+                    if st.button("< Prev"):
+                        st.session_state["proc_page"] = current_page - 1
+                        st.rerun()
+            with p2:
+                st.write(f"Page {current_page + 1} of {total_pages} ({total_files} files)")
+            with p3:
+                if current_page < total_pages - 1:
+                    if st.button("Next >"):
+                        st.session_state["proc_page"] = current_page + 1
+                        st.rerun()
+
+    # Footer
+    st.divider()
+    hidden_count = len(st.session_state.get("hidden_runs", set()))
+    col_btn1, col_btn2, col_btn3, _ = st.columns([1, 1, 1.5, 1])
+    with col_btn1:
+        if st.button("Refresh"):
+            st.cache_data.clear()
+            st.rerun()
+    with col_btn2:
+        if hidden_count > 0:
+            if st.button(f"Show Hidden ({hidden_count})"):
+                st.session_state["hidden_runs"] = set()
+                st.rerun()
+    with col_btn3:
+        if st.button("Process Now"):
+            function_url = os.environ.get("AZURE_FUNCTION_URL")
+            if function_url:
+                try:
+                    with st.spinner("Processing..."):
+                        response = httpx.post(f"{function_url}/api/process", timeout=300)
+                        result = response.json()
+                        if result.get("processed", 0) > 0:
+                            st.success(f"Processed {result['processed']} file(s)")
+                        else:
+                            st.info("No files to process")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Failed: {e}")
+
+
+# ============ Vector DB Tab ============
+
+def render_vector_db_tab():
+    st.caption("Azure AI Search - Indexed Documents")
+
+    data = get_vector_db_data()
+
+    if "error" in data:
+        st.error(f"Error: {data['error']}")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("Total Files", data.get("total_files", 0))
+    with col2:
+        st.metric("Total Chunks", data.get("total_chunks", 0))
+    with col3:
+        avg = data["total_chunks"] / data["total_files"] if data["total_files"] > 0 else 0
+        st.metric("Avg Chunks/File", f"{avg:.1f}")
+
+    st.divider()
+
+    by_type = data.get("by_type", {})
+    if by_type:
+        st.subheader("By Document Type")
+        type_cols = st.columns(len(by_type))
+        for i, (dtype, count) in enumerate(by_type.items()):
+            with type_cols[i]:
+                st.metric(format_doc_type(dtype), count)
+
+    st.divider()
+    st.subheader("Indexed Files")
+
+    # Create filter options with formatted labels
+    type_options = {format_doc_type(k): k for k in by_type.keys()}
+    filter_label = st.selectbox("Filter by type", ["All"] + list(type_options.keys()), index=0)
+
+    files = data.get("files", [])
+    if filter_label != "All":
+        filter_type = type_options[filter_label]
+        files = [f for f in files if f.get("document_type") == filter_type]
+
+    if not files:
+        st.info("No documents found")
+    else:
+        # Pagination
+        page_size = 20
+        total_files = len(files)
+        total_pages = (total_files + page_size - 1) // page_size
+
+        if "vdb_page" not in st.session_state:
+            st.session_state["vdb_page"] = 0
+
+        current_page = st.session_state["vdb_page"]
+        start_idx = current_page * page_size
+        end_idx = min(start_idx + page_size, total_files)
+        page_files = files[start_idx:end_idx]
+
+        h1, h2, h3, h4, h5 = st.columns([2.5, 1, 0.6, 0.8, 0.5])
+        with h1: st.caption("**File Name**")
+        with h2: st.caption("**Type**")
+        with h3: st.caption("**Chunks**")
+        with h4: st.caption("**Indexed**")
+        with h5: st.caption("**Data**")
+
+        for idx, f in enumerate(page_files):
+            row_id = start_idx + idx
+            fname = f.get("file_name", "?")
+            ftype = format_doc_type(f.get("document_type", "unknown"))
+            chunks = f.get("chunk_count", 1)
+            proc_at = f.get("processed_at", "")
+            extracted = f.get("extracted_data")
+
+            if proc_at:
+                try:
+                    dt = datetime.fromisoformat(proc_at.replace("Z", "+00:00"))
+                    proc_at = dt.astimezone(HK_TZ).strftime("%m/%d %H:%M")
+                except Exception:
+                    proc_at = proc_at[:16]
+
+            c1, c2, c3, c4, c5 = st.columns([2.5, 1, 0.6, 0.8, 0.5])
+            with c1: st.write(fname)
+            with c2: st.write(ftype)
+            with c3: st.write(chunks)
+            with c4: st.write(proc_at)
+            with c5:
+                if extracted:
+                    if st.button("View", key=f"vdb_view_{row_id}"):
+                        st.session_state[f"vdb_show_{row_id}"] = not st.session_state.get(f"vdb_show_{row_id}", False)
+                        st.rerun()
+                else:
+                    st.write("-")
+
+            # Show data below if toggled
+            if st.session_state.get(f"vdb_show_{row_id}", False) and extracted:
+                try:
+                    if isinstance(extracted, str):
+                        extracted = json.loads(extracted)
+                    st.json(extracted)
+                except Exception:
+                    st.code(str(extracted))
+
+        # Pagination controls
+        if total_pages > 1:
+            st.write("")
+            p1, p2, p3 = st.columns([1, 2, 1])
+            with p1:
+                if current_page > 0:
+                    if st.button("< Prev", key="vdb_prev"):
+                        st.session_state["vdb_page"] = current_page - 1
+                        st.rerun()
+            with p2:
+                st.write(f"Page {current_page + 1} of {total_pages} ({total_files} files)")
+            with p3:
+                if current_page < total_pages - 1:
+                    if st.button("Next >", key="vdb_next"):
+                        st.session_state["vdb_page"] = current_page + 1
+                        st.rerun()
+
+
+# ============ Chat Tab ============
+
+def render_chat_tab():
+    """Render the Property Intelligence chatbot tab with streaming responses."""
+    import uuid
+    from src.nodes.chatbot import chat_stream, get_stream_metadata
+
+    # Initialize thread_id for LangGraph memory (persists within session)
+    if "chat_thread_id" not in st.session_state:
+        st.session_state["chat_thread_id"] = str(uuid.uuid4())
+
+    # Initialize chat messages for display
+    if "chat_messages" not in st.session_state:
+        st.session_state["chat_messages"] = []
+
+    # Header
+    st.caption("Property Intelligence Assistant | 物業智能助理")
+
+    # Chat input at TOP
+    prompt = st.text_input(
+        "Ask about properties... 詢問物業資訊...",
+        key="chat_input",
+        placeholder="e.g. 中環有什麼寫字樓？ / What offices in Central?"
+    )
+
+    col1, col2, col3 = st.columns([1, 1, 4])
+    with col1:
+        send_clicked = st.button("Send / 發送", type="primary", use_container_width=True)
+    with col2:
+        if st.button("Clear / 清除", use_container_width=True):
+            # Reset both display messages and create new thread for memory
+            st.session_state["chat_messages"] = []
+            st.session_state["chat_thread_id"] = str(uuid.uuid4())
+            st.session_state["last_prompt"] = None
+            st.rerun()
+
+    st.divider()
+
+    # Process new message with streaming
+    if (send_clicked or prompt) and prompt and prompt.strip():
+        # Check if this is a new message (not already processed)
+        if not st.session_state.get("last_prompt") == prompt:
+            st.session_state["last_prompt"] = prompt
+            thread_id = st.session_state["chat_thread_id"]
+
+            # Add user message to display history
+            st.session_state["chat_messages"].append({"role": "user", "content": prompt})
+
+            # Show user message immediately
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            # Stream assistant response
+            with st.chat_message("assistant"):
+                # Show searching indicator briefly
+                with st.spinner("Searching documents... 搜尋文件中..."):
+                    # Create the generator (this triggers document search)
+                    stream_gen = chat_stream(
+                        question=prompt,
+                        thread_id=thread_id
+                    )
+
+                # Stream the response using st.write_stream
+                answer = st.write_stream(stream_gen)
+
+                # Get metadata (sources) after streaming completes
+                metadata = get_stream_metadata(thread_id)
+                sources = metadata.sources
+
+                # Show sources
+                if sources:
+                    with st.expander("Sources / 資料來源", expanded=False):
+                        for src in sources:
+                            st.write(f"• **{src['file_name']}** ({format_doc_type(src['document_type'])})")
+
+            # Add assistant response to display history
+            st.session_state["chat_messages"].append({
+                "role": "assistant",
+                "content": answer,
+                "sources": sources
+            })
+
+            # Rerun to update history display
+            st.rerun()
+
+    # Display chat history (newest first near chat box, oldest at bottom)
+    if not st.session_state["chat_messages"]:
+        st.info("💬 Start a conversation by asking about Hong Kong commercial properties.")
+        st.caption("**Examples:**")
+        st.caption("• What offices are available in Central?")
+        st.caption("• 中環有什麼寫字樓出租？")
+        st.caption("• Recommend a 2000 sqft office under HK$50,000")
+        st.caption("• 比較銅鑼灣和尖沙咀的租金")
+    else:
+        # Reverse order: newest at top, oldest at bottom
+        for msg in reversed(st.session_state["chat_messages"]):
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+                if msg.get("sources") and msg["role"] == "assistant":
+                    with st.expander("Sources / 資料來源", expanded=False):
+                        for src in msg["sources"]:
+                            st.write(f"• **{src['file_name']}** ({format_doc_type(src['document_type'])})")
+
+
+# ============ Main ============
+
+def main():
+    # Reduce top padding and enlarge tabs
+    st.markdown("""
+        <style>
+        .block-container { padding-top: 1rem; }
+        .stTabs [data-baseweb="tab-list"] { gap: 2rem; }
+        .stTabs [data-baseweb="tab"] {
+            font-size: 1.1rem;
+            font-weight: 500;
+            padding: 0.75rem 1.5rem;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # Sidebar with user info and logout (only when authenticated on cloud)
+    try:
+        is_logged_in = st.user.is_logged_in
+    except (AttributeError, KeyError):
+        is_logged_in = False
+
+    if is_logged_in:
+        with st.sidebar:
+            st.write(f"**Logged in as:**")
+            st.write(st.user.email or "User")
+            st.write("")
+            if st.button("Logout", use_container_width=True):
+                st.logout()
+
+    st.title("Document Processor")
+
+    tab1, tab2, tab3 = st.tabs(["Processing Status", "Vector Database", "Chat"])
+
+    with tab1:
+        render_processing_tab()
+
+    with tab2:
+        render_vector_db_tab()
+
+    with tab3:
+        render_chat_tab()
+
+    # Footer
+    st.divider()
+    hk_now = datetime.now(HK_TZ)
+    st.caption(f"Last updated: {hk_now.strftime('%Y-%m-%d %H:%M:%S')} (HKT)")
+
+
+if __name__ == "__main__":
+    main()

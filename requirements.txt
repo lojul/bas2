@@ -1,0 +1,19 @@
+# Azure Functions dependencies
+azure-functions>=1.17.0
+
+# LangGraph & LangSmith
+langgraph>=0.2
+langsmith>=0.1
+langchain-openai>=0.2
+
+# Azure Services
+azure-storage-blob>=12.0
+azure-ai-documentintelligence>=1.0
+azure-search-documents>=11.0
+
+# HTTP & Utils
+httpx>=0.27
+python-dotenv>=1.0
+
+# Microsoft Auth
+msal>=1.24.0

@@ -1,0 +1,8 @@
+{
+  "python_version": "3.12",
+  "dependencies": ["."],
+  "graphs": {
+    "document_processor": "./src/graph.py:app"
+  },
+  "env": ".env"
+}
