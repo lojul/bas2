@@ -87,16 +87,25 @@ You have memory of previous messages in this conversation. Use this context to:
 3. **Market Analysis**: Compare rents, identify trends from available data
 4. **Information Extraction**: Answer questions about specific properties, terms, conditions
 
+## Information Sources
+You have access to TWO types of information:
+1. **Internal Documents**: Property listings, contacts from our database (most reliable for specific properties)
+2. **Web Search Results**: Latest news and market information from the internet (good for trends, news)
+
 ## Response Rules
 1. **Language**: ALWAYS respond in the SAME language as the user's question
    - 繁體中文 question → 繁體中文 answer
    - English question → English answer
 
-2. **Accuracy**: Only use information from the provided documents
+2. **Accuracy**: Use information from BOTH internal documents and web results
+   - Prioritize internal documents for specific property details
+   - Use web results for market trends, news, and general information
    - If not found: "根據現有資料，我未能找到相關資訊。" or "I couldn't find this in the available documents."
    - NEVER make up information
 
-3. **Citations**: Always cite sources - (來源: filename) or (Source: filename)
+3. **Citations**: Always cite sources
+   - Internal documents: (來源: filename) or (Source: filename)
+   - Web results: (來源: article title) or (Source: article title)
 
 4. **Recommendations**: List 2-3 best matches with:
    - Location, size, rent, property type
@@ -269,9 +278,53 @@ def keyword_search(
     return documents
 
 
-def build_context(documents: list[dict]) -> str:
-    """Build context string from retrieved documents."""
-    if not documents:
+@traceable(name="web_search", run_type="retriever", project_name=CHATBOT_PROJECT)
+def web_search(query: str, max_results: int = 3) -> list[dict]:
+    """Search the web for relevant information using Tavily.
+
+    Args:
+        query: Search query
+        max_results: Maximum number of results
+
+    Returns:
+        List of web search results
+    """
+    api_key = os.environ.get("TAVILY_API_KEY")
+    if not api_key:
+        return []
+
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+
+        # Add Hong Kong property context to improve relevance
+        search_query = f"Hong Kong commercial property real estate {query}"
+
+        response = client.search(
+            query=search_query,
+            search_depth="basic",
+            max_results=max_results,
+        )
+
+        results = []
+        for r in response.get("results", []):
+            results.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", "")[:500],
+                "source": "web",
+            })
+
+        return results
+
+    except Exception as e:
+        print(f"Web search error: {e}")
+        return []
+
+
+def build_context(documents: list[dict], web_results: list[dict] = None) -> str:
+    """Build context string from retrieved documents and web results."""
+    if not documents and not web_results:
         return "No relevant documents found."
 
     context_parts = []
@@ -339,22 +392,48 @@ Content Preview:
 {content[:500]}
 """)
 
+    # Add web results if available
+    if web_results:
+        context_parts.append("\n---\n## Web Search Results (Latest Information)\n")
+        for i, r in enumerate(web_results, 1):
+            context_parts.append(f"""
+**Web Result {i}: {r.get('title', 'N/A')}**
+Source: {r.get('url', 'N/A')}
+{r.get('content', '')}
+""")
+
     return "\n".join(context_parts)
 
 
 def retrieve_node(state: ChatState) -> dict:
-    """Node: Search for relevant documents."""
+    """Node: Search for relevant documents and web."""
     question = state["current_question"]
+
+    # Search vector database (your documents)
     documents = search_documents(question, top_k=5)
-    context = build_context(documents)
-    sources = [
-        {
+
+    # Search web for latest information
+    web_results = web_search(question, max_results=3)
+
+    # Build combined context
+    context = build_context(documents, web_results)
+
+    # Build sources list
+    sources = []
+    for doc in documents:
+        sources.append({
             "file_name": doc["file_name"],
             "document_type": doc["document_type"],
             "score": doc.get("score", 0),
-        }
-        for doc in documents
-    ]
+            "type": "document",
+        })
+    for r in web_results:
+        sources.append({
+            "file_name": r.get("title", "Web Result"),
+            "url": r.get("url", ""),
+            "type": "web",
+        })
+
     return {"context": context, "sources": sources}
 
 
@@ -569,15 +648,28 @@ def chat_stream(
 
     # Step 1: Retrieve documents (non-streaming)
     documents = search_documents(question, top_k=5)
-    context = build_context(documents)
-    sources = [
-        {
+
+    # Step 1b: Search web for latest information
+    web_results = web_search(question, max_results=3)
+
+    # Build combined context
+    context = build_context(documents, web_results)
+
+    # Build sources list
+    sources = []
+    for doc in documents:
+        sources.append({
             "file_name": doc["file_name"],
             "document_type": doc["document_type"],
             "score": doc.get("score", 0),
-        }
-        for doc in documents
-    ]
+            "type": "document",
+        })
+    for r in web_results:
+        sources.append({
+            "file_name": r.get("title", "Web Result"),
+            "url": r.get("url", ""),
+            "type": "web",
+        })
 
     # Store sources for retrieval after streaming
     _stream_metadata[thread_id] = StreamingChatResponse(sources=sources)

@@ -31,6 +31,7 @@ def load_secrets_to_env():
         "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
         "OPENROUTER_API_KEY",
         "AZURE_FUNCTION_URL",
+        "TAVILY_API_KEY",
     ]
     try:
         for key in secret_keys:
@@ -660,7 +661,10 @@ def render_chat_tab():
                 if sources:
                     with st.expander("Sources / 資料來源", expanded=False):
                         for src in sources:
-                            st.write(f"• **{src['file_name']}** ({format_doc_type(src['document_type'])})")
+                            if src.get("type") == "web":
+                                st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
+                            else:
+                                st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
 
             # Add assistant response to display history
             st.session_state["chat_messages"].append({
@@ -688,7 +692,10 @@ def render_chat_tab():
                 if msg.get("sources") and msg["role"] == "assistant":
                     with st.expander("Sources / 資料來源", expanded=False):
                         for src in msg["sources"]:
-                            st.write(f"• **{src['file_name']}** ({format_doc_type(src['document_type'])})")
+                            if src.get("type") == "web":
+                                st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
+                            else:
+                                st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
 
 
 # ============ Search Tab ============
