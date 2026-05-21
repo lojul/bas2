@@ -1,3 +1,6 @@
+# Streamlit Dashboard
+streamlit>=1.45
+
 # Azure Functions dependencies
 azure-functions>=1.17.0
 
