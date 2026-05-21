@@ -117,18 +117,6 @@ def render_login_page():
                     st.error("Invalid username or password")
 
         st.write("")
-        st.divider()
-        st.write("Or sign in with:")
-
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            if st.button("Google", use_container_width=True):
-                st.login("google")
-        with btn_col2:
-            if st.button("Microsoft", use_container_width=True):
-                st.login("microsoft")
-
-        st.write("")
         st.caption("Access is restricted to authorized users only.")
 
 
