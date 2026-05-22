@@ -117,11 +117,33 @@ def extract_data(state: DocumentState) -> DocumentState:
     """
     state.update_status(ProcessingStatus.EXTRACTING)
 
-    # Get OCR text
+    # Get OCR text and tables
     text = state.ocr.text if state.ocr else ""
+    tables = state.ocr.tables if state.ocr else []
     doc_type = state.document_type
 
-    if not text or doc_type == DocumentType.UNKNOWN:
+    # Format tables as text for LLM (Document Intelligence extracts these)
+    tables_text = ""
+    if tables:
+        for i, table in enumerate(tables, 1):
+            tables_text += f"\n\n=== TABLE {i} ===\n"
+            # Group cells by row
+            rows = {}
+            for cell in table.get("cells", []):
+                row_idx = cell.get("row", 0)
+                if row_idx not in rows:
+                    rows[row_idx] = []
+                rows[row_idx].append((cell.get("col", 0), cell.get("text", "")))
+            # Format rows
+            for row_idx in sorted(rows.keys()):
+                row_cells = sorted(rows[row_idx], key=lambda x: x[0])
+                row_text = " | ".join(cell[1] for cell in row_cells)
+                tables_text += row_text + "\n"
+
+    # Combine text and tables
+    full_text = text + tables_text
+
+    if not full_text or doc_type == DocumentType.UNKNOWN:
         state.extracted = ExtractedData(
             raw={},
             document_type=doc_type,
@@ -137,9 +159,9 @@ def extract_data(state: DocumentState) -> DocumentState:
         return state
 
     try:
-        # Use more text for extraction - 12000 chars covers ~10-15 pages
-        # This helps with pitching decks where key data is in later pages
-        text_sample = text[:12000]
+        # Use text + tables for extraction - 16000 chars to include table data
+        # Tables from Document Intelligence are appended after main text
+        text_sample = full_text[:16000]
         result = call_openrouter(prompt_template.format(text=text_sample))
 
         state.extracted = ExtractedData(
