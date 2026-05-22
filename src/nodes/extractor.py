@@ -137,8 +137,9 @@ def extract_data(state: DocumentState) -> DocumentState:
         return state
 
     try:
-        # Use more text for extraction than classification (up to 4000 chars)
-        text_sample = text[:4000]
+        # Use more text for extraction - 12000 chars covers ~10-15 pages
+        # This helps with pitching decks where key data is in later pages
+        text_sample = text[:12000]
         result = call_openrouter(prompt_template.format(text=text_sample))
 
         state.extracted = ExtractedData(
