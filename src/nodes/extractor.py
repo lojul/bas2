@@ -13,38 +13,50 @@ from src.utils.json_parser import parse_json_response
 PROMPTS = {
     DocumentType.LISTING: """Extract the MAIN property listing data from this document.
 
+IMPORTANT RULES:
+- ONLY extract data that is EXPLICITLY stated in the text
+- If a field is NOT found in the text, use null (not empty string, not made-up data)
+- DO NOT invent or hallucinate any information
+- If this text does NOT contain property listing information, return {{"_no_data": true}}
+
 TEXT:
 {text}
 
 Return a SINGLE JSON object (NOT an array):
 {{
-  "building_name": "name",
-  "address": "full address",
-  "district": "area/district",
-  "property_type": "office/retail/residential/industrial",
-  "size_sqft": 1200,
-  "rent_monthly": 25000,
-  "floor": "3/F",
-  "unit": "01",
-  "contact_name": "agent name",
-  "contact_phone": "phone number"
+  "building_name": "name from text or null",
+  "address": "full address from text or null",
+  "district": "area/district from text or null",
+  "property_type": "office/retail/residential/industrial or null",
+  "size_sqft": number from text or null,
+  "rent_monthly": number from text or null,
+  "floor": "floor from text or null",
+  "unit": "unit from text or null",
+  "contact_name": "agent name from text or null",
+  "contact_phone": "phone number from text or null"
 }}
 
 Return ONLY the JSON object, no array, no explanation:""",
 
     DocumentType.LISTING_LIST: """Extract property listing table data.
 
+IMPORTANT RULES:
+- ONLY extract data that is EXPLICITLY stated in the text
+- If a field is NOT found in the text, use null (not empty string, not made-up data)
+- DO NOT invent or hallucinate any information
+- If this text does NOT contain property listing information, return {{"_no_data": true}}
+
 TEXT:
 {text}
 
 Return JSON with building info and list of available units (max 10 units):
 {{
-  "building_name": "name",
-  "address": "address",
-  "district": "area",
-  "contact_phone": "phone",
+  "building_name": "name from text or null",
+  "address": "address from text or null",
+  "district": "area from text or null",
+  "contact_phone": "phone from text or null",
   "units": [
-    {{"floor": "3/F", "unit": "01", "size": 1200, "rent": 25000}}
+    {{"floor": "from text", "unit": "from text", "size": number, "rent": number}}
   ]
 }}
 
@@ -175,12 +187,12 @@ def call_openrouter(prompt: str) -> dict:
     }
 
     body = {
-        "model": "deepseek/deepseek-chat",
+        "model": "qwen/qwen-2.5-72b-instruct",  # Alibaba model - works in HK, excellent JSON output
         "messages": [
             {"role": "user", "content": prompt}
         ],
         "max_tokens": 4000,  # Increased for large listing tables
-        "temperature": 0.1,
+        "temperature": 0,  # Zero temp for deterministic extraction
     }
 
     with httpx.Client(timeout=60) as client:  # Longer timeout for extraction

@@ -673,8 +673,22 @@ def route_query(query: str) -> str:
         "有什麼", "有咩", "邊度有", "搵", "找", "出租", "招租",
         "寫字樓", "商舖", "工廈", "倉庫", "office", "retail", "industrial",
         "呎租", "租金", "面積", "聯絡", "contact",
-        "中環", "尖沙咀", "旺角", "觀塘", "葵涌",  # District names
-        "central", "tsim sha tsui", "mongkok", "kwun tong",
+        # District names - Hong Kong Island
+        "中環", "金鐘", "灣仔", "銅鑼灣", "北角", "鰂魚涌", "太古", "西灣河", "筲箕灣", "柴灣",
+        "上環", "西營盤", "堅尼地城", "香港仔", "黃竹坑",
+        # District names - Kowloon
+        "尖沙咀", "佐敦", "油麻地", "旺角", "太子", "深水埗", "長沙灣", "荔枝角",
+        "九龍灣", "觀塘", "牛頭角", "藍田", "油塘", "將軍澳",
+        "九龍城", "土瓜灣", "紅磡", "黃大仙", "鑽石山", "新蒲崗",
+        # District names - New Territories
+        "葵涌", "葵芳", "荃灣", "青衣", "沙田", "火炭", "大圍", "馬鞍山",
+        "大埔", "粉嶺", "上水", "元朗", "天水圍", "屯門",
+        # Building name keywords
+        "廣場", "中心", "大廈", "商場", "工業", "企業",
+        # English district names
+        "central", "admiralty", "wan chai", "causeway bay", "north point",
+        "tsim sha tsui", "jordan", "mongkok", "kowloon bay", "kwun tong",
+        "sha tin", "tsuen wan", "kwai chung", "tuen mun", "yuen long",
     ]
 
     # Keywords indicating hybrid (comparison, both needed)
@@ -691,15 +705,17 @@ def route_query(query: str) -> str:
     web_score = sum(1 for kw in web_keywords if kw in query_lower)
     vector_score = sum(1 for kw in vector_keywords if kw in query_lower)
 
-    # Decide based on scores - prefer web when scores are close
+    # Decide based on scores - default to hybrid for property search system
     if web_score > 0 and vector_score == 0:
         return "web"
     elif vector_score > 0 and web_score == 0:
         return "vector"
-    elif web_score >= vector_score:
-        return "web"  # Prefer web when tied
-    else:
+    elif web_score > vector_score:
+        return "web"
+    elif vector_score > web_score:
         return "vector"
+    else:
+        return "hybrid"  # Default to hybrid when tied or no matches (property system)
 
 
 def retrieve_node(state: ChatState) -> dict:

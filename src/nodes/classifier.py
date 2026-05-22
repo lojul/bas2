@@ -215,12 +215,12 @@ def call_openrouter(text: str, page_count: int = 1, text_length: int = 0, table_
     )
 
     body = {
-        "model": "deepseek/deepseek-chat",
+        "model": "qwen/qwen-2.5-72b-instruct",  # Alibaba model - works in HK, excellent JSON output
         "messages": [
             {"role": "user", "content": prompt}
         ],
         "max_tokens": 150,
-        "temperature": 0.1,  # Low temperature for consistent classification
+        "temperature": 0,  # Zero temp for deterministic classification
     }
 
     with httpx.Client(timeout=30) as client:

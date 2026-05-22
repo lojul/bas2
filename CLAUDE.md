@@ -362,3 +362,77 @@ admin = "your-password-here"
   - PDF report generation
   - PPT presentation creation
   - Email with attachments
+
+### Potential Improvements (LangSmith/LangGraph)
+
+| Priority | Feature | Status | Effort | Benefit |
+|----------|---------|--------|--------|---------|
+| 1 | PostgresSaver | Not started | 2 hours | Persistent memory across sessions |
+| 2 | LangSmith Evaluations | Not started | 1 day | Automated RAG quality testing |
+| 3 | Online Monitoring | Not started | 4 hours | Real-time quality scoring |
+| 4 | Human-in-the-Loop | Not started | 1 day | Approval workflows for Phase 2 |
+
+#### PostgresSaver - Persistent Memory
+- Current: `MemorySaver` resets when app restarts
+- Improvement: `PostgresSaver` persists conversations forever
+- Users can continue conversations days later
+- Requires PostgreSQL database
+
+#### LangSmith Evaluations - RAG Quality Testing
+- Create test dataset with expected Q&A pairs
+- Automated evaluators: relevance, groundedness
+- Run on every PR via pytest integration
+- Catch regressions before deploy
+
+#### Online Monitoring - Production Quality
+- Score every production response automatically
+- Track quality trends over time
+- Detect issues early via alerts
+
+#### Human-in-the-Loop - Approval Workflows
+- Agent pauses for human approval before actions
+- Useful for Phase 2: email sending, file generation
+- LangGraph checkpointer enables pause/resume
+
+### Future Integrations (Researched)
+- [ ] Slack Bot Integration (Socket Mode or Azure Functions)
+  - Uses Slack Bolt Python SDK
+  - Can reuse existing chatbot.py
+
+### Refactored Chatbot (Ready for Phase 2)
+
+**Files:**
+```
+src/nodes/chatbot.py        # Current production (1,098 lines)
+src/nodes/chatbot_backup.py # Backup of original
+src/nodes/chatbot_v2.py     # LangChain refactored (580 lines, 47% smaller)
+tests/test_chatbot_v2.py    # Test suite for v2
+```
+
+**What chatbot_v2.py uses:**
+- LangChain `ChatOpenAI` for LLM calls (simpler streaming)
+- LangChain messages (`HumanMessage`, `AIMessage`, `SystemMessage`)
+- Same embeddings from `indexer.py` (Azure OpenAI)
+- Same LangGraph + MemorySaver for conversation memory
+
+**When to switch to v2:**
+- When starting Phase 2 (tool-calling agent)
+- LangChain agents work better with LangChain LLM instances
+- v2 provides cleaner base for adding tools
+
+**How to switch:**
+```bash
+# Backup current
+cp src/nodes/chatbot.py src/nodes/chatbot_v1_production.py
+
+# Switch to v2
+cp src/nodes/chatbot_v2.py src/nodes/chatbot.py
+
+# Run tests
+python tests/run_chatbot_tests.py
+
+# Deploy
+git add . && git commit -m "Switch to LangChain-based chatbot" && git push
+```
+
+**v2 test status:** 15 passed, 1 skipped (TAVILY_API_KEY optional)
