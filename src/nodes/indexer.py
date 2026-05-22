@@ -52,6 +52,23 @@ INDEX_SCHEMA = {
                 }
             }
         ]
+    },
+    # Semantic configuration for improved natural language search
+    "semantic": {
+        "configurations": [
+            {
+                "name": "default-semantic-config",
+                "prioritizedFields": {
+                    "titleField": {"fieldName": "file_name"},
+                    "prioritizedContentFields": [
+                        {"fieldName": "content"}
+                    ],
+                    "prioritizedKeywordsFields": [
+                        {"fieldName": "extracted_data"}
+                    ]
+                }
+            }
+        ]
     }
 }
 

@@ -1,0 +1,42 @@
+graph TD
+    subgraph Input
+        A[("📁 OneDrive /In")] --> B["File Detected"]
+    end
+    
+    subgraph Azure["Azure Functions"]
+        B --> C["get_download_url"]
+        C -->|"Microsoft Graph"| D["Download URL"]
+    end
+    
+    subgraph OCR["OCR"]
+        D --> E["run_ocr"]
+        E -->|"Azure Doc Intelligence"| F["Text + Tables"]
+    end
+    
+    subgraph Classification
+        F --> G["classify"]
+        G -->|"DeepSeek"| H{"Type?"}
+        H -->|listing| I1["Single Property"]
+        H -->|listing_list| I2["Multi Property"]
+        H -->|news| I3["News"]
+        H -->|contact| I4["Contact"]
+    end
+    
+    subgraph Extraction
+        I1 --> J["extract"]
+        I2 --> J
+        I3 --> J
+        I4 --> J
+        J -->|"DeepSeek"| K["Structured JSON"]
+    end
+    
+    subgraph Indexing
+        K --> L["index"]
+        L -->|"Azure OpenAI"| M["Embeddings"]
+        M -->|"Azure AI Search"| N[("Vector DB")]
+    end
+    
+    subgraph Output
+        N --> O["Move to /Processed"]
+        O --> P[("📊 LangSmith")]
+    end

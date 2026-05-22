@@ -331,20 +331,23 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
                 "k": top_k,
             }
         ],
+        "search": query,  # Required for semantic ranking
+        "searchFields": "content,file_name",
         "select": "id,file_name,document_type,content,extracted_data,processed_at",
         "top": top_k,
+        # Semantic ranking for better natural language understanding
+        "queryType": "semantic",
+        "semanticConfiguration": "default-semantic-config",
+        "captions": "extractive",  # Get highlighted captions
+        "answers": "extractive",   # Get direct answers if available
     }
-
-    # Add keyword search for hybrid mode
-    if hybrid:
-        body["search"] = query  # Full-text search on searchable fields
-        body["searchFields"] = "content,file_name"  # Fields to search
 
     client = get_http_client()
     response = client.post(search_url, headers=headers, json=body)
     response.raise_for_status()
 
-    results = response.json().get("value", [])
+    data = response.json()
+    results = data.get("value", [])
 
     # Format results
     documents = []
@@ -356,13 +359,22 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             except:
                 extracted = {}
 
+        # Get semantic caption if available
+        captions = doc.get("@search.captions", [])
+        caption_text = captions[0].get("text", "") if captions else ""
+
         documents.append({
             "file_name": doc.get("file_name", "Unknown"),
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:2000],
             "extracted_data": extracted,
             "score": doc.get("@search.score", 0),
+            "reranker_score": doc.get("@search.rerankerScore", 0),  # Semantic score
+            "caption": caption_text,  # Highlighted relevant text
         })
+
+    # Sort by reranker score if available (semantic ranking)
+    documents.sort(key=lambda x: x.get("reranker_score", 0), reverse=True)
 
     return documents
 
