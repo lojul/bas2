@@ -944,9 +944,13 @@ def call_llm(question: str, context: str, messages: list[dict]) -> str:
     return data["choices"][0]["message"]["content"]
 
 
-@traceable(name="generate_answer_stream", run_type="llm", project_name=CHATBOT_PROJECT)
 def call_llm_stream(question: str, context: str, messages: list[dict]):
-    """Call LLM with streaming - yields text chunks."""
+    """Call LLM with streaming - yields text chunks.
+
+    Note: Not using @traceable decorator here because it doesn't handle
+    GeneratorExit well - logs it as error when user navigates away.
+    The retrieval steps are still traced for observability.
+    """
     api_key = os.environ.get("OPENROUTER_API_KEY")
     if not api_key:
         raise ValueError("OPENROUTER_API_KEY not set")
