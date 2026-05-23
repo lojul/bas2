@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v8"
+__version__ = "2026.05.23.v9"
 
 import os
 import json
@@ -697,6 +697,13 @@ def render_chat_tab():
     if "chat_messages" not in st.session_state:
         st.session_state["chat_messages"] = []
 
+    # Callback to clear chat (must be defined before widgets)
+    def clear_chat():
+        st.session_state["chat_messages"] = []
+        st.session_state["chat_thread_id"] = str(uuid.uuid4())
+        st.session_state["last_prompt"] = None
+        st.session_state["chat_input"] = ""  # This works in callback
+
     # Header
     st.caption("Property Intelligence Assistant | 物業智能助理")
 
@@ -711,15 +718,7 @@ def render_chat_tab():
     with col1:
         send_clicked = st.button("Send / 發送", type="primary", use_container_width=True)
     with col2:
-        clear_clicked = st.button("Clear / 清除", use_container_width=True)
-
-    if clear_clicked:
-        # Reset chat state and clear input box
-        st.session_state["chat_messages"] = []
-        st.session_state["chat_thread_id"] = str(uuid.uuid4())
-        st.session_state["last_prompt"] = None
-        st.session_state["chat_input"] = ""
-        st.rerun()
+        st.button("Clear / 清除", use_container_width=True, on_click=clear_chat)
 
     st.divider()
 
