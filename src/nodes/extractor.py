@@ -226,9 +226,19 @@ def extract_data(state: DocumentState) -> DocumentState:
         return state
 
     try:
-        # Use text + tables for extraction - 16000 chars to include table data
-        # Tables from Document Intelligence are appended after main text
-        text_sample = full_text[:16000]
+        # For pitching decks, sample from multiple parts of the document
+        # Key data is often in middle (project summary) and end (leasing details)
+        if doc_type == DocumentType.PITCHING_DECK and len(full_text) > 20000:
+            # Sample: first 8K + middle 8K + last 8K = 24K total
+            text_start = full_text[:8000]
+            middle_start = len(full_text) // 3
+            text_middle = full_text[middle_start:middle_start + 8000]
+            text_end = full_text[-8000:]
+            text_sample = text_start + "\n\n... [MIDDLE SECTION] ...\n\n" + text_middle + "\n\n... [END SECTION] ...\n\n" + text_end
+        else:
+            # For other types, use first 16000 chars
+            text_sample = full_text[:16000]
+
         result = call_openrouter(prompt_template.format(text=text_sample))
 
         state.extracted = ExtractedData(
@@ -285,7 +295,7 @@ def call_openrouter(prompt: str) -> dict:
         "temperature": 0,  # Zero temp for deterministic extraction
     }
 
-    with httpx.Client(timeout=60) as client:  # Longer timeout for extraction
+    with httpx.Client(timeout=90) as client:  # Longer timeout for large document extraction
         response = client.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
