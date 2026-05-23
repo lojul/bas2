@@ -682,9 +682,9 @@ def render_vector_db_tab():
 # ============ Chat Tab ============
 
 def render_chat_tab():
-    """Render the Property Intelligence chatbot tab with streaming responses."""
+    """Render the Property Intelligence chatbot tab."""
     import uuid
-    from src.nodes.chatbot import chat_stream, get_stream_metadata
+    from src.nodes.chatbot import chat
 
     # Initialize thread_id for LangGraph memory (persists within session)
     if "chat_thread_id" not in st.session_state:
@@ -743,37 +743,18 @@ def render_chat_tab():
             with st.chat_message("user"):
                 st.markdown(prompt)
 
-            # Stream assistant response
+            # Generate assistant response (non-streaming for reliability)
             with st.chat_message("assistant"):
                 try:
-                    # Show searching indicator
-                    status = st.empty()
-                    status.write("🔍 Searching... 搜尋中...")
+                    with st.spinner("🔍 Searching and generating response... 搜尋並生成回覆中..."):
+                        # Call non-streaming chat
+                        result = chat(prompt, thread_id=thread_id)
 
-                    # Create the generator (this triggers document search)
-                    stream_gen = chat_stream(
-                        question=prompt,
-                        thread_id=thread_id
-                    )
+                    answer = result.answer
+                    sources = result.sources
 
-                    # Clear status and stream response manually for better control
-                    status.empty()
-                    response_placeholder = st.empty()
-                    full_response = []
-
-                    for chunk in stream_gen:
-                        full_response.append(chunk)
-                        # Update display every few chunks for performance
-                        if len(full_response) % 5 == 0 or len(chunk) > 10:
-                            response_placeholder.markdown("".join(full_response) + "▌")
-
-                    # Final update without cursor
-                    answer = "".join(full_response)
-                    response_placeholder.markdown(answer)
-
-                    # Get metadata (sources) after streaming completes
-                    metadata = get_stream_metadata(thread_id)
-                    sources = metadata.sources
+                    # Display answer
+                    st.markdown(answer)
 
                     # Show sources
                     if sources:
