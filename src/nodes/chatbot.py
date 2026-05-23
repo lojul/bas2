@@ -479,7 +479,7 @@ def keyword_search(
         "search": query if has_query else "*",
         # Boost file_name and extracted_data over general content for better relevance
         "searchFields": "file_name,extracted_data,content" if has_query else "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,image_urls,processed_at",
+        "select": "id,file_name,document_type,content,extracted_data,processed_at",
         "top": top_k,
     }
 
@@ -510,8 +510,44 @@ def keyword_search(
     results = response.json().get("value", [])
 
     # Client-side district filtering (since district is in extracted_data JSON)
+    # Map English district names to Chinese equivalents for matching
+    DISTRICT_ALIASES = {
+        "central": ["中環", "central"],
+        "中環": ["中環", "central"],
+        "admiralty": ["金鐘", "admiralty"],
+        "金鐘": ["金鐘", "admiralty"],
+        "wan chai": ["灣仔", "wan chai", "wanchai"],
+        "灣仔": ["灣仔", "wan chai", "wanchai"],
+        "causeway bay": ["銅鑼灣", "causeway bay"],
+        "銅鑼灣": ["銅鑼灣", "causeway bay"],
+        "north point": ["北角", "north point"],
+        "北角": ["北角", "north point"],
+        "quarry bay": ["鰂魚涌", "quarry bay"],
+        "鰂魚涌": ["鰂魚涌", "quarry bay"],
+        "tsim sha tsui": ["尖沙咀", "tsim sha tsui", "tst"],
+        "尖沙咀": ["尖沙咀", "tsim sha tsui", "tst"],
+        "mong kok": ["旺角", "mong kok"],
+        "旺角": ["旺角", "mong kok"],
+        "kowloon bay": ["九龍灣", "kowloon bay"],
+        "九龍灣": ["九龍灣", "kowloon bay"],
+        "kwun tong": ["觀塘", "kwun tong"],
+        "觀塘": ["觀塘", "kwun tong"],
+        "cheung sha wan": ["長沙灣", "cheung sha wan"],
+        "長沙灣": ["長沙灣", "cheung sha wan"],
+        "lai chi kok": ["荔枝角", "lai chi kok"],
+        "荔枝角": ["荔枝角", "lai chi kok"],
+        "tsuen wan": ["荃灣", "tsuen wan"],
+        "荃灣": ["荃灣", "tsuen wan"],
+        "kwai chung": ["葵涌", "kwai chung"],
+        "葵涌": ["葵涌", "kwai chung"],
+    }
+
     district_filter = filters.get("district") if filters else None
     if district_filter:
+        # Get all aliases for the filter
+        filter_lower = district_filter.lower()
+        aliases = DISTRICT_ALIASES.get(filter_lower, [filter_lower])
+
         filtered_results = []
         for doc in results:
             extracted = doc.get("extracted_data", "{}")
@@ -520,9 +556,9 @@ def keyword_search(
                     extracted = json.loads(extracted)
                 except:
                     extracted = {}
-            doc_district = extracted.get("district", "")
-            # Match if filter text is in the district (case-insensitive)
-            if district_filter.lower() in doc_district.lower():
+            doc_district = (extracted.get("district") or "").lower()
+            # Match if any alias is in the district
+            if any(alias.lower() in doc_district for alias in aliases):
                 filtered_results.append(doc)
         results = filtered_results
 
@@ -542,7 +578,6 @@ def keyword_search(
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:500],
             "extracted_data": extracted,
-            "image_urls": doc.get("image_urls", []),
             "processed_at": doc.get("processed_at", ""),
             "score": doc.get("@search.score", 0),
         })

@@ -818,23 +818,23 @@ def render_search_tab():
 
     st.caption("Direct Property Search | 直接物業搜尋")
 
-    # Common HK districts for filtering
+    # Common HK districts for filtering (English names used as keys, display both)
     HK_DISTRICTS = [
-        "All Districts",
-        "Central", "中環",
-        "Admiralty", "金鐘",
-        "Wan Chai", "灣仔",
-        "Causeway Bay", "銅鑼灣",
-        "North Point", "北角",
-        "Quarry Bay", "鰂魚涌",
-        "Tsim Sha Tsui", "尖沙咀",
-        "Mong Kok", "旺角",
-        "Kowloon Bay", "九龍灣",
-        "Kwun Tong", "觀塘",
-        "Cheung Sha Wan", "長沙灣",
-        "Lai Chi Kok", "荔枝角",
-        "Tsuen Wan", "荃灣",
-        "Kwai Chung", "葵涌",
+        ("All Districts", "All Districts"),
+        ("Central", "Central 中環"),
+        ("Admiralty", "Admiralty 金鐘"),
+        ("Wan Chai", "Wan Chai 灣仔"),
+        ("Causeway Bay", "Causeway Bay 銅鑼灣"),
+        ("North Point", "North Point 北角"),
+        ("Quarry Bay", "Quarry Bay 鰂魚涌"),
+        ("Tsim Sha Tsui", "Tsim Sha Tsui 尖沙咀"),
+        ("Mong Kok", "Mong Kok 旺角"),
+        ("Kowloon Bay", "Kowloon Bay 九龍灣"),
+        ("Kwun Tong", "Kwun Tong 觀塘"),
+        ("Cheung Sha Wan", "Cheung Sha Wan 長沙灣"),
+        ("Lai Chi Kok", "Lai Chi Kok 荔枝角"),
+        ("Tsuen Wan", "Tsuen Wan 荃灣"),
+        ("Kwai Chung", "Kwai Chung 葵涌"),
     ]
 
     # Search form - 4 columns
@@ -865,7 +865,8 @@ def render_search_tab():
     with col3:
         district_filter = st.selectbox(
             "District 地區",
-            options=HK_DISTRICTS,
+            options=[d[0] for d in HK_DISTRICTS],
+            format_func=lambda x: dict(HK_DISTRICTS).get(x, x),
             key="search_district"
         )
 
@@ -887,7 +888,7 @@ def render_search_tab():
             results = keyword_search(
                 query=search_query,
                 filters=filters,
-                top_k=50  # Fetch more to allow for client-side filtering
+                top_k=100  # Fetch more to allow for client-side filtering
             )
 
         if not results:
