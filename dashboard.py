@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v3"
+__version__ = "2026.05.23.v4"
 
 import os
 import json

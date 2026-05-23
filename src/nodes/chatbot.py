@@ -941,12 +941,19 @@ def call_llm(question: str, context: str, messages: list[dict]) -> str:
         "max_tokens": 2000,
     }
 
-    client = get_http_client()
-    response = client.post(url, headers=headers, json=body, timeout=60)
-    response.raise_for_status()
+    try:
+        client = get_http_client()
+        response = client.post(url, headers=headers, json=body, timeout=30)
+        response.raise_for_status()
 
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
+    except httpx.TimeoutException:
+        return "Sorry, the response took too long. Please try again. 抱歉，回應超時，請重試。"
+    except httpx.HTTPStatusError as e:
+        return f"API error: {e.response.status_code}. Please try again."
+    except Exception as e:
+        return f"Error generating response: {str(e)}"
 
 
 def call_llm_stream(question: str, context: str, messages: list[dict]):
