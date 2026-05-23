@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v9"
+__version__ = "2026.05.23.v10"
 
 import os
 import json
@@ -822,77 +822,29 @@ def render_search_tab():
 
     st.caption("Direct Property Search | 直接物業搜尋")
 
-    # Common HK districts for filtering (English names used as keys, display both)
-    HK_DISTRICTS = [
-        ("All Districts", "All Districts"),
-        ("Central", "Central 中環"),
-        ("Admiralty", "Admiralty 金鐘"),
-        ("Wan Chai", "Wan Chai 灣仔"),
-        ("Causeway Bay", "Causeway Bay 銅鑼灣"),
-        ("North Point", "North Point 北角"),
-        ("Quarry Bay", "Quarry Bay 鰂魚涌"),
-        ("Tsim Sha Tsui", "Tsim Sha Tsui 尖沙咀"),
-        ("Mong Kok", "Mong Kok 旺角"),
-        ("Kowloon Bay", "Kowloon Bay 九龍灣"),
-        ("Kwun Tong", "Kwun Tong 觀塘"),
-        ("Cheung Sha Wan", "Cheung Sha Wan 長沙灣"),
-        ("Lai Chi Kok", "Lai Chi Kok 荔枝角"),
-        ("Tsuen Wan", "Tsuen Wan 荃灣"),
-        ("Kwai Chung", "Kwai Chung 葵涌"),
-    ]
-
-    # Search form - 4 columns
-    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+    # Search form - simple layout with input and button
+    col1, col2 = st.columns([5, 1])
 
     with col1:
         search_query = st.text_input(
             "Search keywords 搜尋關鍵字",
-            placeholder="e.g. building name / address",
+            placeholder="e.g. 中環 / Central / building name / address",
             key="search_query"
         )
 
     with col2:
-        doc_type_filter = st.selectbox(
-            "Type 類型",
-            options=["All", "listing", "listing_list", "pitching_deck", "news", "contact"],
-            format_func=lambda x: {
-                "All": "All Types",
-                "listing": "Single Listing",
-                "listing_list": "Multi Listing",
-                "pitching_deck": "Pitching Deck",
-                "news": "News",
-                "contact": "Contact"
-            }.get(x, x),
-            key="search_doc_type"
-        )
-
-    with col3:
-        district_filter = st.selectbox(
-            "District 地區",
-            options=[d[0] for d in HK_DISTRICTS],
-            format_func=lambda x: dict(HK_DISTRICTS).get(x, x),
-            key="search_district"
-        )
-
-    with col4:
-        st.write("")  # Spacing
+        st.write("")  # Spacing for alignment
         search_clicked = st.button("Search 搜尋", type="primary", use_container_width=True)
 
     st.divider()
 
     # Perform search
-    if search_clicked or search_query or district_filter != "All Districts":
-        filters = {}
-        if doc_type_filter != "All":
-            filters["document_type"] = doc_type_filter
-        if district_filter != "All Districts":
-            filters["district"] = district_filter
-
+    if search_clicked or search_query:
         with st.spinner("Searching... 搜尋中..."):
             results = keyword_search(
                 query=search_query,
-                filters=filters,
-                top_k=100  # Fetch more to allow for client-side filtering
+                filters={},
+                top_k=100
             )
 
         if not results:
