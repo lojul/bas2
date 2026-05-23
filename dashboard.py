@@ -1,5 +1,8 @@
 """Streamlit Dashboard for Document Processor."""
 
+# Version for deployment verification
+__version__ = "2026.05.23.v3"
+
 import os
 import json
 import streamlit as st
@@ -1104,7 +1107,7 @@ def main():
     # Footer
     st.divider()
     hk_now = datetime.now(HK_TZ)
-    st.caption(f"Last updated: {hk_now.strftime('%Y-%m-%d %H:%M:%S')} (HKT)")
+    st.caption(f"Last updated: {hk_now.strftime('%Y-%m-%d %H:%M:%S')} (HKT) | Version: {__version__}")
 
 
 if __name__ == "__main__":
