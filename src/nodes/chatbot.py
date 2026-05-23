@@ -956,22 +956,26 @@ def call_llm_stream(question: str, context: str, messages: list[dict]):
     }
 
     # Use httpx streaming
-    with httpx.Client(timeout=60) as client:
-        with client.stream("POST", url, headers=headers, json=body) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if line.startswith("data: "):
-                    data = line[6:]  # Remove "data: " prefix
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        delta = chunk.get("choices", [{}])[0].get("delta", {})
-                        content = delta.get("content", "")
-                        if content:
-                            yield content
-                    except json.JSONDecodeError:
-                        continue
+    try:
+        with httpx.Client(timeout=60) as client:
+            with client.stream("POST", url, headers=headers, json=body) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]  # Remove "data: " prefix
+                        if data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(data)
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            content = delta.get("content", "")
+                            if content:
+                                yield content
+                        except json.JSONDecodeError:
+                            continue
+    except GeneratorExit:
+        # Stream was closed by caller - this is normal, don't propagate
+        return
 
 
 def generate_node(state: ChatState) -> dict:
@@ -1169,6 +1173,22 @@ def chat_stream(
         for chunk in call_llm_stream(question, context, messages):
             full_answer.append(chunk)
             yield chunk
+    except GeneratorExit:
+        # User closed the stream (navigated away, page rerun) - this is normal
+        # Save partial answer to memory anyway
+        answer = "".join(full_answer)
+        if answer:
+            try:
+                config = {"configurable": {"thread_id": thread_id}}
+                chatbot_graph.update_state(config, {
+                    "messages": [
+                        {"role": "user", "content": question},
+                        {"role": "assistant", "content": answer + " [interrupted]"}
+                    ]
+                })
+            except:
+                pass
+        return
     except Exception as e:
         _stream_metadata[thread_id].error = str(e)
         yield f"\n\nError: {e}"
