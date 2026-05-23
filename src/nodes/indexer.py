@@ -87,7 +87,12 @@ def get_http_client() -> httpx.Client:
 
 @traceable(name="index_document", run_type="chain")
 def index_document(state: DocumentState) -> DocumentState:
-    """Index processed document to Azure AI Search.
+    """Index processed document to Azure AI Search with smart merging.
+
+    If document already exists:
+    - Fetch existing data
+    - Merge new data with existing (prefer new non-null values)
+    - Update index with merged data
 
     Args:
         state: Document state with OCR and extracted data
@@ -109,6 +114,19 @@ def index_document(state: DocumentState) -> DocumentState:
         # Generate document ID from file name
         doc_id = hashlib.md5(state.file_name.encode()).hexdigest()
 
+        # Check if document already exists and get existing data
+        existing_data = get_existing_document(doc_id)
+        existing_extracted = {}
+        if existing_data:
+            try:
+                existing_extracted = json.loads(existing_data.get("extracted_data", "{}"))
+            except json.JSONDecodeError:
+                existing_extracted = {}
+
+        # Merge new extracted data with existing
+        new_extracted = state.extracted.raw if state.extracted else {}
+        merged_extracted = merge_extracted_data(existing_extracted, new_extracted)
+
         # Limit content size once (used for both storage and embedding)
         content = state.ocr.text[:MAX_CONTENT_LENGTH]
 
@@ -122,7 +140,7 @@ def index_document(state: DocumentState) -> DocumentState:
             "document_type": state.document_type.value if state.document_type else "unknown",
             "content": content,
             "content_vector": embedding,
-            "extracted_data": json.dumps(state.extracted.raw if state.extracted else {}, ensure_ascii=False),
+            "extracted_data": json.dumps(merged_extracted, ensure_ascii=False),
             "processed_at": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -138,6 +156,108 @@ def index_document(state: DocumentState) -> DocumentState:
         state.set_error(f"Indexing error: {str(e)}")
 
     return state
+
+
+@traceable(name="get_existing_document", run_type="retriever")
+def get_existing_document(doc_id: str) -> Optional[dict]:
+    """Fetch existing document from index if it exists.
+
+    Args:
+        doc_id: Document ID (MD5 hash of filename)
+
+    Returns:
+        Existing document dict or None if not found
+    """
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+
+    if not endpoint or not api_key:
+        return None
+
+    url = f"{endpoint}/indexes/{index_name}/docs/{doc_id}?api-version=2024-07-01"
+    headers = {
+        "Content-Type": "application/json",
+        "api-key": api_key,
+    }
+
+    try:
+        client = get_http_client()
+        response = client.get(url, headers=headers)
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 404:
+            return None
+        else:
+            return None
+    except Exception:
+        return None
+
+
+def merge_extracted_data(existing: dict, new: dict) -> dict:
+    """Intelligently merge extracted data - prefer new non-null values.
+
+    Rules:
+    - If new value is not None/empty, use new value
+    - If new value is None/empty but existing has value, keep existing
+    - For nested dicts, merge recursively
+    - For lists, combine and deduplicate
+
+    Args:
+        existing: Existing extracted data from index
+        new: Newly extracted data
+
+    Returns:
+        Merged data dict
+    """
+    if not existing:
+        return new
+    if not new:
+        return existing
+
+    merged = existing.copy()
+
+    for key, new_value in new.items():
+        existing_value = existing.get(key)
+
+        # Skip null/empty new values - keep existing
+        if new_value is None or new_value == "" or new_value == []:
+            continue
+
+        # Handle nested dicts recursively
+        if isinstance(new_value, dict) and isinstance(existing_value, dict):
+            merged[key] = merge_extracted_data(existing_value, new_value)
+
+        # Handle lists - combine and deduplicate
+        elif isinstance(new_value, list) and isinstance(existing_value, list):
+            # Combine lists, deduplicate if items are hashable
+            combined = existing_value + new_value
+            try:
+                # Try to deduplicate
+                seen = set()
+                deduped = []
+                for item in combined:
+                    if isinstance(item, dict):
+                        # For dicts, use JSON string as key
+                        key_str = json.dumps(item, sort_keys=True)
+                        if key_str not in seen:
+                            seen.add(key_str)
+                            deduped.append(item)
+                    else:
+                        if item not in seen:
+                            seen.add(item)
+                            deduped.append(item)
+                merged[key] = deduped
+            except (TypeError, ValueError):
+                # If dedup fails, just use new
+                merged[key] = new_value
+
+        # For scalar values, prefer new non-null value
+        else:
+            merged[key] = new_value
+
+    return merged
 
 
 @traceable(name="ensure_index_exists", run_type="tool")

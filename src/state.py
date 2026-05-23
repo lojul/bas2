@@ -80,6 +80,9 @@ class DocumentState:
     document_type: DocumentType = DocumentType.UNKNOWN
     classification_confidence: float = 0.0
 
+    # Analysis (pre-extraction structure analysis)
+    analysis: dict[str, Any] = field(default_factory=dict)
+
     # Extraction
     extracted: ExtractedData = field(default_factory=ExtractedData)
 

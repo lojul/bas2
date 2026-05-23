@@ -124,6 +124,7 @@ class TestGraphStructure:
         assert ("__start__", "get_download_url") in edge_pairs
         assert ("get_download_url", "run_ocr") in edge_pairs
         assert ("run_ocr", "classify") in edge_pairs
-        assert ("classify", "extract") in edge_pairs
+        assert ("classify", "analyze") in edge_pairs
+        assert ("analyze", "extract") in edge_pairs
         assert ("extract", "index") in edge_pairs
         assert ("index", "__end__") in edge_pairs

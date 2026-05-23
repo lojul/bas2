@@ -1,6 +1,6 @@
 """Main LangGraph workflow for document processing.
 
-Workflow: get_download_url → run_ocr → classify
+Workflow: get_download_url → run_ocr → classify → analyze → extract → index
 """
 
 import os
@@ -66,6 +66,15 @@ def classify_node(data: GraphState) -> GraphState:
     return {"state": updated_state}
 
 
+def analyze_node(data: GraphState) -> GraphState:
+    """Pre-analyze document structure before extraction."""
+    from src.nodes.analyzer import analyze_document
+
+    state = data["state"]
+    updated_state = analyze_document(state)
+    return {"state": updated_state}
+
+
 def extract_node(data: GraphState) -> GraphState:
     """Extract structured data based on document type."""
     from src.nodes.extractor import extract_data
@@ -92,7 +101,10 @@ def index_node(data: GraphState) -> GraphState:
 def create_graph() -> StateGraph:
     """Create the document processing graph.
 
-    start → get_download_url → run_ocr → classify → extract → index → end
+    start → get_download_url → run_ocr → classify → analyze → extract → index → end
+
+    The analyze step examines document structure before extraction to enable
+    adaptive extraction based on what information is actually present.
     """
     graph = StateGraph(GraphState)
 
@@ -100,6 +112,7 @@ def create_graph() -> StateGraph:
     graph.add_node("get_download_url", get_download_url_node)
     graph.add_node("run_ocr", run_ocr_node)
     graph.add_node("classify", classify_node)
+    graph.add_node("analyze", analyze_node)
     graph.add_node("extract", extract_node)
     graph.add_node("index", index_node)
 
@@ -107,7 +120,8 @@ def create_graph() -> StateGraph:
     graph.add_edge(START, "get_download_url")
     graph.add_edge("get_download_url", "run_ocr")
     graph.add_edge("run_ocr", "classify")
-    graph.add_edge("classify", "extract")
+    graph.add_edge("classify", "analyze")
+    graph.add_edge("analyze", "extract")
     graph.add_edge("extract", "index")
     graph.add_edge("index", END)
 
@@ -154,6 +168,9 @@ def print_graph() -> None:
 if __name__ == "__main__":
     print("Document Processor Graph:")
     print()
-    print("  __start__ → get_download_url → run_ocr → classify → extract → index → __end__")
+    print("  __start__ → get_download_url → run_ocr → classify → analyze → extract → index → __end__")
+    print()
+    print("New: analyze step pre-examines document structure for adaptive extraction")
+    print("New: index step checks for existing docs and merges data intelligently")
     print()
     print("Note: list_onedrive_files is handled by process_inbox.py")
