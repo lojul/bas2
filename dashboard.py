@@ -733,29 +733,35 @@ def render_chat_tab():
 
             # Stream assistant response
             with st.chat_message("assistant"):
-                # Show searching indicator briefly
-                with st.spinner("Searching documents... 搜尋文件中..."):
-                    # Create the generator (this triggers document search)
-                    stream_gen = chat_stream(
-                        question=prompt,
-                        thread_id=thread_id
-                    )
+                try:
+                    # Show searching indicator briefly
+                    with st.spinner("Searching documents... 搜尋文件中..."):
+                        # Create the generator (this triggers document search)
+                        stream_gen = chat_stream(
+                            question=prompt,
+                            thread_id=thread_id
+                        )
 
-                # Stream the response using st.write_stream
-                answer = st.write_stream(stream_gen)
+                    # Stream the response using st.write_stream
+                    answer = st.write_stream(stream_gen)
 
-                # Get metadata (sources) after streaming completes
-                metadata = get_stream_metadata(thread_id)
-                sources = metadata.sources
+                    # Get metadata (sources) after streaming completes
+                    metadata = get_stream_metadata(thread_id)
+                    sources = metadata.sources
 
-                # Show sources
-                if sources:
-                    with st.expander("Sources / 資料來源", expanded=False):
-                        for src in sources:
-                            if src.get("type") == "web":
-                                st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
-                            else:
-                                st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+                    # Show sources
+                    if sources:
+                        with st.expander("Sources / 資料來源", expanded=False):
+                            for src in sources:
+                                if src.get("type") == "web":
+                                    st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
+                                else:
+                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+
+                except Exception as e:
+                    answer = f"Error: {str(e)}"
+                    sources = []
+                    st.error(f"Chat error: {str(e)}")
 
             # Add assistant response to display history
             st.session_state["chat_messages"].append({
