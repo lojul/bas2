@@ -846,7 +846,11 @@ def route_query(query: str) -> str:
 
 
 def retrieve_node(state: ChatState) -> dict:
-    """Node: Search for relevant documents and/or web based on query type."""
+    """Node: Search for relevant documents and/or web based on query type.
+
+    Uses fast single-query search for quick responses.
+    Azure AI Search semantic ranking provides good relevance.
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     question = state["current_question"]
@@ -862,7 +866,8 @@ def retrieve_node(state: ChatState) -> dict:
         futures = {}
 
         if route in ("vector", "hybrid"):
-            futures["docs"] = executor.submit(multi_query_search, question, 5)
+            # Use direct search (fast) instead of multi_query_search (slow)
+            futures["docs"] = executor.submit(search_documents, question, 5, True)
 
         if route in ("web", "hybrid"):
             futures["web"] = executor.submit(web_search, question, 3)
