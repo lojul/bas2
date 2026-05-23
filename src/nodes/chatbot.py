@@ -451,7 +451,7 @@ def keyword_search(
 
     Args:
         query: Search keywords (optional)
-        filters: Dict with optional keys: document_type, district, min_rent, max_rent
+        filters: Dict with optional keys: document_type, district
         top_k: Number of results
 
     Returns:
@@ -470,15 +470,31 @@ def keyword_search(
         "api-key": api_key,
     }
 
+    # Build search body
+    # - When query exists: use relevance ranking with field boosting
+    # - When no query: return all sorted by date
+    has_query = bool(query and query.strip())
+
     body = {
-        "search": query if query else "*",  # * returns all if no query
-        "searchFields": "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,processed_at",
+        "search": query if has_query else "*",
+        # Boost file_name and extracted_data over general content for better relevance
+        "searchFields": "file_name,extracted_data,content" if has_query else "content,file_name",
+        "select": "id,file_name,document_type,content,extracted_data,image_urls,processed_at",
         "top": top_k,
-        "orderby": "processed_at desc",
     }
 
-    # Build filter string
+    # Only sort by date when browsing (no query) - otherwise use relevance score
+    if not has_query:
+        body["orderby"] = "processed_at desc"
+
+    # Enable semantic ranking for better natural language understanding
+    if has_query:
+        body["queryType"] = "semantic"
+        body["semanticConfiguration"] = "default-semantic-config"
+        body["captions"] = "extractive"
+        body["answers"] = "extractive"
+
+    # Build filter string (OData filters for top-level fields only)
     filter_parts = []
     if filters:
         if filters.get("document_type"):
@@ -492,6 +508,23 @@ def keyword_search(
     response.raise_for_status()
 
     results = response.json().get("value", [])
+
+    # Client-side district filtering (since district is in extracted_data JSON)
+    district_filter = filters.get("district") if filters else None
+    if district_filter:
+        filtered_results = []
+        for doc in results:
+            extracted = doc.get("extracted_data", "{}")
+            if isinstance(extracted, str):
+                try:
+                    extracted = json.loads(extracted)
+                except:
+                    extracted = {}
+            doc_district = extracted.get("district", "")
+            # Match if filter text is in the district (case-insensitive)
+            if district_filter.lower() in doc_district.lower():
+                filtered_results.append(doc)
+        results = filtered_results
 
     # Format results
     documents = []
@@ -509,6 +542,7 @@ def keyword_search(
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:500],
             "extracted_data": extracted,
+            "image_urls": doc.get("image_urls", []),
             "processed_at": doc.get("processed_at", ""),
             "score": doc.get("@search.score", 0),
         })

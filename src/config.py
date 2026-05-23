@@ -23,10 +23,17 @@ class AzureBlobConfig:
     account: str
     container: str
     read_sas: str
+    images_container: str = "document-images"
+    write_sas: str = ""
 
     @property
     def account_url(self) -> str:
         return f"https://{self.account}.blob.core.windows.net"
+
+    @property
+    def images_url(self) -> str:
+        """URL for the images container."""
+        return f"https://{self.account}.blob.core.windows.net/{self.images_container}"
 
 
 @dataclass(frozen=True)
@@ -105,6 +112,8 @@ def load_config() -> Config:
             account=os.environ["AZURE_BLOB_ACCOUNT"],
             container=os.environ["AZURE_BLOB_CONTAINER"],
             read_sas=os.environ["AZURE_BLOB_READ_SAS"],
+            images_container=os.environ.get("AZURE_BLOB_IMAGES_CONTAINER", "document-images"),
+            write_sas=os.environ.get("AZURE_BLOB_WRITE_SAS", ""),
         ),
         openai=AzureOpenAIConfig(
             endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],

@@ -31,6 +31,7 @@ INDEX_SCHEMA = {
             "vectorSearchProfile": "default-profile"
         },
         {"name": "extracted_data", "type": "Edm.String", "searchable": True},
+        {"name": "image_urls", "type": "Collection(Edm.String)", "searchable": False, "filterable": False},
         {"name": "processed_at", "type": "Edm.DateTimeOffset", "searchable": False, "filterable": True, "sortable": True},
     ],
     "vectorSearch": {
@@ -133,6 +134,11 @@ def index_document(state: DocumentState) -> DocumentState:
         # Get embeddings for content
         embedding = get_embedding(content)
 
+        # Get image URLs from OCR (or existing index)
+        image_urls = state.ocr.image_urls if state.ocr else []
+        if not image_urls and existing_data:
+            image_urls = existing_data.get("image_urls", [])
+
         # Prepare document for indexing
         doc = {
             "id": doc_id,
@@ -141,6 +147,7 @@ def index_document(state: DocumentState) -> DocumentState:
             "content": content,
             "content_vector": embedding,
             "extracted_data": json.dumps(merged_extracted, ensure_ascii=False),
+            "image_urls": image_urls,
             "processed_at": datetime.now(timezone.utc).isoformat(),
         }
 

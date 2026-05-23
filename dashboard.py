@@ -152,6 +152,24 @@ def format_doc_type(doc_type: str) -> str:
     return DOC_TYPE_LABELS.get(doc_type, doc_type.replace("_", " ").title())
 
 
+def render_image_gallery(image_urls: list, max_images: int = 5):
+    """Render a horizontal image gallery with thumbnails.
+
+    Args:
+        image_urls: List of image URLs
+        max_images: Maximum images to display
+    """
+    if not image_urls:
+        return
+
+    urls = image_urls[:max_images]
+    cols = st.columns(min(len(urls), 5))
+
+    for idx, url in enumerate(urls):
+        with cols[idx % len(cols)]:
+            st.image(url, use_container_width=True)
+
+
 # ============ LangSmith Functions ============
 
 @st.cache_data(ttl=30)  # Cache for 30 seconds
@@ -320,7 +338,7 @@ def get_vector_db_data() -> dict[str, Any]:
             body = {
                 "search": "*",
                 "top": 1000,
-                "select": "id,file_name,document_type,processed_at,extracted_data",
+                "select": "id,file_name,document_type,processed_at,extracted_data,image_urls",
                 "orderby": "processed_at desc"
             }
             search_resp = client.post(search_url, headers=headers, json=body)
@@ -337,6 +355,7 @@ def get_vector_db_data() -> dict[str, Any]:
                         "document_type": dtype,
                         "processed_at": doc.get("processed_at"),
                         "extracted_data": doc.get("extracted_data"),
+                        "image_urls": doc.get("image_urls", []),
                         "chunk_count": 1,
                         "chunk_ids": [doc.get("id")]
                     }
@@ -344,6 +363,10 @@ def get_vector_db_data() -> dict[str, Any]:
                 else:
                     files[fname]["chunk_count"] += 1
                     files[fname]["chunk_ids"].append(doc.get("id"))
+                    # Merge image URLs from chunks
+                    existing_urls = set(files[fname].get("image_urls", []))
+                    new_urls = doc.get("image_urls", [])
+                    files[fname]["image_urls"] = list(existing_urls | set(new_urls))
 
             return {
                 "total_chunks": total_count,
@@ -603,6 +626,7 @@ def render_vector_db_tab():
             chunks = f.get("chunk_count", 1)
             proc_at = f.get("processed_at", "")
             extracted = f.get("extracted_data")
+            image_urls = f.get("image_urls", [])
 
             if proc_at:
                 try:
@@ -625,13 +649,17 @@ def render_vector_db_tab():
                     st.write("-")
 
             # Show data below if toggled
-            if st.session_state.get(f"vdb_show_{row_id}", False) and extracted:
-                try:
-                    if isinstance(extracted, str):
-                        extracted = json.loads(extracted)
-                    st.json(extracted)
-                except Exception:
-                    st.code(str(extracted))
+            if st.session_state.get(f"vdb_show_{row_id}", False):
+                if extracted:
+                    try:
+                        if isinstance(extracted, str):
+                            extracted = json.loads(extracted)
+                        st.json(extracted)
+                    except Exception:
+                        st.code(str(extracted))
+                if image_urls:
+                    st.write("**Images:**")
+                    render_image_gallery(image_urls)
 
         # Pagination controls
         if total_pages > 1:
@@ -790,13 +818,32 @@ def render_search_tab():
 
     st.caption("Direct Property Search | 直接物業搜尋")
 
-    # Search form
-    col1, col2, col3 = st.columns([3, 1, 1])
+    # Common HK districts for filtering
+    HK_DISTRICTS = [
+        "All Districts",
+        "Central", "中環",
+        "Admiralty", "金鐘",
+        "Wan Chai", "灣仔",
+        "Causeway Bay", "銅鑼灣",
+        "North Point", "北角",
+        "Quarry Bay", "鰂魚涌",
+        "Tsim Sha Tsui", "尖沙咀",
+        "Mong Kok", "旺角",
+        "Kowloon Bay", "九龍灣",
+        "Kwun Tong", "觀塘",
+        "Cheung Sha Wan", "長沙灣",
+        "Lai Chi Kok", "荔枝角",
+        "Tsuen Wan", "荃灣",
+        "Kwai Chung", "葵涌",
+    ]
+
+    # Search form - 4 columns
+    col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
 
     with col1:
         search_query = st.text_input(
             "Search keywords 搜尋關鍵字",
-            placeholder="e.g. 中環 / Central / building name",
+            placeholder="e.g. building name / address",
             key="search_query"
         )
 
@@ -816,22 +863,31 @@ def render_search_tab():
         )
 
     with col3:
+        district_filter = st.selectbox(
+            "District 地區",
+            options=HK_DISTRICTS,
+            key="search_district"
+        )
+
+    with col4:
         st.write("")  # Spacing
         search_clicked = st.button("Search 搜尋", type="primary", use_container_width=True)
 
     st.divider()
 
     # Perform search
-    if search_clicked or search_query:
+    if search_clicked or search_query or district_filter != "All Districts":
         filters = {}
         if doc_type_filter != "All":
             filters["document_type"] = doc_type_filter
+        if district_filter != "All Districts":
+            filters["district"] = district_filter
 
         with st.spinner("Searching... 搜尋中..."):
             results = keyword_search(
                 query=search_query,
                 filters=filters,
-                top_k=20
+                top_k=50  # Fetch more to allow for client-side filtering
             )
 
         if not results:
@@ -844,6 +900,7 @@ def render_search_tab():
                 doc_type = doc.get("document_type", "unknown")
                 file_name = doc.get("file_name", "Unknown")
                 extracted = doc.get("extracted_data", {})
+                image_urls = doc.get("image_urls", [])
 
                 with st.container():
                     # Header with document type badge
@@ -942,6 +999,11 @@ def render_search_tab():
                     else:
                         # Generic display
                         st.json(extracted)
+
+                    # Display images if available
+                    if image_urls:
+                        with st.expander(f"Images ({len(image_urls)})", expanded=False):
+                            render_image_gallery(image_urls)
 
                     st.divider()
     else:

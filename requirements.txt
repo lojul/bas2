@@ -19,5 +19,8 @@ httpx>=0.27
 python-dotenv>=1.0
 tavily-python>=0.3
 
+# PDF Processing
+PyMuPDF>=1.24
+
 # Microsoft Auth
 msal>=1.24.0

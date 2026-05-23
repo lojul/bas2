@@ -44,6 +44,7 @@ class OCRResult:
     figures: list[dict[str, Any]] = field(default_factory=list)
     pages: int = 0
     confidence: float = 0.0
+    image_urls: list[str] = field(default_factory=list)  # URLs of extracted images
 
 
 @dataclass
