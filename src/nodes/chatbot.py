@@ -1086,7 +1086,11 @@ class StreamingChatResponse:
 
 @traceable(name="chat_retrieve", run_type="chain", project_name=CHATBOT_PROJECT)
 def _chat_retrieve(question: str, thread_id: str) -> dict:
-    """Retrieve documents and web results for chat (traced separately)."""
+    """Retrieve documents and web results for chat (traced separately).
+
+    Uses fast single-query search (no multi-query, no reranking) for quick responses.
+    Azure AI Search semantic ranking provides good relevance without extra LLM calls.
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     route = route_query(question)
@@ -1097,7 +1101,9 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
         futures = {}
 
         if route in ("vector", "hybrid"):
-            futures["docs"] = executor.submit(multi_query_search, question, 5)
+            # Use direct search (fast) instead of multi_query_search (slow)
+            # Azure semantic ranking already provides good relevance
+            futures["docs"] = executor.submit(search_documents, question, 5, True)
 
         if route in ("web", "hybrid"):
             futures["web"] = executor.submit(web_search, question, 3)
@@ -1105,7 +1111,7 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
         for key, future in futures.items():
             try:
                 if key == "docs":
-                    documents = future.result(timeout=30)
+                    documents = future.result(timeout=15)
                 elif key == "web":
                     web_results = future.result(timeout=15)
             except Exception:
