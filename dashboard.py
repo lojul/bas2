@@ -929,22 +929,35 @@ def render_search_tab():
                             st.write(f"**Contact:** {extracted.get('contact_phone', 'N/A')}")
 
                     elif doc_type == "listing_list":
-                        st.write(f"**Building:** {extracted.get('building_name', 'N/A')}")
-                        st.write(f"**Address:** {extracted.get('address', 'N/A')}")
-                        units = extracted.get("units", [])
-                        if units:
-                            st.write(f"**Units:** {len(units)} available")
-                            # Show units as table
-                            unit_data = []
-                            for u in units[:10]:
-                                unit_data.append({
-                                    "Floor": u.get("floor", ""),
-                                    "Unit": u.get("unit", ""),
-                                    "Size (sqft)": u.get("size", ""),
-                                    "Rent (HK$)": u.get("rent", ""),
-                                })
-                            if unit_data:
-                                st.dataframe(unit_data, use_container_width=True, hide_index=True)
+                        # listing_list stores data in items array
+                        items = extracted.get("items", [])
+                        if items:
+                            st.write(f"**Properties:** {len(items)} buildings")
+                            # Show each building with its units
+                            for i, item in enumerate(items[:5]):  # Show max 5 buildings
+                                building = item.get('building_name', 'N/A')
+                                district = item.get('district', '')
+                                address = item.get('address', '')
+                                units = item.get('units', [])
+
+                                with st.expander(f"{building} ({district})" if district else building, expanded=(i==0)):
+                                    if address:
+                                        st.write(f"**Address:** {address}")
+                                    if units:
+                                        unit_data = []
+                                        for u in units[:10]:
+                                            unit_data.append({
+                                                "Floor": u.get("floor", ""),
+                                                "Unit": u.get("unit", ""),
+                                                "Size (sqft)": u.get("size", ""),
+                                                "Rent (HK$)": u.get("rent", ""),
+                                            })
+                                        if unit_data:
+                                            st.dataframe(unit_data, use_container_width=True, hide_index=True)
+                            if len(items) > 5:
+                                st.caption(f"... and {len(items) - 5} more buildings")
+                        else:
+                            st.write("No property data extracted")
 
                     elif doc_type == "pitching_deck":
                         col_a, col_b = st.columns(2)
