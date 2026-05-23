@@ -512,10 +512,13 @@ def keyword_search(
     # Filter out low-relevance results when searching (not browsing)
     # Semantic reranker score ~2.5+ indicates good relevance
     MIN_RERANKER_SCORE = 2.5
+    IMAGE_EXTENSIONS = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+
     if has_query:
         results = [
             r for r in results
             if r.get("@search.rerankerScore", 0) >= MIN_RERANKER_SCORE
+            and not r.get("file_name", "").lower().endswith(IMAGE_EXTENSIONS)
         ]
 
     # Client-side district filtering (since district is in extracted_data JSON)
