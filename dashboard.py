@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v5"
+__version__ = "2026.05.23.v6"
 
 import os
 import json
@@ -711,19 +711,19 @@ def render_chat_tab():
     with col1:
         send_clicked = st.button("Send / 發送", type="primary", use_container_width=True)
     with col2:
-        if st.button("Clear / 清除", use_container_width=True):
-            # Reset both display messages and create new thread for memory
-            st.session_state["chat_messages"] = []
-            st.session_state["chat_thread_id"] = str(uuid.uuid4())
-            st.session_state["last_prompt"] = None
-            st.rerun()
+        clear_clicked = st.button("Clear / 清除", use_container_width=True)
+
+    if clear_clicked:
+        # Reset chat state
+        st.session_state["chat_messages"] = []
+        st.session_state["chat_thread_id"] = str(uuid.uuid4())
+        st.session_state["last_prompt"] = None
+        st.rerun()
 
     st.divider()
 
-    # Process new message
-    if (send_clicked or prompt) and prompt and prompt.strip():
-        # Check if this is a new message (not already processed)
-        if not st.session_state.get("last_prompt") == prompt:
+    # Process new message - ONLY when Send is clicked
+    if send_clicked and prompt and prompt.strip():
             st.session_state["last_prompt"] = prompt
             thread_id = st.session_state["chat_thread_id"]
 
