@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v6"
+__version__ = "2026.05.23.v7"
 
 import os
 import json
@@ -1077,19 +1077,19 @@ def main():
 
     st.title("Document Processor")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Processing Status", "Vector Database", "Search", "Chat"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Search", "Chat", "Document Process", "Vector"])
 
     with tab1:
-        render_processing_tab()
-
-    with tab2:
-        render_vector_db_tab()
-
-    with tab3:
         render_search_tab()
 
-    with tab4:
+    with tab2:
         render_chat_tab()
+
+    with tab3:
+        render_processing_tab()
+
+    with tab4:
+        render_vector_db_tab()
 
     # Footer
     st.divider()
