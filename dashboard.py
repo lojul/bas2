@@ -697,31 +697,43 @@ def render_chat_tab():
     # Header
     st.caption("Property Intelligence Assistant | 物業智能助理")
 
+    # Initialize processing state
+    if "chat_processing" not in st.session_state:
+        st.session_state["chat_processing"] = False
+
     # Chat input at TOP
     prompt = st.text_input(
         "Ask about properties... 詢問物業資訊...",
         key="chat_input",
-        placeholder="e.g. 中環有什麼寫字樓？ / What offices in Central?"
+        placeholder="e.g. 中環有什麼寫字樓？ / What offices in Central?",
+        disabled=st.session_state["chat_processing"]
     )
 
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
-        send_clicked = st.button("Send / 發送", type="primary", use_container_width=True)
+        send_clicked = st.button(
+            "Send / 發送",
+            type="primary",
+            use_container_width=True,
+            disabled=st.session_state["chat_processing"]
+        )
     with col2:
-        if st.button("Clear / 清除", use_container_width=True):
+        if st.button("Clear / 清除", use_container_width=True, disabled=st.session_state["chat_processing"]):
             # Reset both display messages and create new thread for memory
             st.session_state["chat_messages"] = []
             st.session_state["chat_thread_id"] = str(uuid.uuid4())
             st.session_state["last_prompt"] = None
+            st.session_state["chat_processing"] = False
             st.rerun()
 
     st.divider()
 
     # Process new message with streaming
     if (send_clicked or prompt) and prompt and prompt.strip():
-        # Check if this is a new message (not already processed)
-        if not st.session_state.get("last_prompt") == prompt:
+        # Check if this is a new message and not already processing
+        if not st.session_state.get("last_prompt") == prompt and not st.session_state.get("chat_processing"):
             st.session_state["last_prompt"] = prompt
+            st.session_state["chat_processing"] = True
             thread_id = st.session_state["chat_thread_id"]
 
             # Add user message to display history
@@ -734,16 +746,30 @@ def render_chat_tab():
             # Stream assistant response
             with st.chat_message("assistant"):
                 try:
-                    # Show searching indicator briefly
-                    with st.spinner("Searching documents... 搜尋文件中..."):
-                        # Create the generator (this triggers document search)
-                        stream_gen = chat_stream(
-                            question=prompt,
-                            thread_id=thread_id
-                        )
+                    # Show searching indicator
+                    status = st.empty()
+                    status.write("🔍 Searching... 搜尋中...")
 
-                    # Stream the response using st.write_stream
-                    answer = st.write_stream(stream_gen)
+                    # Create the generator (this triggers document search)
+                    stream_gen = chat_stream(
+                        question=prompt,
+                        thread_id=thread_id
+                    )
+
+                    # Clear status and stream response manually for better control
+                    status.empty()
+                    response_placeholder = st.empty()
+                    full_response = []
+
+                    for chunk in stream_gen:
+                        full_response.append(chunk)
+                        # Update display every few chunks for performance
+                        if len(full_response) % 5 == 0 or len(chunk) > 10:
+                            response_placeholder.markdown("".join(full_response) + "▌")
+
+                    # Final update without cursor
+                    answer = "".join(full_response)
+                    response_placeholder.markdown(answer)
 
                     # Get metadata (sources) after streaming completes
                     metadata = get_stream_metadata(thread_id)
@@ -770,7 +796,8 @@ def render_chat_tab():
                 "sources": sources
             })
 
-            # Rerun to update history display
+            # Reset processing state and rerun
+            st.session_state["chat_processing"] = False
             st.rerun()
 
     # Display chat history (newest first near chat box, oldest at bottom)
