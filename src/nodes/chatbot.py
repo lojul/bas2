@@ -612,6 +612,40 @@ Content Preview:
 Content Preview:
 {content[:300]}
 """)
+        elif doc_type == "pitching_deck":
+            # Rich project/development information
+            summary = extracted.get('project_summary', {})
+            location = extracted.get('location', {})
+            available_units = extracted.get('available_units', [])
+            units_str = ""
+            for u in available_units[:5]:
+                units_str += f"  - {u.get('unit', '')} ({u.get('floor', '')}): {u.get('size_sqft', 'N/A')} sqft, {u.get('facing', '')}\n"
+
+            context_parts.append(f"""
+---
+**Document {i}: {file_name}** (Type: Pitching Deck)
+- Project: {extracted.get('project_name', 'N/A')} {extracted.get('project_name_zh', '')}
+- Developer: {extracted.get('developer', 'N/A')}
+- Address: {extracted.get('address', 'N/A')}
+- District: {extracted.get('district', 'N/A')}
+- Property Type: {extracted.get('property_type', 'N/A')}
+- Project Summary:
+  - Retail: {summary.get('retail_area_sqft', 'N/A')} sqft ({summary.get('floors_retail', 'N/A')} floors)
+  - Office: {summary.get('office_area_sqft', 'N/A')} sqft ({summary.get('floors_office', 'N/A')} floors)
+  - Residential: {summary.get('residential_units', 'N/A')} units
+  - Theatre: {summary.get('theatre_seats', 'N/A')} seats
+- Availability: {extracted.get('availability_date', 'N/A')}
+- Location:
+  - MTR: {', '.join(location.get('mtr_stations', [])) if location.get('mtr_stations') else 'N/A'}
+  - Catchment Population: {location.get('catchment_population', 'N/A')}
+  - Nearby Office Area: {location.get('nearby_office_sqft', 'N/A')} sqft
+  - Nearby Hotels: {location.get('nearby_hotels_rooms', 'N/A')} rooms
+- Key Features: {', '.join(extracted.get('key_features', [])[:5]) if extracted.get('key_features') else 'N/A'}
+- Available Units for Lease:
+{units_str if units_str else '  - Contact for details'}
+Content Preview:
+{content[:300]}
+""")
         elif doc_type == "news":
             context_parts.append(f"""
 ---

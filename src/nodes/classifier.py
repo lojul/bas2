@@ -19,7 +19,17 @@ File Info:
 
 Classify as ONE of:
 
-1. **listing_list** - Multi-property listing document (CHECK THIS FIRST):
+1. **pitching_deck** - Property marketing/presentation deck (CHECK THIS FIRST for multi-page docs):
+   - Professional presentation format (10+ pages)
+   - Project overview with developer branding (K11, Henderson, Swire, etc.)
+   - Contains demographics, catchment area, population data
+   - Floor plans, stacking diagrams, traffic flow
+   - Multiple sections: location, project summary, leasing proposal
+   - Keywords: Pitching, Re-development, Project Summary, Demographic, Catchment, Heritage
+   - Mixed-use developments with retail + office + residential components
+   - High-quality renders, maps, transformation visuals
+
+2. **listing_list** - Multi-property listing document:
    - Contains MULTIPLE numbered property entries (1), 2), 3)... or 1. 2. 3...)
    - Table format with repeated rows for DIFFERENT properties
    - Multiple 樓盤編號 (property IDs) in the document
@@ -27,26 +37,28 @@ Classify as ONE of:
    - Columns like 地址, 面積, 租金 for EACH property
    - More than 3 distinct properties listed
 
-2. **listing** - Single property for rent/sale:
+3. **listing** - Single property for rent/sale:
    - ONE specific property only (may have multiple floors/units in SAME building)
    - Has asking rent or sale price for ONE property
    - Agent contact info
    - Keywords: 招租, 出售, For Lease, For Sale, Subject to Contract
-   - Leasing proposal, sales brochure, tenancy terms
+   - Leasing proposal, sales brochure, tenancy terms (simple format)
 
-3. **news** - Market news, transaction report, or media article:
+4. **news** - Market news, transaction report, or media article:
    - Completed transaction (成交, 售出, transaction)
    - News source, newspaper section
    - Reporter/journalist byline
    - Historical prices, profit/loss analysis
 
-4. **contact** - Business card or contact information:
+5. **contact** - Business card or contact information:
    - Person's name prominently displayed
    - Job title, company name
    - Phone numbers, email address
    - Usually short text with minimal property details
 
-IMPORTANT: If you see multiple properties in a table with different addresses and prices, classify as "listing_list", NOT "listing".
+IMPORTANT:
+- If page_count >= 10 with demographics/project overview, classify as "pitching_deck"
+- If you see multiple properties with different addresses, classify as "listing_list"
 
 Return ONLY valid JSON:
 {{"type": "listing", "confidence": 0.9, "reason": "brief explanation"}}
@@ -85,6 +97,40 @@ def auto_detect_listing_list(text: str, table_count: int) -> bool:
         return True
 
     return False
+
+
+def auto_detect_pitching_deck(text: str, text_length: int, page_count: int) -> bool:
+    """Check if document looks like a pitching/marketing deck.
+
+    Args:
+        text: OCR text
+        text_length: Total text length
+        page_count: Number of pages
+
+    Returns:
+        True if document appears to be a pitching deck
+    """
+    # Must be multi-page document
+    if page_count < 8:
+        return False
+
+    text_lower = text.lower()
+
+    # Key indicators of pitching decks
+    pitching_keywords = [
+        'demographic', 'catchment', 'population', 'project summary',
+        're-development', 'redevelopment', 'transformation', 'heritage',
+        'stacking plan', 'stacking', 'traffic flow', 'floor plan',
+        'leasing proposal', 'by k11', 'k11 mall', 'by henderson',
+        'by swire', 'by new world', 'walking distance', 'residential units',
+        'office area', 'retail area', 'pitching', 'dimension plan',
+        '人口', '步行', '寫字樓', '零售', '住宅', '商場', '項目概覽'
+    ]
+
+    keyword_count = sum(1 for kw in pitching_keywords if kw in text_lower)
+
+    # If 2+ pitching keywords found in a multi-page doc, it's likely a deck
+    return keyword_count >= 2
 
 
 def auto_detect_contact(text: str, text_length: int, page_count: int) -> bool:
@@ -144,6 +190,11 @@ def classify_document(state: DocumentState) -> DocumentState:
         confidence = float(result.get("confidence", 0.5))
 
         # Auto-detection overrides
+        # Check for pitching deck first (multi-page professional presentations)
+        if doc_type in ("listing", "listing_list") and auto_detect_pitching_deck(text, len(text), page_count):
+            doc_type = "pitching_deck"
+            confidence = 0.90
+
         if doc_type == "listing" and auto_detect_listing_list(text, table_count):
             doc_type = "listing_list"
             confidence = 0.85
@@ -156,6 +207,7 @@ def classify_document(state: DocumentState) -> DocumentState:
         type_map = {
             "listing": DocumentType.LISTING,
             "listing_list": DocumentType.LISTING_LIST,
+            "pitching_deck": DocumentType.PITCHING_DECK,
             "news": DocumentType.NEWS,
             "contact": DocumentType.CONTACT,
         }

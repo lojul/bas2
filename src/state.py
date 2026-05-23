@@ -11,6 +11,7 @@ class DocumentType(str, Enum):
 
     LISTING = "listing"
     LISTING_LIST = "listing_list"
+    PITCHING_DECK = "pitching_deck"  # Property marketing/presentation deck
     NEWS = "news"
     CONTACT = "contact"
     UNKNOWN = "unknown"

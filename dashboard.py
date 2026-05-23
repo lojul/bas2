@@ -141,6 +141,7 @@ HK_TZ = timezone(timedelta(hours=8))
 DOC_TYPE_LABELS = {
     "listing": "Single Listing",
     "listing_list": "Multi Listing",
+    "pitching_deck": "Pitching Deck",
     "news": "News",
     "contact": "Contact",
     "unknown": "Unknown",
@@ -802,11 +803,12 @@ def render_search_tab():
     with col2:
         doc_type_filter = st.selectbox(
             "Type 類型",
-            options=["All", "listing", "listing_list", "news", "contact"],
+            options=["All", "listing", "listing_list", "pitching_deck", "news", "contact"],
             format_func=lambda x: {
                 "All": "All Types",
                 "listing": "Single Listing",
                 "listing_list": "Multi Listing",
+                "pitching_deck": "Pitching Deck",
                 "news": "News",
                 "contact": "Contact"
             }.get(x, x),
@@ -848,6 +850,7 @@ def render_search_tab():
                     type_colors = {
                         "listing": "🏢",
                         "listing_list": "🏗️",
+                        "pitching_deck": "📊",
                         "news": "📰",
                         "contact": "👤"
                     }
@@ -884,6 +887,42 @@ def render_search_tab():
                                 })
                             if unit_data:
                                 st.dataframe(unit_data, use_container_width=True, hide_index=True)
+
+                    elif doc_type == "pitching_deck":
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            st.write(f"**Project:** {extracted.get('project_name', 'N/A')}")
+                            st.write(f"**Developer:** {extracted.get('developer', 'N/A')}")
+                            st.write(f"**Address:** {extracted.get('address', 'N/A')}")
+                            st.write(f"**District:** {extracted.get('district', 'N/A')}")
+                        with col_b:
+                            summary = extracted.get("project_summary", {})
+                            if summary:
+                                st.write(f"**Retail:** {summary.get('retail_area_sqft', 'N/A')} sqft")
+                                st.write(f"**Office:** {summary.get('office_area_sqft', 'N/A')} sqft")
+                                st.write(f"**Residential:** {summary.get('residential_units', 'N/A')} units")
+                            st.write(f"**Availability:** {extracted.get('availability_date', 'N/A')}")
+
+                        # Show available units if any
+                        available_units = extracted.get("available_units", [])
+                        if available_units:
+                            st.write(f"**Available Units:** {len(available_units)}")
+                            unit_data = []
+                            for u in available_units[:10]:
+                                unit_data.append({
+                                    "Unit": u.get("unit", ""),
+                                    "Floor": u.get("floor", ""),
+                                    "Size (sqft)": u.get("size_sqft", ""),
+                                    "Facing": u.get("facing", ""),
+                                    "Features": u.get("features", ""),
+                                })
+                            if unit_data:
+                                st.dataframe(unit_data, use_container_width=True, hide_index=True)
+
+                        # Show key features
+                        features = extracted.get("key_features", [])
+                        if features:
+                            st.write(f"**Key Features:** {', '.join(features[:5])}")
 
                     elif doc_type == "news":
                         st.write(f"**Title:** {extracted.get('title', '')} {extracted.get('title_zh', '')}")

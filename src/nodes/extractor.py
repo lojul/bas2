@@ -102,6 +102,73 @@ Return a JSON object:
 }}
 
 JSON:""",
+
+    DocumentType.PITCHING_DECK: """Extract comprehensive property development/marketing information from this pitching deck.
+
+IMPORTANT RULES:
+- Extract ALL information that is EXPLICITLY stated in the text
+- If a field is NOT found, use null
+- DO NOT invent or hallucinate any information
+- For arrays, include all items found (up to 10)
+
+TEXT:
+{text}
+
+Return a JSON object with ALL available information:
+{{
+  "project_name": "project/building name",
+  "project_name_zh": "Chinese name if available",
+  "developer": "developer company name",
+  "address": "full address",
+  "district": "area/district (e.g., North Point, Central)",
+  "property_type": "mixed-use/retail/office/residential",
+
+  "project_summary": {{
+    "total_gfa_sqft": number or null,
+    "retail_area_sqft": number or null,
+    "office_area_sqft": number or null,
+    "residential_units": number or null,
+    "theatre_seats": number or null,
+    "floors_retail": number or null,
+    "floors_office": number or null,
+    "floors_residential": number or null
+  }},
+
+  "available_units": [
+    {{"unit": "G07", "floor": "G/F", "size_sqft": number, "facing": "Java Road", "features": "next to entrance"}}
+  ],
+
+  "availability_date": "Q4 2026 or specific date",
+
+  "location": {{
+    "mtr_stations": ["Fortress Hill (5 min)", "North Point (9 min)"],
+    "bus_routes": ["description"],
+    "catchment_population": number or null,
+    "nearby_residential_units": number or null,
+    "nearby_office_sqft": number or null,
+    "nearby_hotels_rooms": number or null
+  }},
+
+  "nearby_buildings": ["AIA Tower", "China Taiping Finance Centre"],
+  "nearby_schools": ["school names"],
+  "tourist_attractions": ["attraction names"],
+
+  "key_features": ["Grade I Historic Building", "Heritage conservation", "1st K11 Mall in HK Island"],
+
+  "design_team": {{
+    "architect": "firm name",
+    "interior_designer": "firm name",
+    "landscape_designer": "firm name"
+  }},
+
+  "contact": {{
+    "name": "agent name",
+    "phone": "phone number",
+    "company": "company name"
+  }}
+}}
+
+JSON:""",
 }
 
 
