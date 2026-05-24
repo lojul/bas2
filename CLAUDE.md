@@ -148,7 +148,8 @@ Smart routing based on query keywords:
 ### Features
 - **Hybrid Search**: Combines vector DB (documents) + web search (Tavily)
 - **Smart Routing**: Auto-selects search method based on query type
-- **Streaming Responses**: Real-time answer display via SSE
+- **Non-Streaming**: Reliable responses (streaming caused timeout issues)
+- **Semantic Ranking**: Azure AI Search semantic configuration for relevance
 - **Bilingual**: Auto-detects Traditional Chinese / English
 - **Property Search**: Find offices, retail, industrial units
 - **Recommendations**: Suggests properties based on criteria
@@ -175,22 +176,43 @@ The chatbot ONLY answers Hong Kong commercial property questions:
 
 ## Dashboard
 - URL: `http://localhost:8501`
+- Production: `https://c21-document-processing.streamlit.app/`
 - Data source: LangSmith (real-time) + Azure AI Search (vector DB) + Tavily (web)
 - Timezone: HKT (GMT+8)
 - Theme: Light (configured in `~/.streamlit/config.toml`)
 - Run: `streamlit run dashboard.py`
-- Features:
-  - Four tabs: Processing Status + Vector Database + Search + Chat
-  - **Processing Status**: LangSmith traces, file status, pagination
-  - **Vector Database**: Azure AI Search indexed documents, filter by type
-  - **Search**: Direct vector search without AI (keyword-based)
-  - **Chat**: Property Intelligence Assistant (RAG chatbot with hybrid search)
-  - Chat input at TOP, newest messages displayed first (near input)
-  - Pagination: 20 files per page with Prev/Next navigation
-  - Grouped by filename (no duplicate rows), sorted newest first
-  - Status: OK, ERR, Fixed (reprocessed), x2/x3 (run count)
-  - View button to expand extracted data
-  - Display names: "Single Listing" / "Multi Listing" (internal: listing/listing_list)
+- Current Version: v15
+
+### Tab Order (Search is default)
+1. **Search** - Direct keyword search with semantic ranking
+2. **Chat** - Property Intelligence Assistant (RAG chatbot)
+3. **Document Process** - LangSmith traces, file status
+4. **Vector** - Azure AI Search indexed documents
+
+### Search Tab Features
+- Simple search input + button (no filters)
+- Semantic ranking with reranker score filtering (threshold: 2.5)
+- Results show: building, address, district, size, rent, type
+- Contact details: name, title, phone 📞, email ✉️
+- Summary: First 200 chars of document content
+- Responsive styling with proper margins
+
+### Chat Tab Features
+- Non-streaming for reliability (avoids timeout issues)
+- Clear button uses callback (properly clears input + messages)
+- Hybrid search: vector + web (Tavily)
+- Source citations with expandable details
+
+### Document Process Tab
+- LangSmith traces, file status, pagination
+- Grouped by filename (no duplicate rows), sorted newest first
+- Status: OK, ERR, Fixed (reprocessed), x2/x3 (run count)
+- View button to expand extracted data
+
+### Vector Tab
+- Azure AI Search indexed documents
+- Filter by document type
+- Display names: "Single Listing" / "Multi Listing" (internal: listing/listing_list)
 
 ## Code Structure
 
