@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v13"
+__version__ = "2026.05.23.v14"
 
 import os
 import json
@@ -1046,10 +1046,15 @@ def render_search_tab():
                     # Show content summary/preview for all types
                     content = doc.get("content", "")
                     if content and doc_type in ("listing", "pitching_deck"):
-                        # Show first 200 chars as summary
-                        preview = content[:200].strip().replace("\n", " ")
+                        # Show first 250 chars as summary with proper styling
+                        preview = content[:250].strip().replace("\n", " ")
                         if preview:
-                            st.write(f"**Summary:** {preview}{'...' if len(content) > 200 else ''}")
+                            st.markdown(
+                                f"""<div style="margin-top: 0.5rem; padding: 0.5rem 0; line-height: 1.5; color: #555;">
+                                <strong>Summary:</strong> {preview}{'...' if len(content) > 250 else ''}
+                                </div>""",
+                                unsafe_allow_html=True
+                            )
 
                     # Display images if available
                     if image_urls:
