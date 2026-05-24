@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v10"
+__version__ = "2026.05.23.v11"
 
 import os
 import json
@@ -873,16 +873,60 @@ def render_search_tab():
                     st.markdown(f"### {icon} {file_name}")
 
                     if doc_type == "listing":
-                        col_a, col_b, col_c = st.columns(3)
+                        col_a, col_b = st.columns(2)
                         with col_a:
                             st.write(f"**Building:** {extracted.get('building_name', 'N/A')}")
                             st.write(f"**Address:** {extracted.get('address', 'N/A')}")
+                            district = extracted.get('district', '')
+                            if district:
+                                st.write(f"**District:** {district}")
+                            floor_unit = extracted.get('floor_unit', '')
+                            if floor_unit:
+                                st.write(f"**Floor/Unit:** {floor_unit}")
                         with col_b:
-                            st.write(f"**Size:** {extracted.get('size_sqft', 'N/A')} sqft")
-                            st.write(f"**Rent:** HK${extracted.get('rent_monthly', 'N/A')}/mo")
-                        with col_c:
                             st.write(f"**Type:** {extracted.get('property_type', 'N/A')}")
-                            st.write(f"**Contact:** {extracted.get('contact_phone', 'N/A')}")
+                            size = extracted.get('size_sqft')
+                            if size:
+                                st.write(f"**Size:** {size:,} sqft" if isinstance(size, (int, float)) else f"**Size:** {size} sqft")
+                            rent = extracted.get('rent_monthly')
+                            if rent:
+                                st.write(f"**Rent:** HK${rent:,}/mo" if isinstance(rent, (int, float)) else f"**Rent:** HK${rent}/mo")
+                            else:
+                                st.write("**Rent:** By Offer")
+
+                        # Contact details section
+                        contacts = extracted.get('contacts', [])
+                        contact_name = extracted.get('contact_name', '')
+                        contact_phone = extracted.get('contact_phone', '')
+                        contact_email = extracted.get('contact_email', '')
+
+                        if contacts:
+                            st.write("**Contacts:**")
+                            for c in contacts[:3]:
+                                name = c.get('name', '')
+                                title = c.get('title', '')
+                                phone = c.get('phone', '')
+                                email = c.get('email', '')
+                                contact_line = f"• {name}"
+                                if title:
+                                    contact_line += f" ({title})"
+                                if phone:
+                                    contact_line += f" | 📞 {phone}"
+                                if email:
+                                    contact_line += f" | ✉️ {email}"
+                                st.write(contact_line)
+                        elif contact_name or contact_phone or contact_email:
+                            contact_line = f"**Contact:** {contact_name or 'N/A'}"
+                            if contact_phone:
+                                contact_line += f" | 📞 {contact_phone}"
+                            if contact_email:
+                                contact_line += f" | ✉️ {contact_email}"
+                            st.write(contact_line)
+
+                        # Description/features if available
+                        description = extracted.get('description', '') or extracted.get('features', '')
+                        if description:
+                            st.write(f"**Description:** {description[:300]}{'...' if len(description) > 300 else ''}")
 
                     elif doc_type == "listing_list":
                         # listing_list stores data in items array
@@ -922,13 +966,22 @@ def render_search_tab():
                             st.write(f"**Developer:** {extracted.get('developer', 'N/A')}")
                             st.write(f"**Address:** {extracted.get('address', 'N/A')}")
                             st.write(f"**District:** {extracted.get('district', 'N/A')}")
+                            st.write(f"**Type:** {extracted.get('property_type', 'N/A')}")
                         with col_b:
                             summary = extracted.get("project_summary", {})
                             if summary:
-                                st.write(f"**Retail:** {summary.get('retail_area_sqft', 'N/A')} sqft")
-                                st.write(f"**Office:** {summary.get('office_area_sqft', 'N/A')} sqft")
-                                st.write(f"**Residential:** {summary.get('residential_units', 'N/A')} units")
-                            st.write(f"**Availability:** {extracted.get('availability_date', 'N/A')}")
+                                total_gfa = summary.get('total_gfa_sqft')
+                                if total_gfa:
+                                    st.write(f"**Total GFA:** {total_gfa:,} sqft" if isinstance(total_gfa, (int, float)) else f"**Total GFA:** {total_gfa} sqft")
+                                retail = summary.get('retail_area_sqft')
+                                if retail:
+                                    st.write(f"**Retail:** {retail:,} sqft" if isinstance(retail, (int, float)) else f"**Retail:** {retail} sqft")
+                                office = summary.get('office_area_sqft')
+                                if office:
+                                    st.write(f"**Office:** {office:,} sqft" if isinstance(office, (int, float)) else f"**Office:** {office} sqft")
+                            avail = extracted.get('availability_date')
+                            if avail:
+                                st.write(f"**Availability:** {avail}")
 
                         # Show available units if any
                         available_units = extracted.get("available_units", [])
@@ -950,6 +1003,26 @@ def render_search_tab():
                         features = extracted.get("key_features", [])
                         if features:
                             st.write(f"**Key Features:** {', '.join(features[:5])}")
+
+                        # Show contacts for pitching deck
+                        contact_info = extracted.get("contact", {})
+                        if contact_info:
+                            contacts_list = contact_info.get("contacts", [])
+                            if contacts_list:
+                                st.write("**Leasing Contacts:**")
+                                for c in contacts_list[:3]:
+                                    name = c.get('name', '')
+                                    title = c.get('title', '')
+                                    phone = c.get('phone', '')
+                                    email = c.get('email', '')
+                                    contact_line = f"• {name}"
+                                    if title:
+                                        contact_line += f" ({title})"
+                                    if phone:
+                                        contact_line += f" | 📞 {phone}"
+                                    if email:
+                                        contact_line += f" | ✉️ {email}"
+                                    st.write(contact_line)
 
                     elif doc_type == "news":
                         st.write(f"**Title:** {extracted.get('title', '')} {extracted.get('title_zh', '')}")
