@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.24.v16"
+__version__ = "2026.05.24.v17"
 
 import os
 import json
@@ -758,6 +758,10 @@ def render_chat_tab():
                                     st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
                                 else:
                                     st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+                                    # Show images if available
+                                    src_images = src.get("image_urls", [])
+                                    if src_images:
+                                        render_image_gallery(src_images, max_images=3)
 
                 except Exception as e:
                     answer = f"Error: {str(e)}"
@@ -815,6 +819,10 @@ def render_chat_tab():
                                     st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
                                 else:
                                     st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+                                    # Show images if available
+                                    src_images = src.get("image_urls", [])
+                                    if src_images:
+                                        render_image_gallery(src_images, max_images=3)
 
 
 # ============ Search Tab ============

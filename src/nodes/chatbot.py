@@ -333,7 +333,7 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
         ],
         "search": query,  # Required for semantic ranking
         "searchFields": "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,processed_at",
+        "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
         "top": top_k,
         # Semantic ranking for better natural language understanding
         "queryType": "semantic",
@@ -368,6 +368,7 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:2000],
             "extracted_data": extracted,
+            "image_urls": doc.get("image_urls", []),
             "score": doc.get("@search.score", 0),
             "reranker_score": doc.get("@search.rerankerScore", 0),  # Semantic score
             "caption": caption_text,  # Highlighted relevant text
@@ -479,7 +480,7 @@ def keyword_search(
         "search": query if has_query else "*",
         # Boost file_name and extracted_data over general content for better relevance
         "searchFields": "file_name,extracted_data,content" if has_query else "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,processed_at",
+        "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
         "top": top_k,
     }
 
@@ -590,6 +591,7 @@ def keyword_search(
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:500],
             "extracted_data": extracted,
+            "image_urls": doc.get("image_urls", []),
             "processed_at": doc.get("processed_at", ""),
             "score": doc.get("@search.score", 0),
         })
@@ -891,6 +893,7 @@ def retrieve_node(state: ChatState) -> dict:
         sources.append({
             "file_name": doc["file_name"],
             "document_type": doc["document_type"],
+            "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
             "type": "document",
         })
@@ -1152,6 +1155,7 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
         sources.append({
             "file_name": doc["file_name"],
             "document_type": doc["document_type"],
+            "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
             "type": "document",
         })
