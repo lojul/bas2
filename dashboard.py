@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.23.v15"
+__version__ = "2026.05.24.v16"
 
 import os
 import json
@@ -341,7 +341,7 @@ def get_vector_db_data() -> dict[str, Any]:
             body = {
                 "search": "*",
                 "top": 1000,
-                "select": "id,file_name,document_type,processed_at,extracted_data",
+                "select": "id,file_name,document_type,processed_at,extracted_data,image_urls",
                 "orderby": "processed_at desc"
             }
             search_resp = client.post(search_url, headers=headers, json=body)
@@ -360,6 +360,7 @@ def get_vector_db_data() -> dict[str, Any]:
                         "document_type": dtype,
                         "processed_at": doc.get("processed_at"),
                         "extracted_data": doc.get("extracted_data"),
+                        "image_urls": doc.get("image_urls", []),
                         "chunk_count": 1,
                         "chunk_ids": [doc.get("id")]
                     }
@@ -367,6 +368,11 @@ def get_vector_db_data() -> dict[str, Any]:
                 else:
                     files[fname]["chunk_count"] += 1
                     files[fname]["chunk_ids"].append(doc.get("id"))
+                    # Merge image URLs from chunks
+                    existing_urls = set(files[fname].get("image_urls", []))
+                    new_urls = doc.get("image_urls", [])
+                    if new_urls:
+                        files[fname]["image_urls"] = list(existing_urls | set(new_urls))
 
             return {
                 "total_chunks": total_count,
