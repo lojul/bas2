@@ -21,6 +21,8 @@ tavily-python>=0.3
 
 # PDF Processing
 PyMuPDF>=1.24
+fpdf2>=2.7
+jinja2>=3.0
 
 # Microsoft Auth
 msal>=1.24.0
