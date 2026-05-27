@@ -771,7 +771,7 @@ def render_chat_tab():
     if detected_district and detected_district_en:
         with col3:
             generate_clicked = st.button(
-                "Generate Report",
+                "Generate Report / 生成報告",
                 key="create_report_btn",
                 use_container_width=True
             )
@@ -782,7 +782,7 @@ def render_chat_tab():
                     pdf_data = bytes(pdf_data)
                 try:
                     st.download_button(
-                        "Download",
+                        "Download / 下載",
                         data=pdf_data,
                         file_name=pdf_filename,
                         mime="application/pdf",
