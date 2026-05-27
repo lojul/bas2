@@ -756,9 +756,9 @@ def render_chat_tab():
     pdf_data = st.session_state.get("report_pdf")
     pdf_filename = st.session_state.get("report_filename")
 
-    # Buttons row: Send | Clear | Report (if district detected)
+    # Buttons row: Send | Clear | Create Report | Download (if district detected)
     if detected_district and detected_district_en:
-        col1, col2, col3 = st.columns([1, 1, 1.5])
+        col1, col2, col3, col4 = st.columns([1, 1, 1.2, 1.2])
     else:
         col1, col2 = st.columns([1, 1])
 
@@ -767,15 +767,22 @@ def render_chat_tab():
     with col2:
         st.button("Clear / 清除", use_container_width=True, on_click=clear_chat)
 
-    # Report button in col3 (same row)
+    # Report buttons in col3 and col4 (same row)
     if detected_district and detected_district_en:
         with col3:
+            generate_clicked = st.button(
+                f"📊 {detected_district_en} Report",
+                key="create_report_btn",
+                use_container_width=True
+            )
+
+        with col4:
             if has_report and pdf_data and pdf_filename:
                 if isinstance(pdf_data, bytearray):
                     pdf_data = bytes(pdf_data)
                 try:
                     st.download_button(
-                        f"📥 Download Report",
+                        f"📥 Download",
                         data=pdf_data,
                         file_name=pdf_filename,
                         mime="application/pdf",
@@ -784,12 +791,10 @@ def render_chat_tab():
                     )
                 except Exception as e:
                     st.session_state["report_pdf"] = None
-            else:
-                generate_clicked = st.button(
-                    f"📊 {detected_district_en} Report",
-                    key="create_report_btn",
-                    use_container_width=True
-                )
+
+        # Grey caption showing report status
+        if has_report and pdf_filename:
+            st.caption(f"Ready: {pdf_filename}")
 
     # Handle report generation (outside columns for spinner visibility)
     if generate_clicked:
