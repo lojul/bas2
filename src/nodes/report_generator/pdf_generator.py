@@ -62,14 +62,6 @@ class PropertyReportPDF(FPDF):
         self.light_gray = (247, 250, 252)
         self.gray = (113, 128, 150)
 
-        # Add Chinese font support
-        chinese_font_path = ASSETS_DIR / "NotoSansSC-Regular.otf"
-        if chinese_font_path.exists():
-            self.add_font("NotoSansSC", "", str(chinese_font_path))
-            self.chinese_font = "NotoSansSC"
-        else:
-            self.chinese_font = "Helvetica"
-
         self.set_auto_page_break(auto=True, margin=20)
 
     def header(self):
@@ -166,7 +158,7 @@ class PropertyReportPDF(FPDF):
         self.line(10, y, 200, y)
 
         # Data rows - use Chinese font
-        self.set_font(self.chinese_font, "", 8)
+        self.set_font("Helvetica", "", 8)
         self.set_text_color(45, 55, 72)
 
         for row_idx, row in enumerate(rows):
@@ -188,19 +180,27 @@ class PropertyReportPDF(FPDF):
 
 
 def _safe_text(text: str, max_len: int = 50) -> str:
-    """Clean text for PDF display.
+    """Clean text for PDF display (ASCII only for Helvetica).
 
-    Keeps Chinese and English characters, trims to max length.
+    Filters out Chinese characters since we don't have a CJK font.
+    Handles patterns like "Building Name (中文名)" by keeping English part.
     """
     if not text:
         return ""
 
     text = str(text).strip()
 
-    # Clean up multiple spaces
-    text = ' '.join(text.split())
+    # Remove content in parentheses that may contain Chinese
+    import re
+    text = re.sub(r'\s*[\(（][^)）]*[\)）]\s*$', '', text)
 
-    return text[:max_len]
+    # Keep ASCII printable characters only
+    safe = ''.join(c for c in text if 32 <= ord(c) < 127)
+
+    # Clean up multiple spaces
+    safe = ' '.join(safe.split())
+
+    return safe[:max_len].strip() if safe.strip() else "N/A"
 
 
 def _format_number(value) -> str:
