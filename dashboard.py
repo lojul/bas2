@@ -787,22 +787,28 @@ def render_chat_tab():
         else:
             # Show generate button
             with report_col1:
-                if st.button(f"📊 Create {detected_district_en} Report", key="create_report_btn"):
-                    with st.spinner(f"Generating {detected_district_en} report..."):
-                        try:
-                            from src.nodes.report_generator.main import handle_report_request
-                            query = f"Generate rent report for {detected_district_en}"
-                            response = handle_report_request(query)
+                generate_clicked = st.button(f"📊 Create {detected_district_en} Report", key="create_report_btn")
 
-                            if response.report and response.report.pdf_bytes:
-                                st.session_state["report_pdf"] = response.report.pdf_bytes
-                                st.session_state["report_filename"] = response.report.filename
-                                st.session_state["report_district"] = detected_district
-                                st.rerun()
-                            else:
-                                st.error(response.error or "No data found for this district")
-                        except Exception as e:
-                            st.error(f"Report generation failed: {e}")
+            # Handle report generation outside column context for better visibility
+            if generate_clicked:
+                with st.spinner(f"Generating {detected_district_en} report... This may take 10-20 seconds."):
+                    try:
+                        from src.nodes.report_generator.main import handle_report_request
+                        query = f"Generate rent report for {detected_district_en}"
+                        response = handle_report_request(query)
+
+                        if response.report and response.report.pdf_bytes:
+                            st.session_state["report_pdf"] = response.report.pdf_bytes
+                            st.session_state["report_filename"] = response.report.filename
+                            st.session_state["report_district"] = detected_district
+                            st.success(f"✅ Report generated: {response.report.filename}")
+                            st.rerun()
+                        else:
+                            st.error(f"❌ {response.error or 'No data found for this district'}")
+                    except Exception as e:
+                        import traceback
+                        st.error(f"❌ Report generation failed: {e}")
+                        st.code(traceback.format_exc())
 
     st.divider()
 
