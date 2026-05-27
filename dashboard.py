@@ -753,7 +753,7 @@ def render_chat_tab():
                     detected_district_en = DISTRICTS[zh]
                     break
 
-    # Show report link if district detected (after Send/Clear buttons)
+    # Show report section if district detected (separate row for visibility)
     if detected_district and detected_district_en:
         # Check if we already have a report for this district
         has_report = (
@@ -764,25 +764,31 @@ def render_chat_tab():
         pdf_data = st.session_state.get("report_pdf")
         pdf_filename = st.session_state.get("report_filename")
 
+        # Report section in its own row
+        report_col1, report_col2 = st.columns([2, 4])
+
         if has_report and pdf_data and pdf_filename and isinstance(pdf_data, bytes):
-            # Show download link
-            with col3:
+            # Show download button with success message
+            with report_col1:
                 try:
                     st.download_button(
                         f"📥 Download {detected_district_en} Report",
                         data=pdf_data,
                         file_name=pdf_filename,
                         mime="application/pdf",
-                        key="report_download"
+                        key="report_download",
+                        type="primary"
                     )
                 except Exception as e:
                     st.session_state["report_pdf"] = None  # Clear corrupted state
                     st.error(f"Download error: {e}")
+            with report_col2:
+                st.success(f"✅ Report ready: {pdf_filename}")
         else:
-            # Show generate link (styled as text link)
-            with col3:
+            # Show generate button
+            with report_col1:
                 if st.button(f"📊 Create {detected_district_en} Report", key="create_report_btn"):
-                    with st.spinner(f"Generating report..."):
+                    with st.spinner(f"Generating {detected_district_en} report..."):
                         try:
                             from src.nodes.report_generator.main import handle_report_request
                             query = f"Generate rent report for {detected_district_en}"
@@ -794,9 +800,9 @@ def render_chat_tab():
                                 st.session_state["report_district"] = detected_district
                                 st.rerun()
                             else:
-                                st.error(response.error or "No data found")
+                                st.error(response.error or "No data found for this district")
                         except Exception as e:
-                            st.error(f"Report failed: {e}")
+                            st.error(f"Report generation failed: {e}")
 
     st.divider()
 
