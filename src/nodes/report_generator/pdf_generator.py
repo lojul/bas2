@@ -12,6 +12,7 @@ import os
 import io
 import base64
 import httpx
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,41 @@ from langsmith import traceable
 
 from .router import ReportRequest, get_report_type_display
 from .statistics import RentStatistics, AvailabilityStatistics
+
+
+# Chinese font URL (hosted on Azure Blob Storage)
+CHINESE_FONT_URL = "https://blobhk04472.blob.core.windows.net/fonts/wqy-microhei.ttc"
+_cached_font_path: Optional[str] = None
+
+
+def _get_chinese_font() -> Optional[str]:
+    """Download and cache Chinese font from Azure Blob Storage.
+
+    Returns path to cached font file, or None if download fails.
+    """
+    global _cached_font_path
+
+    # Return cached path if already downloaded
+    if _cached_font_path and Path(_cached_font_path).exists():
+        return _cached_font_path
+
+    # Check if font exists in temp directory
+    temp_font_path = Path(tempfile.gettempdir()) / "wqy-microhei.ttc"
+    if temp_font_path.exists() and temp_font_path.stat().st_size > 1000000:
+        _cached_font_path = str(temp_font_path)
+        return _cached_font_path
+
+    # Download font
+    try:
+        response = httpx.get(CHINESE_FONT_URL, timeout=60, follow_redirects=True)
+        if response.status_code == 200 and len(response.content) > 1000000:
+            temp_font_path.write_bytes(response.content)
+            _cached_font_path = str(temp_font_path)
+            return _cached_font_path
+    except Exception as e:
+        print(f"Failed to download Chinese font: {e}")
+
+    return None
 
 
 @dataclass
@@ -61,6 +97,16 @@ class PropertyReportPDF(FPDF):
         self.navy = (26, 54, 93)
         self.light_gray = (247, 250, 252)
         self.gray = (113, 128, 150)
+
+        # Load Chinese font if available
+        self.has_chinese_font = False
+        chinese_font_path = _get_chinese_font()
+        if chinese_font_path:
+            try:
+                self.add_font("Chinese", "", chinese_font_path)
+                self.has_chinese_font = True
+            except Exception as e:
+                print(f"Failed to load Chinese font: {e}")
 
         self.set_auto_page_break(auto=True, margin=20)
 
@@ -157,8 +203,11 @@ class PropertyReportPDF(FPDF):
         y = self.get_y()
         self.line(10, y, 200, y)
 
-        # Data rows - use Chinese font
-        self.set_font("Helvetica", "", 8)
+        # Data rows - use Chinese font if available
+        if self.has_chinese_font:
+            self.set_font("Chinese", "", 8)
+        else:
+            self.set_font("Helvetica", "", 8)
         self.set_text_color(45, 55, 72)
 
         for row_idx, row in enumerate(rows):
@@ -180,27 +229,19 @@ class PropertyReportPDF(FPDF):
 
 
 def _safe_text(text: str, max_len: int = 50) -> str:
-    """Clean text for PDF display (ASCII only for Helvetica).
+    """Clean text for PDF display.
 
-    Filters out Chinese characters since we don't have a CJK font.
-    Handles patterns like "Building Name (中文名)" by keeping English part.
+    Keeps Chinese and English characters for display with Chinese font.
     """
     if not text:
         return ""
 
     text = str(text).strip()
 
-    # Remove content in parentheses that may contain Chinese
-    import re
-    text = re.sub(r'\s*[\(（][^)）]*[\)）]\s*$', '', text)
-
-    # Keep ASCII printable characters only
-    safe = ''.join(c for c in text if 32 <= ord(c) < 127)
-
     # Clean up multiple spaces
-    safe = ' '.join(safe.split())
+    text = ' '.join(text.split())
 
-    return safe[:max_len].strip() if safe.strip() else "N/A"
+    return text[:max_len] if text else "N/A"
 
 
 def _format_number(value) -> str:
