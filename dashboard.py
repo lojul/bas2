@@ -723,10 +723,12 @@ def render_chat_tab():
     with col2:
         st.button("Clear / 清除", use_container_width=True, on_click=clear_chat)
 
-    # Initialize report state
+    # Initialize report state (each key separately to avoid partial state)
     if "report_pdf" not in st.session_state:
         st.session_state["report_pdf"] = None
+    if "report_filename" not in st.session_state:
         st.session_state["report_filename"] = None
+    if "report_district" not in st.session_state:
         st.session_state["report_district"] = None
 
     # Report generation link - detect district from conversation
@@ -759,16 +761,23 @@ def render_chat_tab():
             st.session_state.get("report_district") == detected_district
         )
 
-        if has_report:
+        pdf_data = st.session_state.get("report_pdf")
+        pdf_filename = st.session_state.get("report_filename")
+
+        if has_report and pdf_data and pdf_filename and isinstance(pdf_data, bytes):
             # Show download link
             with col3:
-                st.download_button(
-                    f"📥 Download {detected_district_en} Report",
-                    data=st.session_state["report_pdf"],
-                    file_name=st.session_state["report_filename"],
-                    mime="application/pdf",
-                    key="report_download"
-                )
+                try:
+                    st.download_button(
+                        f"📥 Download {detected_district_en} Report",
+                        data=pdf_data,
+                        file_name=pdf_filename,
+                        mime="application/pdf",
+                        key="report_download"
+                    )
+                except Exception as e:
+                    st.session_state["report_pdf"] = None  # Clear corrupted state
+                    st.error(f"Download error: {e}")
         else:
             # Show generate link (styled as text link)
             with col3:
