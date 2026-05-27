@@ -62,8 +62,14 @@ class PropertyReportPDF(FPDF):
         self.light_gray = (247, 250, 252)
         self.gray = (113, 128, 150)
 
-        # FPDF2 has built-in Helvetica which supports basic Latin
-        # For Chinese, we use ASCII-safe text in headers and use code points
+        # Add Chinese font support
+        chinese_font_path = ASSETS_DIR / "NotoSansSC-Regular.otf"
+        if chinese_font_path.exists():
+            self.add_font("NotoSansSC", "", str(chinese_font_path))
+            self.chinese_font = "NotoSansSC"
+        else:
+            self.chinese_font = "Helvetica"
+
         self.set_auto_page_break(auto=True, margin=20)
 
     def header(self):
@@ -140,7 +146,7 @@ class PropertyReportPDF(FPDF):
         self.cell(width, 5, label, align="C")
 
     def data_table(self, headers: list[str], rows: list[list[str]], col_widths: list[float] = None):
-        """Draw a data table."""
+        """Draw a data table with Chinese font support."""
         if not col_widths:
             col_widths = [190 / len(headers)] * len(headers)
 
@@ -159,8 +165,8 @@ class PropertyReportPDF(FPDF):
         y = self.get_y()
         self.line(10, y, 200, y)
 
-        # Data rows
-        self.set_font("Helvetica", "", 8)
+        # Data rows - use Chinese font
+        self.set_font(self.chinese_font, "", 8)
         self.set_text_color(45, 55, 72)
 
         for row_idx, row in enumerate(rows):
@@ -181,28 +187,20 @@ class PropertyReportPDF(FPDF):
             self.line(10, self.get_y(), 200, self.get_y())
 
 
-def _ascii_safe(text: str, max_len: int = 50) -> str:
-    """Convert text to ASCII-safe version for PDF.
+def _safe_text(text: str, max_len: int = 50) -> str:
+    """Clean text for PDF display.
 
-    Extracts ASCII characters and removes Chinese/non-ASCII cleanly.
-    Handles common patterns like "Building Name (中文名)" by keeping English part.
+    Keeps Chinese and English characters, trims to max length.
     """
     if not text:
         return ""
 
-    text = str(text)
-
-    # Remove content in Chinese parentheses: "Name (中文)" -> "Name"
-    import re
-    text = re.sub(r'\s*[\(（][^)）]*[\)）]\s*$', '', text)
-
-    # Keep ASCII printable characters only, skip non-ASCII
-    safe = ''.join(c for c in text if 32 <= ord(c) < 127)
+    text = str(text).strip()
 
     # Clean up multiple spaces
-    safe = ' '.join(safe.split())
+    text = ' '.join(text.split())
 
-    return safe[:max_len].strip()
+    return text[:max_len]
 
 
 def _format_number(value) -> str:
@@ -321,20 +319,14 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
         pdf.section_title("Building Analysis")
         headers = ["Building", "Units", "Avg $/sqft", "Min", "Max"]
         rows = []
-        for building, data in list(stats.by_building.items()):
-            building_name = _ascii_safe(building, 20)
-            # Skip invalid building names (less than 3 chars)
-            if len(building_name) < 3:
-                continue
+        for building, data in list(stats.by_building.items())[:10]:
             rows.append([
-                building_name,
+                _safe_text(building, 20),
                 str(data["count"]),
                 f"${data['avg_rent_sqft']:.1f}",
                 f"${data['min_rent_sqft']:.1f}",
                 f"${data['max_rent_sqft']:.1f}",
             ])
-            if len(rows) >= 10:
-                break
         if rows:
             pdf.data_table(headers, rows, [60, 25, 35, 35, 35])
             pdf.ln(5)
@@ -344,21 +336,15 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
         pdf.section_title("Property Listings")
         headers = ["Building", "Floor/Unit", "Size", "Rent", "$/sqft", "Contact"]
         rows = []
-        for prop in stats.properties:
-            building_name = _ascii_safe(prop.get("building_name", ""), 18)
-            # Skip rows with missing or invalid building names (less than 3 chars)
-            if len(building_name) < 3:
-                continue
+        for prop in stats.properties[:15]:
             rows.append([
-                building_name,
-                _ascii_safe(prop.get("floor_unit", ""), 10),
+                _safe_text(prop.get("building_name", ""), 18),
+                _safe_text(prop.get("floor_unit", ""), 10),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")),
                 f"${prop.get('rent_sqft', 0):.1f}",
-                _ascii_safe(prop.get("contact_name", ""), 12),
+                _safe_text(prop.get("contact_name", ""), 12),
             ])
-            if len(rows) >= 15:
-                break
         pdf.data_table(headers, rows, [45, 25, 25, 30, 25, 40])
 
         if len(stats.properties) > 15:
@@ -407,21 +393,15 @@ def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStati
         pdf.section_title("Available Units")
         headers = ["Building", "Address", "Floor/Unit", "Size", "Rent", "Contact"]
         rows = []
-        for prop in stats.properties:
-            building_name = _ascii_safe(prop.get("building_name", ""), 15)
-            # Skip invalid building names
-            if len(building_name) < 3:
-                continue
+        for prop in stats.properties[:20]:
             rows.append([
-                building_name,
-                _ascii_safe(prop.get("address", ""), 20),
-                _ascii_safe(prop.get("floor_unit", ""), 8),
+                _safe_text(prop.get("building_name", ""), 15),
+                _safe_text(prop.get("address", ""), 20),
+                _safe_text(prop.get("floor_unit", ""), 8),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")) if prop.get("rent_monthly") else "TBD",
-                _ascii_safe(prop.get("contact_name", ""), 10),
+                _safe_text(prop.get("contact_name", ""), 10),
             ])
-            if len(rows) >= 20:
-                break
         if rows:
             pdf.data_table(headers, rows, [35, 45, 20, 25, 30, 35])
 
