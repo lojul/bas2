@@ -723,6 +723,72 @@ def render_chat_tab():
     with col2:
         st.button("Clear / 清除", use_container_width=True, on_click=clear_chat)
 
+    # Initialize report state
+    if "report_pdf" not in st.session_state:
+        st.session_state["report_pdf"] = None
+        st.session_state["report_filename"] = None
+        st.session_state["report_district"] = None
+
+    # Report generation link - detect district from conversation
+    detected_district = None
+    detected_district_en = None
+
+    if st.session_state["chat_messages"]:
+        from src.nodes.report_generator.router import DISTRICTS, DISTRICTS_EN_TO_ZH
+
+        all_text = " ".join([m["content"] for m in st.session_state["chat_messages"]])
+
+        for zh, en in DISTRICTS.items():
+            if zh in all_text:
+                detected_district = zh
+                detected_district_en = en
+                break
+
+        if not detected_district:
+            for en_lower, zh in DISTRICTS_EN_TO_ZH.items():
+                if en_lower in all_text.lower():
+                    detected_district = zh
+                    detected_district_en = DISTRICTS[zh]
+                    break
+
+    # Show report link if district detected (after Send/Clear buttons)
+    if detected_district and detected_district_en:
+        # Check if we already have a report for this district
+        has_report = (
+            st.session_state.get("report_pdf") and
+            st.session_state.get("report_district") == detected_district
+        )
+
+        if has_report:
+            # Show download link
+            with col3:
+                st.download_button(
+                    f"📥 Download {detected_district_en} Report",
+                    data=st.session_state["report_pdf"],
+                    file_name=st.session_state["report_filename"],
+                    mime="application/pdf",
+                    key="report_download"
+                )
+        else:
+            # Show generate link (styled as text link)
+            with col3:
+                if st.button(f"📊 Create {detected_district_en} Report", key="create_report_btn"):
+                    with st.spinner(f"Generating report..."):
+                        try:
+                            from src.nodes.report_generator.main import handle_report_request
+                            query = f"Generate rent report for {detected_district_en}"
+                            response = handle_report_request(query)
+
+                            if response.report and response.report.pdf_bytes:
+                                st.session_state["report_pdf"] = response.report.pdf_bytes
+                                st.session_state["report_filename"] = response.report.filename
+                                st.session_state["report_district"] = detected_district
+                                st.rerun()
+                            else:
+                                st.error(response.error or "No data found")
+                        except Exception as e:
+                            st.error(f"Report failed: {e}")
+
     st.divider()
 
     # Process new message - ONLY when Send is clicked

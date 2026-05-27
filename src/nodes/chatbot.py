@@ -775,8 +775,25 @@ def route_query(query: str) -> str:
         "vector" - search internal documents only
         "web" - search web only
         "hybrid" - search both
+        "report" - generate a report
     """
     query_lower = query.lower()
+
+    # Check for report intent first
+    report_keywords = [
+        "報告", "報表", "生成", "製作", "整理報告",
+        "report", "generate report", "create report",
+    ]
+    report_type_keywords = [
+        "租金分析", "空置", "市場概覽", "聯絡人",
+        "rent analysis", "availability", "market overview",
+    ]
+
+    has_report_keyword = any(kw in query_lower for kw in report_keywords)
+    has_report_type = any(kw in query_lower for kw in report_type_keywords)
+
+    if has_report_keyword or has_report_type:
+        return "report"
 
     # Strong web indicators - if ANY of these, go web-only
     web_only_patterns = [
@@ -860,6 +877,10 @@ def retrieve_node(state: ChatState) -> dict:
     # Route query to determine search strategy
     route = route_query(question)
 
+    # Handle report requests separately
+    if route == "report":
+        return _handle_report_request(question)
+
     documents = []
     web_results = []
 
@@ -907,6 +928,86 @@ def retrieve_node(state: ChatState) -> dict:
             })
 
     return {"context": context, "sources": sources, "search_route": route}
+
+
+def _handle_report_request(question: str) -> dict:
+    """Handle report generation requests.
+
+    Returns state update with report context or prompt for more info.
+    """
+    try:
+        from src.nodes.report_generator.main import handle_report_request
+
+        response = handle_report_request(question)
+
+        if not response.is_report_request:
+            # Not actually a report request, fall back to normal search
+            return {
+                "context": "",
+                "sources": [],
+                "search_route": "hybrid"
+            }
+
+        if response.needs_more_info:
+            # Need more info from user - return prompt as context
+            return {
+                "context": f"[REPORT_PROMPT]\n{response.prompt_message}",
+                "sources": [],
+                "search_route": "report"
+            }
+
+        if response.error:
+            return {
+                "context": f"[REPORT_ERROR]\n{response.error}",
+                "sources": [],
+                "search_route": "report"
+            }
+
+        if response.report:
+            # Report generated successfully
+            report = response.report
+            context = f"[REPORT_GENERATED]\n"
+            context += f"title: {report.title}\n"
+            context += f"title_en: {report.title_en}\n"
+            context += f"summary: {report.summary_markdown}\n"
+            context += f"document_count: {report.document_count}\n"
+            if report.pdf_url:
+                context += f"pdf_url: {report.pdf_url}\n"
+            if report.error:
+                context += f"note: {report.error}\n"
+
+            sources = [{
+                "file_name": report.filename or f"{report.title}.pdf",
+                "document_type": "report",
+                "type": "report",
+                "pdf_url": report.pdf_url,
+                "pdf_bytes": report.pdf_bytes,  # For direct download
+            }]
+
+            return {
+                "context": context,
+                "sources": sources,
+                "search_route": "report"
+            }
+
+    except ImportError as e:
+        return {
+            "context": f"[REPORT_ERROR]\nReport generator not available: {e}",
+            "sources": [],
+            "search_route": "report"
+        }
+    except Exception as e:
+        return {
+            "context": f"[REPORT_ERROR]\nReport generation failed: {e}",
+            "sources": [],
+            "search_route": "report"
+        }
+
+    return {
+        "context": "",
+        "sources": [],
+        "search_route": "hybrid"
+    }
 
 
 def _build_llm_messages(question: str, context: str, messages: list[dict]) -> list[dict]:
@@ -1011,14 +1112,52 @@ def call_llm_stream(question: str, context: str, messages: list[dict]):
 
 def generate_node(state: ChatState) -> dict:
     """Node: Generate answer using LLM."""
+    context = state["context"]
+    question = state["current_question"]
+
+    # Handle report responses directly (no LLM needed)
+    if context.startswith("[REPORT_PROMPT]"):
+        # Return the prompt for more info
+        answer = context.replace("[REPORT_PROMPT]\n", "")
+        new_messages = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer}
+        ]
+        return {"answer": answer, "messages": new_messages}
+
+    if context.startswith("[REPORT_GENERATED]"):
+        # Extract summary from context
+        lines = context.split("\n")
+        summary = ""
+        for line in lines:
+            if line.startswith("summary: "):
+                summary = line.replace("summary: ", "")
+                break
+
+        answer = summary if summary else "報告已生成 Report generated"
+        new_messages = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer}
+        ]
+        return {"answer": answer, "messages": new_messages}
+
+    if context.startswith("[REPORT_ERROR]"):
+        answer = context.replace("[REPORT_ERROR]\n", "")
+        new_messages = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer}
+        ]
+        return {"answer": answer, "messages": new_messages}
+
+    # Normal LLM generation
     answer = call_llm(
-        state["current_question"],
-        state["context"],
+        question,
+        context,
         state.get("messages", [])
     )
     # Add the exchange to messages for memory
     new_messages = [
-        {"role": "user", "content": state["current_question"]},
+        {"role": "user", "content": question},
         {"role": "assistant", "content": answer}
     ]
     return {"answer": answer, "messages": new_messages}

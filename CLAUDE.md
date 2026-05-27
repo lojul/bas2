@@ -82,6 +82,7 @@ langgraph/
 - [x] LLM reranking (DeepSeek relevance scoring)
 - [x] Parallel execution (ThreadPoolExecutor)
 - [x] Token usage tracking in dashboard
+- [x] PDF Report Generator (Rent Analysis, Availability reports with images)
 
 ## Graph Flow
 ```
@@ -174,6 +175,103 @@ The chatbot ONLY answers Hong Kong commercial property questions:
 - Declines off-topic questions (cooking, coding, travel, etc.)
 - Redirects user to property-related queries
 
+---
+
+## Report Generator
+
+**Files:** `langgraph/src/nodes/report_generator/`
+**Triggered via:** Chatbot (natural language commands)
+
+### How to Use
+
+```
+User: "Generate rent report for Central"
+User: "幫我生成中環租金報告"
+User: "Create availability report for Kwun Tong"
+```
+
+### Available Report Types
+
+| Type | ID | Description |
+|------|-----|-------------|
+| Rent Analysis | `rent` | Average rent, price/sqft, building comparison |
+| Availability | `availability` | Vacant units, sizes, contacts |
+| Market Overview | `market` | Trends, news, inventory (Phase 2) |
+| Development Pipeline | `pipeline` | New projects, GFA (Phase 2) |
+| Contact Directory | `contacts` | Agent/broker contacts (Phase 2) |
+
+### Supported Districts
+
+**Hong Kong Island:** 中環, 金鐘, 灣仔, 銅鑼灣, 北角, 鰂魚涌, 上環, 黃竹坑
+**Kowloon:** 尖沙咀, 旺角, 九龍灣, 觀塘, 紅磡, 長沙灣
+**New Territories:** 荃灣, 葵涌, 沙田, 大埔, 元朗, 屯門
+
+### Architecture
+
+```
+User Request
+     ↓
+detect_report_intent() → Is this a report request?
+     ↓
+parse_report_request() → Extract district, type
+     ↓
+validate_request() → Missing params? Ask user
+     ↓
+aggregate_documents() → Fetch from Azure Search
+     ↓
+compute_statistics() → Python calculations (no LLM)
+     ↓
+generate_pdf_report() → Jinja2 + WeasyPrint
+     ↓
+upload_pdf_to_blob() → Azure Blob Storage
+     ↓
+Return download link to user
+```
+
+### Module Structure
+
+```
+src/nodes/report_generator/
+├── __init__.py
+├── router.py           # Intent detection, parameter parsing
+├── validator.py        # Validate params, prompt for missing
+├── aggregator.py       # Fetch docs from Azure Search
+├── statistics.py       # Compute stats (Python, no LLM)
+├── pdf_generator.py    # WeasyPrint PDF generation
+├── main.py             # Main orchestrator
+├── templates/
+│   ├── rent_analysis.html
+│   └── availability_analysis.html
+└── assets/
+    └── c21_logo.png
+```
+
+### PDF Output
+
+- **Format:** A4, professional layout with C21 branding
+- **Sections:** Header, Stats cards, Building analysis table, Property listings, Images grid
+- **Bilingual:** Chinese and English labels
+- **Images:** Up to 9 property images in 3x3 grid
+
+### Dependencies
+
+Pure Python - no system dependencies required:
+```
+pip install jinja2 fpdf2
+```
+
+Works on: Azure Functions, Streamlit Cloud, any Python environment.
+
+### Integration with Chatbot
+
+The report generator is integrated into the chatbot's `route_query()` function:
+- Query containing report keywords → routes to "report"
+- `retrieve_node` calls `handle_report_request()`
+- If params missing, returns prompt asking for more info
+- If complete, generates PDF and returns download link
+
+---
+
 ## Dashboard
 - URL: `http://localhost:8501`
 - Production: `https://c21-document-processing.streamlit.app/`
@@ -181,20 +279,21 @@ The chatbot ONLY answers Hong Kong commercial property questions:
 - Timezone: HKT (GMT+8)
 - Theme: Light (configured in `~/.streamlit/config.toml`)
 - Run: `streamlit run dashboard.py`
-- Current Version: v15
+- Current Version: v17
 
 ### Tab Order (Search is default)
-1. **Search** - Direct keyword search with semantic ranking
-2. **Chat** - Property Intelligence Assistant (RAG chatbot)
+1. **Search** - Direct keyword search with semantic ranking + image display
+2. **Chat** - Property Intelligence Assistant (RAG chatbot) + image display
 3. **Document Process** - LangSmith traces, file status
-4. **Vector** - Azure AI Search indexed documents
+4. **Vector** - Azure AI Search indexed documents + image display
 
 ### Search Tab Features
 - Simple search input + button (no filters)
 - Semantic ranking with reranker score filtering (threshold: 2.5)
 - Results show: building, address, district, size, rent, type
 - Contact details: name, title, phone 📞, email ✉️
-- Summary: First 200 chars of document content
+- Summary: First 250 chars of document content
+- **Image gallery**: Expandable thumbnails for documents with images
 - Responsive styling with proper margins
 
 ### Chat Tab Features
@@ -202,6 +301,7 @@ The chatbot ONLY answers Hong Kong commercial property questions:
 - Clear button uses callback (properly clears input + messages)
 - Hybrid search: vector + web (Tavily)
 - Source citations with expandable details
+- **Image display**: Thumbnails in sources expander (max 3 per source)
 
 ### Document Process Tab
 - LangSmith traces, file status, pagination
