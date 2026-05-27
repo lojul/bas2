@@ -321,31 +321,44 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
         pdf.section_title("Building Analysis")
         headers = ["Building", "Units", "Avg $/sqft", "Min", "Max"]
         rows = []
-        for building, data in list(stats.by_building.items())[:10]:
+        for building, data in list(stats.by_building.items()):
+            building_name = _ascii_safe(building, 20)
+            # Skip invalid building names (less than 3 chars)
+            if len(building_name) < 3:
+                continue
             rows.append([
-                _ascii_safe(building, 20),
+                building_name,
                 str(data["count"]),
                 f"${data['avg_rent_sqft']:.1f}",
                 f"${data['min_rent_sqft']:.1f}",
                 f"${data['max_rent_sqft']:.1f}",
             ])
-        pdf.data_table(headers, rows, [60, 25, 35, 35, 35])
-        pdf.ln(5)
+            if len(rows) >= 10:
+                break
+        if rows:
+            pdf.data_table(headers, rows, [60, 25, 35, 35, 35])
+            pdf.ln(5)
 
     # Section: Property Listings
     if stats.properties:
         pdf.section_title("Property Listings")
         headers = ["Building", "Floor/Unit", "Size", "Rent", "$/sqft", "Contact"]
         rows = []
-        for prop in stats.properties[:15]:
+        for prop in stats.properties:
+            building_name = _ascii_safe(prop.get("building_name", ""), 18)
+            # Skip rows with missing or invalid building names (less than 3 chars)
+            if len(building_name) < 3:
+                continue
             rows.append([
-                _ascii_safe(prop.get("building_name", ""), 18),
+                building_name,
                 _ascii_safe(prop.get("floor_unit", ""), 10),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")),
                 f"${prop.get('rent_sqft', 0):.1f}",
                 _ascii_safe(prop.get("contact_name", ""), 12),
             ])
+            if len(rows) >= 15:
+                break
         pdf.data_table(headers, rows, [45, 25, 25, 30, 25, 40])
 
         if len(stats.properties) > 15:
@@ -394,16 +407,23 @@ def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStati
         pdf.section_title("Available Units")
         headers = ["Building", "Address", "Floor/Unit", "Size", "Rent", "Contact"]
         rows = []
-        for prop in stats.properties[:20]:
+        for prop in stats.properties:
+            building_name = _ascii_safe(prop.get("building_name", ""), 15)
+            # Skip invalid building names
+            if len(building_name) < 3:
+                continue
             rows.append([
-                _ascii_safe(prop.get("building_name", ""), 15),
+                building_name,
                 _ascii_safe(prop.get("address", ""), 20),
                 _ascii_safe(prop.get("floor_unit", ""), 8),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")) if prop.get("rent_monthly") else "TBD",
                 _ascii_safe(prop.get("contact_name", ""), 10),
             ])
-        pdf.data_table(headers, rows, [35, 45, 20, 25, 30, 35])
+            if len(rows) >= 20:
+                break
+        if rows:
+            pdf.data_table(headers, rows, [35, 45, 20, 25, 30, 35])
 
 
 def _generate_summary_markdown(
