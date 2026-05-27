@@ -88,7 +88,7 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
     type_data = defaultdict(list)
 
     for doc in documents:
-        extracted = doc.get("extracted_data", {})
+        extracted = doc.get("extracted_data") or {}
         doc_type = doc.get("document_type")
 
         if doc_type == "listing":
@@ -101,29 +101,33 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
                 rent_sqft_values.append(rent_sqft)
                 size_values.append(size)
 
-                building = extracted.get("building_name", "Unknown")
-                prop_type = extracted.get("property_type", "Unknown")
+                building = extracted.get("building_name") or "Unknown"
+                prop_type = extracted.get("property_type") or "Unknown"
 
                 building_data[building].append(rent_sqft)
                 type_data[prop_type].append(rent_sqft)
 
+                # Handle contact safely (might be None)
+                contact = extracted.get("contact") or {}
+                image_urls = doc.get("image_urls") or []
+
                 result.properties.append({
                     "building_name": building,
-                    "address": extracted.get("address", ""),
+                    "address": extracted.get("address") or "",
                     "size_sqft": size,
                     "rent_monthly": rent,
                     "rent_sqft": round(rent_sqft, 2),
-                    "floor_unit": extracted.get("floor_unit", ""),
+                    "floor_unit": extracted.get("floor_unit") or "",
                     "property_type": prop_type,
-                    "contact_name": extracted.get("contact", {}).get("name", ""),
-                    "contact_phone": extracted.get("contact", {}).get("phone", ""),
-                    "image_url": doc.get("image_urls", [None])[0] if doc.get("image_urls") else None,
+                    "contact_name": contact.get("name") or "",
+                    "contact_phone": contact.get("phone") or "",
+                    "image_url": image_urls[0] if image_urls else None,
                 })
 
         elif doc_type == "listing_list":
             # Multiple listings
-            units = extracted.get("units", [])
-            building = extracted.get("building_name", "Unknown")
+            units = extracted.get("units") or []
+            building = extracted.get("building_name") or "Unknown"
 
             for unit in units:
                 rent = _parse_number(unit.get("rent"))
@@ -134,22 +138,28 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
                     rent_sqft_values.append(rent_sqft)
                     size_values.append(size)
 
-                    prop_type = unit.get("property_type") or extracted.get("property_type", "Unknown")
+                    prop_type = unit.get("property_type") or extracted.get("property_type") or "Unknown"
 
                     building_data[building].append(rent_sqft)
                     type_data[prop_type].append(rent_sqft)
 
+                    # Handle contact and images safely
+                    contact = extracted.get("contact") or {}
+                    image_urls = doc.get("image_urls") or []
+                    floor = unit.get("floor") or ""
+                    unit_num = unit.get("unit") or ""
+
                     result.properties.append({
                         "building_name": building,
-                        "address": extracted.get("address", ""),
+                        "address": extracted.get("address") or "",
                         "size_sqft": size,
                         "rent_monthly": rent,
                         "rent_sqft": round(rent_sqft, 2),
-                        "floor_unit": unit.get("floor", "") + " " + unit.get("unit", ""),
+                        "floor_unit": f"{floor} {unit_num}".strip(),
                         "property_type": prop_type,
-                        "contact_name": extracted.get("contact", {}).get("name", ""),
-                        "contact_phone": extracted.get("contact", {}).get("phone", ""),
-                        "image_url": doc.get("image_urls", [None])[0] if doc.get("image_urls") else None,
+                        "contact_name": contact.get("name") or "",
+                        "contact_phone": contact.get("phone") or "",
+                        "image_url": image_urls[0] if image_urls else None,
                     })
 
     # Compute aggregates
@@ -199,7 +209,7 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
     bucket_data = defaultdict(list)
 
     for doc in documents:
-        extracted = doc.get("extracted_data", {})
+        extracted = doc.get("extracted_data") or {}
         doc_type = doc.get("document_type")
 
         if doc_type == "listing":
@@ -214,20 +224,24 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
                 if rent:
                     rents.append(rent)
 
+                # Handle None values safely
+                contact = extracted.get("contact") or {}
+                image_urls = doc.get("image_urls") or []
+
                 result.properties.append({
-                    "building_name": extracted.get("building_name", "Unknown"),
-                    "address": extracted.get("address", ""),
+                    "building_name": extracted.get("building_name") or "Unknown",
+                    "address": extracted.get("address") or "",
                     "size_sqft": size,
                     "rent_monthly": rent,
-                    "floor_unit": extracted.get("floor_unit", ""),
-                    "contact_name": extracted.get("contact", {}).get("name", ""),
-                    "contact_phone": extracted.get("contact", {}).get("phone", ""),
-                    "image_url": doc.get("image_urls", [None])[0] if doc.get("image_urls") else None,
+                    "floor_unit": extracted.get("floor_unit") or "",
+                    "contact_name": contact.get("name") or "",
+                    "contact_phone": contact.get("phone") or "",
+                    "image_url": image_urls[0] if image_urls else None,
                 })
 
         elif doc_type == "listing_list":
-            units = extracted.get("units", [])
-            building = extracted.get("building_name", "Unknown")
+            units = extracted.get("units") or []
+            building = extracted.get("building_name") or "Unknown"
 
             for unit in units:
                 size = _parse_number(unit.get("size"))
@@ -241,15 +255,21 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
                     if rent:
                         rents.append(rent)
 
+                    # Handle None values safely
+                    contact = extracted.get("contact") or {}
+                    image_urls = doc.get("image_urls") or []
+                    floor = unit.get("floor") or ""
+                    unit_num = unit.get("unit") or ""
+
                     result.properties.append({
                         "building_name": building,
-                        "address": extracted.get("address", ""),
+                        "address": extracted.get("address") or "",
                         "size_sqft": size,
                         "rent_monthly": rent,
-                        "floor_unit": unit.get("floor", "") + " " + unit.get("unit", ""),
-                        "contact_name": extracted.get("contact", {}).get("name", ""),
-                        "contact_phone": extracted.get("contact", {}).get("phone", ""),
-                        "image_url": doc.get("image_urls", [None])[0] if doc.get("image_urls") else None,
+                        "floor_unit": f"{floor} {unit_num}".strip(),
+                        "contact_name": contact.get("name") or "",
+                        "contact_phone": contact.get("phone") or "",
+                        "image_url": image_urls[0] if image_urls else None,
                     })
 
     # Compute aggregates

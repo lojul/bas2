@@ -120,21 +120,24 @@ def aggregate_documents(
             if not district_match:
                 continue
 
-        # Add to documents list
+        # Add to documents list (handle None values explicitly)
+        content = doc.get("content") or ""
+        image_urls = doc.get("image_urls") or []
+
         doc_parsed = {
             "id": doc.get("id"),
-            "file_name": doc.get("file_name"),
+            "file_name": doc.get("file_name") or "unknown",
             "document_type": doc.get("document_type"),
-            "content": doc.get("content", "")[:500],  # Truncate for memory
+            "content": content[:500],  # Truncate for memory
             "extracted_data": extracted_data,
-            "image_urls": doc.get("image_urls", []),
+            "image_urls": image_urls,
             "processed_at": doc.get("processed_at"),
         }
         documents.append(doc_parsed)
 
         # Collect images
-        building_name = extracted_data.get("building_name", doc.get("file_name", ""))
-        for url in doc.get("image_urls", [])[:3]:  # Max 3 images per doc
+        building_name = extracted_data.get("building_name") or doc.get("file_name") or ""
+        for url in image_urls[:3]:  # Max 3 images per doc
             images.append({
                 "url": url,
                 "building": building_name,
