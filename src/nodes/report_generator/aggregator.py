@@ -97,9 +97,10 @@ def aggregate_documents(
 
         # Filter by district in extracted_data if specified
         if request.district:
-            doc_district = extracted_data.get("district", "")
-            doc_address = extracted_data.get("address", "")
-            doc_content = doc.get("content", "")
+            # Ensure strings (handle None values)
+            doc_district = extracted_data.get("district") or ""
+            doc_address = extracted_data.get("address") or ""
+            doc_content = doc.get("content") or ""
 
             # Check if district matches
             district_match = (
