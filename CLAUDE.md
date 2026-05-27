@@ -412,6 +412,29 @@ Light theme configured in `~/.streamlit/config.toml`:
 base = "light"
 ```
 
+### PDF Report Chinese Font (NOT WORKING)
+**Problem:** Chinese building names show as "N/A" in PDF reports.
+
+**Current State:**
+- Chinese font (WenQuanYi Micro Hei, 4.9MB) uploaded to Azure Blob: `https://blobhk04472.blob.core.windows.net/fonts/wqy-microhei.ttc`
+- Code attempts to download and cache font at runtime
+- Font works locally but NOT on Streamlit Cloud
+
+**Possible Issues:**
+1. Font download may be failing on Streamlit Cloud (network/timeout)
+2. The data in Azure Search may not have Chinese names (extraction issue)
+3. Font caching path may differ on Streamlit Cloud
+
+**Debug Steps for Next Time:**
+1. Add logging to `_get_chinese_font()` in `pdf_generator.py`
+2. Check if font download succeeds on Streamlit Cloud
+3. Verify Azure Search data contains Chinese building names
+4. Test with smaller font file or different font format
+
+**Files:**
+- `src/nodes/report_generator/pdf_generator.py` - Font download logic
+- Font URL: `CHINESE_FONT_URL` constant
+
 ## Streamlit Cloud Deployment
 
 ### Production URL
