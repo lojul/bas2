@@ -768,15 +768,15 @@ def render_chat_tab():
         report_col1, report_col2 = st.columns([2, 4])
 
         if has_report and pdf_data and pdf_filename:
-            # Convert bytearray to bytes if needed (Streamlit requires bytes)
+            # Convert bytearray to bytes if needed
             if isinstance(pdf_data, bytearray):
                 pdf_data = bytes(pdf_data)
 
-            # Show download button with success message
+            # Show download button
             with report_col1:
                 try:
                     st.download_button(
-                        f"📥 Download {detected_district_en} Report",
+                        f"📥 Download Report",
                         data=pdf_data,
                         file_name=pdf_filename,
                         mime="application/pdf",
@@ -784,42 +784,31 @@ def render_chat_tab():
                         type="primary"
                     )
                 except Exception as e:
-                    st.session_state["report_pdf"] = None  # Clear corrupted state
+                    st.session_state["report_pdf"] = None
                     st.error(f"Download error: {e}")
             with report_col2:
-                st.success(f"✅ Report ready: {pdf_filename}")
+                st.caption(f"Ready: {pdf_filename}")
         else:
             # Show generate button
             with report_col1:
                 generate_clicked = st.button(f"📊 Create {detected_district_en} Report", key="create_report_btn")
 
-            # Handle report generation outside column context for better visibility
             if generate_clicked:
-                status_container = st.empty()
-                status_container.info(f"⏳ Generating {detected_district_en} report... Please wait.")
+                with st.spinner(f"Generating report..."):
+                    try:
+                        from src.nodes.report_generator.main import handle_report_request
+                        query = f"Generate rent report for {detected_district_en}"
+                        response = handle_report_request(query)
 
-                try:
-                    from src.nodes.report_generator.main import handle_report_request
-                    query = f"Generate rent report for {detected_district_en}"
-                    response = handle_report_request(query)
-
-                    if response.report and response.report.pdf_bytes:
-                        st.session_state["report_pdf"] = response.report.pdf_bytes
-                        st.session_state["report_filename"] = response.report.filename
-                        st.session_state["report_district"] = detected_district
-                        status_container.success(f"✅ Report generated! Click download below.")
-                        st.rerun()
-                    else:
-                        error_msg = response.error if response else "No response"
-                        status_container.error(f"❌ Failed: {error_msg}")
-                except Exception as e:
-                    import traceback
-                    status_container.error(f"❌ Error: {e}")
-                    st.code(traceback.format_exc())
-
-            # Debug: Show session state for report
-            if st.session_state.get("report_pdf"):
-                st.info(f"📄 Report in memory: {st.session_state.get('report_filename')} for {st.session_state.get('report_district')}")
+                        if response.report and response.report.pdf_bytes:
+                            st.session_state["report_pdf"] = response.report.pdf_bytes
+                            st.session_state["report_filename"] = response.report.filename
+                            st.session_state["report_district"] = detected_district
+                            st.rerun()
+                        else:
+                            st.error(response.error or "No data found")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
 
     st.divider()
 

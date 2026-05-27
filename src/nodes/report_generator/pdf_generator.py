@@ -184,13 +184,25 @@ class PropertyReportPDF(FPDF):
 def _ascii_safe(text: str, max_len: int = 50) -> str:
     """Convert text to ASCII-safe version for PDF.
 
-    Keeps ASCII characters and replaces others with '?'.
+    Extracts ASCII characters and removes Chinese/non-ASCII cleanly.
+    Handles common patterns like "Building Name (中文名)" by keeping English part.
     """
     if not text:
         return ""
-    # Keep ASCII printable characters only
-    safe = ''.join(c if ord(c) < 128 else '?' for c in str(text))
-    return safe[:max_len]
+
+    text = str(text)
+
+    # Remove content in Chinese parentheses: "Name (中文)" -> "Name"
+    import re
+    text = re.sub(r'\s*[\(（][^)）]*[\)）]\s*$', '', text)
+
+    # Keep ASCII printable characters only, skip non-ASCII
+    safe = ''.join(c for c in text if 32 <= ord(c) < 127)
+
+    # Clean up multiple spaces
+    safe = ' '.join(safe.split())
+
+    return safe[:max_len].strip()
 
 
 def _format_number(value) -> str:
