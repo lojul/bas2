@@ -791,24 +791,31 @@ def render_chat_tab():
 
             # Handle report generation outside column context for better visibility
             if generate_clicked:
-                with st.spinner(f"Generating {detected_district_en} report... This may take 10-20 seconds."):
-                    try:
-                        from src.nodes.report_generator.main import handle_report_request
-                        query = f"Generate rent report for {detected_district_en}"
-                        response = handle_report_request(query)
+                status_container = st.empty()
+                status_container.info(f"⏳ Generating {detected_district_en} report... Please wait.")
 
-                        if response.report and response.report.pdf_bytes:
-                            st.session_state["report_pdf"] = response.report.pdf_bytes
-                            st.session_state["report_filename"] = response.report.filename
-                            st.session_state["report_district"] = detected_district
-                            st.success(f"✅ Report generated: {response.report.filename}")
-                            st.rerun()
-                        else:
-                            st.error(f"❌ {response.error or 'No data found for this district'}")
-                    except Exception as e:
-                        import traceback
-                        st.error(f"❌ Report generation failed: {e}")
-                        st.code(traceback.format_exc())
+                try:
+                    from src.nodes.report_generator.main import handle_report_request
+                    query = f"Generate rent report for {detected_district_en}"
+                    response = handle_report_request(query)
+
+                    if response.report and response.report.pdf_bytes:
+                        st.session_state["report_pdf"] = response.report.pdf_bytes
+                        st.session_state["report_filename"] = response.report.filename
+                        st.session_state["report_district"] = detected_district
+                        status_container.success(f"✅ Report generated! Click download below.")
+                        st.rerun()
+                    else:
+                        error_msg = response.error if response else "No response"
+                        status_container.error(f"❌ Failed: {error_msg}")
+                except Exception as e:
+                    import traceback
+                    status_container.error(f"❌ Error: {e}")
+                    st.code(traceback.format_exc())
+
+            # Debug: Show session state for report
+            if st.session_state.get("report_pdf"):
+                st.info(f"📄 Report in memory: {st.session_state.get('report_filename')} for {st.session_state.get('report_district')}")
 
     st.divider()
 
