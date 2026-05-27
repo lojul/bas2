@@ -767,7 +767,10 @@ def render_chat_tab():
         # Report section in its own row
         report_col1, report_col2 = st.columns([2, 4])
 
-        if has_report and pdf_data and pdf_filename and isinstance(pdf_data, bytes):
+        # Debug: show condition values
+        st.caption(f"Debug: has_report={has_report}, pdf_data={type(pdf_data).__name__}, len={len(pdf_data) if pdf_data else 0}, filename={pdf_filename}")
+
+        if has_report and pdf_data and pdf_filename:
             # Show download button with success message
             with report_col1:
                 try:
