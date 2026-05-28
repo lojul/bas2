@@ -3,12 +3,13 @@
 This module provides the entry point for generating reports from chatbot queries.
 """
 
+from datetime import datetime
 from typing import Optional
 from dataclasses import dataclass
 
 from langsmith import traceable
 
-from .router import detect_report_intent, parse_report_request, ReportRequest
+from .router import detect_report_intent, parse_report_request, ReportRequest, DISTRICTS
 from .validator import validate_request, ValidationResult
 from .aggregator import aggregate_for_rent_report, aggregate_for_availability_report
 from .statistics import compute_rent_statistics, compute_availability_statistics
@@ -144,5 +145,121 @@ def _generate_availability_report(request: ReportRequest) -> ReportOutput:
     )
 
 
+@traceable(name="generate_report_from_sources", run_type="chain")
+def generate_report_from_sources(
+    sources: list[dict],
+    district: str,
+    district_en: str,
+    report_type: str = "rent"
+) -> ReportResponse:
+    """Generate report from pre-fetched chat sources.
+
+    This function uses documents already retrieved by the chatbot instead of
+    doing a separate search. This ensures the report matches what the user
+    saw in the chat conversation.
+
+    Args:
+        sources: List of document dicts from chatbot search results.
+                 Each should have: file_name, document_type, extracted_data, image_urls
+        district: Chinese district name (e.g., "中環")
+        district_en: English district name (e.g., "Central")
+        report_type: "rent" or "availability"
+
+    Returns:
+        ReportResponse with generated PDF
+    """
+    response = ReportResponse()
+    response.is_report_request = True
+
+    # Filter sources to only listings
+    documents = []
+    images = []
+
+    # Document types that contain property listings
+    # processed-documents uses: listing, listing_list
+    # c21net-intelligence-v2 uses: Vacancy Listing, Particular Property
+    LISTING_TYPES = {
+        "listing", "listing_list",
+        "vacancy listing", "particular property",  # c21net-intelligence-v2
+    }
+
+    for src in sources:
+        doc_type = (src.get("document_type") or "").lower()
+        if doc_type not in LISTING_TYPES:
+            continue
+
+        # Ensure extracted_data is a dict
+        extracted = src.get("extracted_data", {})
+        if isinstance(extracted, str):
+            import json
+            try:
+                extracted = json.loads(extracted)
+            except:
+                extracted = {}
+
+        # Build document in format expected by statistics module
+        doc = {
+            "file_name": src.get("file_name", "Unknown"),
+            "document_type": doc_type,
+            "content": src.get("content", "")[:500],
+            "extracted_data": extracted,
+            "image_urls": src.get("image_urls", []),
+        }
+        documents.append(doc)
+
+        # Collect images
+        building_name = extracted.get("building_name") or src.get("file_name", "")
+        for url in src.get("image_urls", [])[:3]:
+            images.append({
+                "url": url,
+                "building": building_name,
+                "doc_id": src.get("id", ""),
+            })
+
+    # Limit images
+    images = images[:12]
+
+    if not documents:
+        response.error = "未找到相關物業資料 No property listings found in chat results"
+        return response
+
+    # Create request object for PDF generator
+    request = ReportRequest(
+        report_type=report_type,
+        district=district,
+        district_en=district_en,
+        raw_query=f"Report for {district_en}"
+    )
+
+    try:
+        # Compute statistics from chat sources
+        if report_type == "availability":
+            stats = compute_availability_statistics(documents)
+        else:
+            stats = compute_rent_statistics(documents)
+
+        # Generate PDF
+        response.report = generate_pdf_report(
+            request=request,
+            statistics=stats,
+            images=images,
+            document_count=len(documents)
+        )
+
+        # Upload to blob storage
+        if response.report and response.report.pdf_bytes:
+            upload_pdf_to_blob(response.report)
+
+    except Exception as e:
+        response.error = f"報告生成失敗 Report generation failed: {str(e)}"
+
+    return response
+
+
 # Export for chatbot integration
-__all__ = ["handle_report_request", "ReportResponse", "detect_report_intent"]
+__all__ = [
+    "handle_report_request",
+    "generate_report_from_sources",
+    "ReportResponse",
+    "detect_report_intent"
+]

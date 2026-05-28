@@ -1,4 +1,8 @@
-"""Azure AI Search indexer for processed documents."""
+"""Azure AI Search indexer for processed documents.
+
+Indexes documents to AZURE_SEARCH_INDEX (default: processed-documents).
+For chatbot search, multiple indexes can be searched via AZURE_SEARCH_INDEXES.
+"""
 
 import os
 import json
@@ -14,6 +18,17 @@ from src.state import DocumentState, ProcessingStatus
 
 # Text limit for content/embeddings
 MAX_CONTENT_LENGTH = 8000
+
+# Search indexes configuration (for chatbot to search multiple indexes)
+# Comma-separated list of index names
+_search_indexes_str = os.environ.get(
+    "AZURE_SEARCH_INDEXES",
+    os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+)
+SEARCH_INDEXES = [idx.strip() for idx in _search_indexes_str.split(",") if idx.strip()]
+
+# Primary index for writing new documents
+PRIMARY_INDEX = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
 
 # Index schema for auto-creation
 INDEX_SCHEMA = {
@@ -177,7 +192,7 @@ def get_existing_document(doc_id: str) -> Optional[dict]:
     """
     endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
     api_key = os.environ.get("AZURE_SEARCH_API_KEY")
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    index_name = PRIMARY_INDEX
 
     if not endpoint or not api_key:
         return None
@@ -272,7 +287,7 @@ def ensure_index_exists() -> None:
     """Create index if it doesn't exist."""
     endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
     api_key = os.environ["AZURE_SEARCH_API_KEY"]
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    index_name = PRIMARY_INDEX
 
     url = f"{endpoint}/indexes/{index_name}?api-version=2024-07-01"
     headers = {
@@ -344,7 +359,7 @@ def upload_document(doc: dict) -> None:
     """
     endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
     api_key = os.environ["AZURE_SEARCH_API_KEY"]
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    index_name = PRIMARY_INDEX
 
     url = f"{endpoint}/indexes/{index_name}/docs/index?api-version=2024-07-01"
     headers = {

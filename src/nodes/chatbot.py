@@ -20,7 +20,7 @@ from langsmith import traceable, trace
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
-from src.nodes.indexer import get_http_client, get_embedding
+from src.nodes.indexer import get_http_client, get_embedding, SEARCH_INDEXES
 
 
 # ============ Data Classes ============
@@ -296,33 +296,53 @@ def generate_query_variations(query: str) -> list[str]:
 
 # ============ Node Functions ============
 
-@traceable(name="search_documents", run_type="retriever", project_name=CHATBOT_PROJECT)
-def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[dict]:
-    """Search vector database for relevant documents using hybrid search.
+def _search_single_index(
+    query: str,
+    query_embedding: list[float],
+    index_name: str,
+    top_k: int = 5
+) -> list[dict]:
+    """Search a single index. Internal helper function.
 
-    Args:
-        query: Search query text
-        top_k: Number of results to return
-        hybrid: If True, use vector + keyword search. If False, vector only.
+    Handles different index schemas gracefully:
+    - processed-documents: file_name, extracted_data, processed_at, image_urls
+    - c21net-intelligence-v2: title, last_updated (no extracted_data/image_urls)
     """
     endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
     api_key = os.environ.get("AZURE_SEARCH_API_KEY")
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
 
-    if not all([endpoint, api_key]):
-        return []
-
-    # Get embedding for query
-    query_embedding = get_embedding(query)
-
-    # Build search request with hybrid search (vector + keyword)
     search_url = f"{endpoint}/indexes/{index_name}/docs/search?api-version=2024-07-01"
     headers = {
         "Content-Type": "application/json",
         "api-key": api_key,
     }
 
-    body = {
+    client = get_http_client()
+
+    # Index-specific configurations
+    # processed-documents uses default-semantic-config, c21net-intelligence-v2 uses unified-semantic-config
+    index_configs = {
+        "processed-documents": {
+            "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+            "searchFields": "content,file_name",
+            "semanticConfig": "default-semantic-config",
+        },
+        "c21net-intelligence-v2": {
+            "select": "id,title,document_type,content,monthly_rental_hkd,floor_area_sqft,key_entities,last_updated",
+            "searchFields": "content,title",
+            "semanticConfig": "unified-semantic-config",
+        },
+    }
+
+    # Get config for this index (fallback to minimal fields)
+    config = index_configs.get(index_name, {
+        "select": "id,document_type,content",
+        "searchFields": "content",
+        "semanticConfig": None,
+    })
+
+    # Try full hybrid + semantic search first
+    body_full = {
         "vectorQueries": [
             {
                 "kind": "vector",
@@ -331,27 +351,89 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
                 "k": top_k,
             }
         ],
-        "search": query,  # Required for semantic ranking
-        "searchFields": "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+        "search": query,
+        "searchFields": config["searchFields"],
+        "select": config["select"],
         "top": top_k,
-        # Semantic ranking for better natural language understanding
-        "queryType": "semantic",
-        "semanticConfiguration": "default-semantic-config",
-        "captions": "extractive",  # Get highlighted captions
-        "answers": "extractive",   # Get direct answers if available
     }
 
-    client = get_http_client()
-    response = client.post(search_url, headers=headers, json=body)
-    response.raise_for_status()
+    # Only add semantic config if index has one
+    if config.get("semanticConfig"):
+        body_full["queryType"] = "semantic"
+        body_full["semanticConfiguration"] = config["semanticConfig"]
+        body_full["captions"] = "extractive"
 
-    data = response.json()
-    results = data.get("value", [])
+    try:
+        response = client.post(search_url, headers=headers, json=body_full)
+        response.raise_for_status()
+        results = response.json().get("value", [])
+        print(f"[search_documents] Index {index_name}: {len(results)} results (hybrid+semantic)")
+        return results
+    except Exception as e:
+        print(f"[search_documents] Index {index_name}: hybrid+semantic failed ({e}), trying keyword only")
 
-    # Format results
+    # Fallback to keyword-only search (no vector, no semantic)
+    body_simple = {
+        "search": query,
+        "searchFields": config["searchFields"],
+        "select": config["select"],
+        "top": top_k,
+    }
+
+    try:
+        response = client.post(search_url, headers=headers, json=body_simple)
+        response.raise_for_status()
+        results = response.json().get("value", [])
+        print(f"[search_documents] Index {index_name}: {len(results)} results (keyword only)")
+        return results
+    except Exception as e:
+        print(f"[search_documents] Index {index_name}: all search methods failed - {e}")
+        return []
+
+
+@traceable(name="search_documents", run_type="retriever", project_name=CHATBOT_PROJECT)
+def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[dict]:
+    """Search vector database for relevant documents using hybrid search.
+
+    Searches all indexes configured in AZURE_SEARCH_INDEXES (comma-separated).
+    Defaults to AZURE_SEARCH_INDEX if not set.
+
+    Args:
+        query: Search query text
+        top_k: Number of results to return
+        hybrid: If True, use vector + keyword search. If False, vector only.
+    """
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+
+    if not all([endpoint, api_key]):
+        return []
+
+    # Get embedding for query (once, reused for all indexes)
+    query_embedding = get_embedding(query)
+
+    # Search all configured indexes
+    all_results = []
+    for index_name in SEARCH_INDEXES:
+        results = _search_single_index(query, query_embedding, index_name, top_k)
+        for doc in results:
+            doc["_index"] = index_name  # Track source index
+        all_results.extend(results)
+
+    # Format and deduplicate results
     documents = []
-    for doc in results:
+    seen_files = set()
+
+    for doc in all_results:
+        # Normalize file_name: c21net-intelligence-v2 uses "title" instead
+        file_name = doc.get("file_name") or doc.get("title") or "Unknown"
+
+        # Deduplicate by file_name
+        if file_name in seen_files:
+            continue
+        seen_files.add(file_name)
+
+        # Get extracted_data (processed-documents) or build from fields (c21net-intelligence-v2)
         extracted = doc.get("extracted_data", "{}")
         if isinstance(extracted, str):
             try:
@@ -359,25 +441,42 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             except:
                 extracted = {}
 
+        # If no extracted_data, build from c21net-intelligence-v2 fields
+        if not extracted and doc.get("_index") == "c21net-intelligence-v2":
+            extracted = {
+                "rent_monthly": doc.get("monthly_rental_hkd"),
+                "size_sqft": doc.get("floor_area_sqft"),
+                "key_entities": doc.get("key_entities", []),
+            }
+
         # Get semantic caption if available
         captions = doc.get("@search.captions", [])
         caption_text = captions[0].get("text", "") if captions else ""
 
         documents.append({
-            "file_name": doc.get("file_name", "Unknown"),
+            "file_name": file_name,
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:2000],
             "extracted_data": extracted,
             "image_urls": doc.get("image_urls", []),
             "score": doc.get("@search.score", 0),
-            "reranker_score": doc.get("@search.rerankerScore", 0),  # Semantic score
-            "caption": caption_text,  # Highlighted relevant text
+            "reranker_score": doc.get("@search.rerankerScore", 0),
+            "caption": caption_text,
+            "index": doc.get("_index", ""),  # Source index for debugging
         })
 
     # Sort by reranker score if available (semantic ranking)
     documents.sort(key=lambda x: x.get("reranker_score", 0), reverse=True)
 
-    return documents
+    # Log summary
+    index_counts = {}
+    for d in documents:
+        idx = d.get("index", "unknown")
+        index_counts[idx] = index_counts.get(idx, 0) + 1
+    print(f"[search_documents] Total: {len(documents)} results from {index_counts}")
+
+    # Limit to top_k after merging
+    return documents[:top_k]
 
 
 @traceable(name="multi_query_search", run_type="retriever", project_name=CHATBOT_PROJECT)
@@ -443,27 +542,18 @@ def multi_query_search(query: str, top_k: int = 5, use_rerank: bool = True) -> l
     return candidates[:top_k]
 
 
-def keyword_search(
-    query: str = "",
+def _keyword_search_single_index(
+    query: str,
+    index_name: str,
     filters: dict = None,
     top_k: int = 20,
 ) -> list[dict]:
-    """Direct keyword search without LLM - for Search tab.
+    """Search a single index with keyword search. Internal helper.
 
-    Args:
-        query: Search keywords (optional)
-        filters: Dict with optional keys: document_type, district
-        top_k: Number of results
-
-    Returns:
-        List of matching documents with extracted data
+    Handles different index schemas gracefully.
     """
     endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
     api_key = os.environ.get("AZURE_SEARCH_API_KEY")
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
-
-    if not all([endpoint, api_key]):
-        return []
 
     search_url = f"{endpoint}/indexes/{index_name}/docs/search?api-version=2024-07-01"
     headers = {
@@ -471,31 +561,41 @@ def keyword_search(
         "api-key": api_key,
     }
 
-    # Build search body
-    # - When query exists: use relevance ranking with field boosting
-    # - When no query: return all sorted by date
     has_query = bool(query and query.strip())
+
+    # Index-specific configurations
+    index_configs = {
+        "processed-documents": {
+            "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+            "searchFields": "content,file_name",
+            "semanticConfig": "default-semantic-config",
+            "orderBy": "processed_at desc",
+        },
+        "c21net-intelligence-v2": {
+            "select": "id,title,document_type,content,monthly_rental_hkd,floor_area_sqft,key_entities,last_updated",
+            "searchFields": "content,title",
+            "semanticConfig": "unified-semantic-config",
+            "orderBy": "last_updated desc",
+        },
+    }
+
+    config = index_configs.get(index_name, {
+        "select": "id,document_type,content",
+        "searchFields": "content",
+        "semanticConfig": None,
+        "orderBy": None,
+    })
 
     body = {
         "search": query if has_query else "*",
-        # Boost file_name and extracted_data over general content for better relevance
-        "searchFields": "file_name,extracted_data,content" if has_query else "content,file_name",
-        "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+        "searchFields": config["searchFields"],
+        "select": config["select"],
         "top": top_k,
     }
 
-    # Only sort by date when browsing (no query) - otherwise use relevance score
-    if not has_query:
-        body["orderby"] = "processed_at desc"
+    if not has_query and config.get("orderBy"):
+        body["orderby"] = config["orderBy"]
 
-    # Enable semantic ranking for better natural language understanding
-    if has_query:
-        body["queryType"] = "semantic"
-        body["semanticConfiguration"] = "default-semantic-config"
-        body["captions"] = "extractive"
-        body["answers"] = "extractive"
-
-    # Build filter string (OData filters for top-level fields only)
     filter_parts = []
     if filters:
         if filters.get("document_type"):
@@ -505,10 +605,67 @@ def keyword_search(
         body["filter"] = " and ".join(filter_parts)
 
     client = get_http_client()
-    response = client.post(search_url, headers=headers, json=body)
-    response.raise_for_status()
 
-    results = response.json().get("value", [])
+    # Try with semantic ranking first (if index supports it)
+    if has_query and config.get("semanticConfig"):
+        body_semantic = body.copy()
+        body_semantic["queryType"] = "semantic"
+        body_semantic["semanticConfiguration"] = config["semanticConfig"]
+        body_semantic["captions"] = "extractive"
+        try:
+            response = client.post(search_url, headers=headers, json=body_semantic)
+            response.raise_for_status()
+            print(f"[keyword_search] Index {index_name}: {len(response.json().get('value', []))} results (semantic)")
+            return response.json().get("value", [])
+        except Exception as e:
+            # Semantic search failed, fall back to simple search
+            print(f"[keyword_search] Index {index_name}: semantic search failed ({e}), trying simple search")
+
+    # Simple search (no semantic ranking)
+    try:
+        response = client.post(search_url, headers=headers, json=body)
+        response.raise_for_status()
+        print(f"[keyword_search] Index {index_name}: {len(response.json().get('value', []))} results (simple)")
+        return response.json().get("value", [])
+    except Exception as e:
+        print(f"[keyword_search] Index {index_name}: search failed - {e}")
+        return []
+
+
+def keyword_search(
+    query: str = "",
+    filters: dict = None,
+    top_k: int = 20,
+) -> list[dict]:
+    """Direct keyword search without LLM - for Search tab.
+
+    Searches all indexes configured in AZURE_SEARCH_INDEXES (comma-separated).
+
+    Args:
+        query: Search keywords (optional)
+        filters: Dict with optional keys: document_type, district
+        top_k: Number of results
+
+    Returns:
+        List of matching documents with extracted data (includes 'index' field)
+    """
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+
+    if not all([endpoint, api_key]):
+        return []
+
+    # Search all configured indexes
+    all_results = []
+    for index_name in SEARCH_INDEXES:
+        index_results = _keyword_search_single_index(query, index_name, filters, top_k)
+        for doc in index_results:
+            doc["_index"] = index_name  # Track source index
+        all_results.extend(index_results)
+
+    # Combine results - use all_results instead of single index results
+    results = all_results
+    has_query = bool(query and query.strip())
 
     # Filter out low-relevance results when searching (not browsing)
     # Semantic reranker score ~2.5+ indicates good relevance
@@ -519,7 +676,7 @@ def keyword_search(
         results = [
             r for r in results
             if r.get("@search.rerankerScore", 0) >= MIN_RERANKER_SCORE
-            and not r.get("file_name", "").lower().endswith(IMAGE_EXTENSIONS)
+            and not (r.get("file_name") or r.get("title") or "").lower().endswith(IMAGE_EXTENSIONS)
         ]
 
     # Client-side district filtering (since district is in extracted_data JSON)
@@ -575,9 +732,23 @@ def keyword_search(
                 filtered_results.append(doc)
         results = filtered_results
 
-    # Format results
+    # Format and deduplicate results (by file_name, keep first/highest score)
     documents = []
+    seen_files = set()
+
+    # Sort by reranker score (descending) if available, then by search score
+    results.sort(key=lambda x: (x.get("@search.rerankerScore", 0), x.get("@search.score", 0)), reverse=True)
+
     for doc in results:
+        # Normalize file_name: c21net-intelligence-v2 uses "title" instead
+        file_name = doc.get("file_name") or doc.get("title") or "Unknown"
+
+        # Deduplicate by file_name
+        if file_name in seen_files:
+            continue
+        seen_files.add(file_name)
+
+        # Get extracted_data (processed-documents) or build from fields (c21net-intelligence-v2)
         extracted = doc.get("extracted_data", "{}")
         if isinstance(extracted, str):
             try:
@@ -585,15 +756,24 @@ def keyword_search(
             except:
                 extracted = {}
 
+        # If no extracted_data, build from c21net-intelligence-v2 fields
+        if not extracted and doc.get("_index") == "c21net-intelligence-v2":
+            extracted = {
+                "rent_monthly": doc.get("monthly_rental_hkd"),
+                "size_sqft": doc.get("floor_area_sqft"),
+                "key_entities": doc.get("key_entities", []),
+            }
+
         documents.append({
             "id": doc.get("id", ""),
-            "file_name": doc.get("file_name", "Unknown"),
+            "file_name": file_name,
             "document_type": doc.get("document_type", "unknown"),
             "content": doc.get("content", "")[:500],
             "extracted_data": extracted,
             "image_urls": doc.get("image_urls", []),
-            "processed_at": doc.get("processed_at", ""),
+            "processed_at": doc.get("processed_at") or doc.get("last_updated") or "",
             "score": doc.get("@search.score", 0),
+            "index": doc.get("_index", ""),  # Source index
         })
 
     return documents
@@ -916,6 +1096,7 @@ def retrieve_node(state: ChatState) -> dict:
             "document_type": doc["document_type"],
             "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
+            "index": doc.get("index", ""),  # Source index
             "type": "document",
         })
     # Only add valid web results (not errors)
@@ -1296,6 +1477,7 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
             "document_type": doc["document_type"],
             "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
+            "index": doc.get("index", ""),  # Source index
             "type": "document",
         })
     for r in web_results:

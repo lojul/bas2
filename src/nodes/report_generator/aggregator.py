@@ -150,15 +150,24 @@ def aggregate_documents(
     return documents, images
 
 
+# Document types that contain property listings
+# processed-documents uses: listing, listing_list
+# c21net-intelligence-v2 uses: Vacancy Listing, Particular Property
+LISTING_DOC_TYPES = [
+    "listing", "listing_list",  # processed-documents
+    "Vacancy Listing", "Particular Property",  # c21net-intelligence-v2
+]
+
+
 @traceable(name="aggregate_for_rent_report", run_type="retriever")
 def aggregate_for_rent_report(request: ReportRequest) -> tuple[list[dict], list[dict]]:
     """Aggregate documents specifically for rent analysis report.
 
-    Fetches listings and listing_lists for the specified district.
+    Fetches listings from all configured indexes.
     """
     return aggregate_documents(
         request=request,
-        document_types=["listing", "listing_list"],
+        document_types=LISTING_DOC_TYPES,
         top_k=100
     )
 
@@ -167,11 +176,11 @@ def aggregate_for_rent_report(request: ReportRequest) -> tuple[list[dict], list[
 def aggregate_for_availability_report(request: ReportRequest) -> tuple[list[dict], list[dict]]:
     """Aggregate documents for availability report.
 
-    Fetches listings with availability info.
+    Fetches listings with availability info from all configured indexes.
     """
     return aggregate_documents(
         request=request,
-        document_types=["listing", "listing_list"],
+        document_types=LISTING_DOC_TYPES,
         top_k=100
     )
 
@@ -180,10 +189,10 @@ def aggregate_for_availability_report(request: ReportRequest) -> tuple[list[dict
 def aggregate_for_market_report(request: ReportRequest) -> tuple[list[dict], list[dict]]:
     """Aggregate documents for market overview report.
 
-    Fetches listings and news articles.
+    Fetches listings and news articles from all configured indexes.
     """
     return aggregate_documents(
         request=request,
-        document_types=["listing", "listing_list", "news"],
+        document_types=LISTING_DOC_TYPES + ["news"],
         top_k=100
     )

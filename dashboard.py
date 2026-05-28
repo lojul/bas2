@@ -800,16 +800,43 @@ def render_chat_tab():
     if generate_clicked:
         with st.spinner(f"Generating {detected_district_en} report..."):
             try:
-                from src.nodes.report_generator.main import handle_report_request
-                response = handle_report_request(f"Generate rent report for {detected_district_en}")
+                # Collect sources from chat messages
+                chat_sources = []
+                for msg in st.session_state.get("chat_messages", []):
+                    if msg.get("role") == "assistant" and msg.get("sources"):
+                        for src in msg["sources"]:
+                            # Skip web results
+                            if src.get("type") == "web":
+                                continue
+                            chat_sources.append(src)
 
-                if response.report and response.report.pdf_bytes:
-                    st.session_state["report_pdf"] = response.report.pdf_bytes
-                    st.session_state["report_filename"] = response.report.filename
-                    st.session_state["report_district"] = detected_district
-                    st.rerun()
+                # Remove duplicates by file_name
+                seen = set()
+                unique_sources = []
+                for src in chat_sources:
+                    fname = src.get("file_name", "")
+                    if fname and fname not in seen:
+                        seen.add(fname)
+                        unique_sources.append(src)
+
+                if not unique_sources:
+                    st.error("No property data in chat. Ask about properties first, then generate report.")
                 else:
-                    st.error(response.error or "No data found")
+                    from src.nodes.report_generator.main import generate_report_from_sources
+                    response = generate_report_from_sources(
+                        sources=unique_sources,
+                        district=detected_district,
+                        district_en=detected_district_en,
+                        report_type="rent"
+                    )
+
+                    if response.report and response.report.pdf_bytes:
+                        st.session_state["report_pdf"] = response.report.pdf_bytes
+                        st.session_state["report_filename"] = response.report.filename
+                        st.session_state["report_district"] = detected_district
+                        st.rerun()
+                    else:
+                        st.error(response.error or "No data found in chat sources")
             except Exception as e:
                 st.error(f"Error: {e}")
 
@@ -847,7 +874,9 @@ def render_chat_tab():
                                 if src.get("type") == "web":
                                     st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
                                 else:
-                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+                                    index_name = src.get("index", "")
+                                    index_badge = f" `{index_name}`" if index_name else ""
+                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))}){index_badge}")
                                     # Show images if available
                                     src_images = src.get("image_urls", [])
                                     if src_images:
@@ -908,7 +937,9 @@ def render_chat_tab():
                                 if src.get("type") == "web":
                                     st.write(f"🌐 [{src['file_name']}]({src.get('url', '')})")
                                 else:
-                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))})")
+                                    index_name = src.get("index", "")
+                                    index_badge = f" `{index_name}`" if index_name else ""
+                                    st.write(f"📄 **{src['file_name']}** ({format_doc_type(src.get('document_type', 'unknown'))}){index_badge}")
                                     # Show images if available
                                     src_images = src.get("image_urls", [])
                                     if src_images:
@@ -959,6 +990,7 @@ def render_search_tab():
                 file_name = doc.get("file_name", "Unknown")
                 extracted = doc.get("extracted_data", {})
                 image_urls = doc.get("image_urls", [])
+                index_name = doc.get("index", "")
 
                 with st.container():
                     # Header with document type badge
@@ -971,7 +1003,9 @@ def render_search_tab():
                     }
                     icon = type_colors.get(doc_type, "📄")
 
-                    st.markdown(f"### {icon} {file_name}")
+                    # Show index source if available
+                    index_badge = f" `{index_name}`" if index_name else ""
+                    st.markdown(f"### {icon} {file_name}{index_badge}")
 
                     if doc_type == "listing":
                         col_a, col_b = st.columns(2)
