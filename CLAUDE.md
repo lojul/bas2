@@ -99,8 +99,37 @@ __start__ → get_download_url → run_ocr → classify → extract → index �
 
 ### Azure AI Search
 - Endpoint: `aisearch-eastasia-basic.search.windows.net`
-- Index: `processed-documents`
-- Features: Vector search with embeddings
+- Primary Index: `processed-documents` (for writing new documents)
+- Search Indexes: `processed-documents`, `c21net-intelligence-v2` (for chatbot reading)
+- Features: Vector search with embeddings, semantic ranking, multi-index search
+
+#### Multi-Index Search Configuration
+The chatbot can search multiple indexes. Configure via environment variable:
+```bash
+AZURE_SEARCH_INDEXES=processed-documents,c21net-intelligence-v2
+```
+
+**IMPORTANT:** If `AZURE_SEARCH_INDEXES` is not set, only `AZURE_SEARCH_INDEX` is searched.
+
+#### Index Schema Differences
+| Field | processed-documents | c21net-intelligence-v2 |
+|-------|---------------------|------------------------|
+| Name | `file_name` | `title` |
+| Time | `processed_at` | `last_updated` |
+| Data | `extracted_data` | *(built from fields)* |
+| Images | `image_urls` | *(not available)* |
+| Semantic Config | `default-semantic-config` | `unified-semantic-config` |
+| Document Types | `listing`, `listing_list` | `Vacancy Listing`, `Particular Property` |
+
+The chatbot code normalizes these differences automatically.
+
+#### Test Queries for Multi-Index
+| Query | Expected Top Index |
+|-------|-------------------|
+| `中環` | processed-documents (c21net has no Central data) |
+| `新蒲崗` | c21net-intelligence-v2 |
+| `竹園` | c21net-intelligence-v2 |
+| `Lake Silver` | c21net-intelligence-v2 |
 
 ### Azure OpenAI
 - Endpoint: `swedencentral.api.cognitive.microsoft.com`
@@ -405,6 +434,34 @@ Using View button in each row. Data expands below the row when clicked.
 ### Dashboard Data Sorting
 Runs are sorted by time (newest first) before grouping by filename. When grouping, if a run has "unknown" type but another run for the same file has valid data, the valid data is used.
 
+### Multi-Index Search Not Working
+**Problem:** Chatbot only shows results from `processed-documents`, not from `c21net-intelligence-v2`.
+
+**Cause:** `AZURE_SEARCH_INDEXES` not set in Streamlit Cloud secrets.
+
+**Fix:** Add to Streamlit secrets:
+```toml
+AZURE_SEARCH_INDEXES = "processed-documents,c21net-intelligence-v2"
+```
+
+**Verify locally:**
+```bash
+cd langgraph && source .venv/bin/activate
+python -c "from src.nodes.indexer import SEARCH_INDEXES; print(SEARCH_INDEXES)"
+# Should output: ['processed-documents', 'c21net-intelligence-v2']
+```
+
+**Test query:** Search `新蒲崗` - should show `c21net-intelligence-v2` as top result.
+
+### Report Shows 0 Properties
+**Problem:** PDF report shows "0 Properties" and "N/A" for all statistics.
+
+**Cause:** `listing_list` documents have two data formats:
+- Old: `extracted_data.units[]` (direct)
+- New: `extracted_data.items[].units[]` (nested per building)
+
+**Fix:** Statistics module updated to handle both formats (2024-05-28).
+
 ### Streamlit Theme
 Light theme configured in `~/.streamlit/config.toml`:
 ```toml
@@ -458,6 +515,7 @@ LANGCHAIN_PROJECT = "document-processor"
 AZURE_SEARCH_ENDPOINT = "..."
 AZURE_SEARCH_API_KEY = "..."
 AZURE_SEARCH_INDEX = "processed-documents"
+AZURE_SEARCH_INDEXES = "processed-documents,c21net-intelligence-v2"  # Multi-index search
 AZURE_OPENAI_ENDPOINT = "..."
 AZURE_OPENAI_KEY = "..."
 OPENROUTER_API_KEY = "..."
@@ -467,6 +525,8 @@ AZURE_FUNCTION_URL = "..."
 [passwords]
 admin = "your-password-here"
 ```
+
+**CRITICAL:** `AZURE_SEARCH_INDEXES` must be set for multi-index search to work. Without it, only `AZURE_SEARCH_INDEX` is searched.
 
 **Important:** In TOML format, once you declare a `[section]`, all subsequent keys belong to that section. Always put API keys at the TOP before any `[section]` headers.
 
