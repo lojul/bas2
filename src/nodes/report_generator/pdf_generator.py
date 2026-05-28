@@ -27,7 +27,9 @@ from .statistics import RentStatistics, AvailabilityStatistics
 
 
 # Chinese font URL (hosted on Azure Blob Storage)
-CHINESE_FONT_URL = "https://blobhk04472.blob.core.windows.net/fonts/wqy-microhei.ttc"
+# Using Noto Sans CJK SC (Simplified Chinese) - supports Traditional Chinese too
+CHINESE_FONT_URL = "https://blobhk04472.blob.core.windows.net/document-images/fonts/NotoSansCJKsc-Regular.otf"
+CHINESE_FONT_FILENAME = "NotoSansCJKsc-Regular.otf"
 _cached_font_path: Optional[str] = None
 
 
@@ -43,18 +45,22 @@ def _get_chinese_font() -> Optional[str]:
         return _cached_font_path
 
     # Check if font exists in temp directory
-    temp_font_path = Path(tempfile.gettempdir()) / "wqy-microhei.ttc"
+    temp_font_path = Path(tempfile.gettempdir()) / CHINESE_FONT_FILENAME
     if temp_font_path.exists() and temp_font_path.stat().st_size > 1000000:
         _cached_font_path = str(temp_font_path)
         return _cached_font_path
 
     # Download font
     try:
-        response = httpx.get(CHINESE_FONT_URL, timeout=60, follow_redirects=True)
+        print(f"Downloading Chinese font from {CHINESE_FONT_URL}...")
+        response = httpx.get(CHINESE_FONT_URL, timeout=120, follow_redirects=True)
         if response.status_code == 200 and len(response.content) > 1000000:
             temp_font_path.write_bytes(response.content)
             _cached_font_path = str(temp_font_path)
+            print(f"Chinese font downloaded: {len(response.content)} bytes")
             return _cached_font_path
+        else:
+            print(f"Font download failed: status={response.status_code}, size={len(response.content)}")
     except Exception as e:
         print(f"Failed to download Chinese font: {e}")
 
