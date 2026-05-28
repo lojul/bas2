@@ -1070,7 +1070,8 @@ def retrieve_node(state: ChatState) -> dict:
 
         if route in ("vector", "hybrid"):
             # Use direct search (fast) instead of multi_query_search (slow)
-            futures["docs"] = executor.submit(search_documents, question, 5, True)
+            # Fetch 10 results to include documents from multiple indexes
+            futures["docs"] = executor.submit(search_documents, question, 10, True)
 
         if route in ("web", "hybrid"):
             futures["web"] = executor.submit(web_search, question, 3)
@@ -1454,7 +1455,8 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
         if route in ("vector", "hybrid"):
             # Use direct search (fast) instead of multi_query_search (slow)
             # Azure semantic ranking already provides good relevance
-            futures["docs"] = executor.submit(search_documents, question, 5, True)
+            # Fetch 10 results to include documents from multiple indexes
+            futures["docs"] = executor.submit(search_documents, question, 10, True)
 
         if route in ("web", "hybrid"):
             futures["web"] = executor.submit(web_search, question, 3)
