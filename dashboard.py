@@ -695,7 +695,10 @@ def render_chat_tab():
     from src.nodes.indexer import SEARCH_INDEXES
 
     # DEBUG: Show which indexes are configured
-    st.caption(f"DEBUG: Searching indexes: {SEARCH_INDEXES}")
+    import os
+    env_val = os.environ.get("AZURE_SEARCH_INDEXES", "NOT SET")
+    secret_val = st.secrets.get("AZURE_SEARCH_INDEXES", "NOT IN SECRETS")
+    st.caption(f"DEBUG: env={env_val} | secret={secret_val} | indexes={SEARCH_INDEXES}")
 
     # Initialize thread_id for LangGraph memory (persists within session)
     if "chat_thread_id" not in st.session_state:
