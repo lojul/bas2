@@ -823,14 +823,6 @@ def render_chat_tab():
                 if not unique_sources:
                     st.error("No property data in chat. Ask about properties first, then generate report.")
                 else:
-                    # Debug: show first source structure
-                    if unique_sources:
-                        first = unique_sources[0]
-                        st.info(f"DEBUG: {len(unique_sources)} sources. First: type={first.get('document_type')}, "
-                                f"has_extracted_data={bool(first.get('extracted_data'))}, "
-                                f"rental={first.get('monthly_rental_hkd') or first.get('extracted_data', {}).get('rent_monthly')}, "
-                                f"size={first.get('floor_area_sqft') or first.get('extracted_data', {}).get('size_sqft')}")
-
                     from src.nodes.report_generator.main import generate_report_from_sources
                     response = generate_report_from_sources(
                         sources=unique_sources,
