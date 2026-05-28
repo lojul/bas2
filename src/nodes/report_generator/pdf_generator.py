@@ -13,6 +13,7 @@ import io
 import base64
 import httpx
 import tempfile
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,8 @@ from langsmith import traceable
 
 from .router import ReportRequest, get_report_type_display
 from .statistics import RentStatistics, AvailabilityStatistics
+
+logger = logging.getLogger(__name__)
 
 
 # Chinese font URL (hosted on Azure Blob Storage)
@@ -42,29 +45,99 @@ def _get_chinese_font() -> Optional[str]:
 
     # Return cached path if already downloaded
     if _cached_font_path and Path(_cached_font_path).exists():
+        logger.info(f"Using cached font: {_cached_font_path}")
         return _cached_font_path
 
     # Check if font exists in temp directory
     temp_font_path = Path(tempfile.gettempdir()) / CHINESE_FONT_FILENAME
     if temp_font_path.exists() and temp_font_path.stat().st_size > 1000000:
         _cached_font_path = str(temp_font_path)
+        logger.info(f"Found cached font in temp: {_cached_font_path}")
         return _cached_font_path
 
-    # Download font
+    # Download font with longer timeout for large file
     try:
-        print(f"Downloading Chinese font from {CHINESE_FONT_URL}...")
-        response = httpx.get(CHINESE_FONT_URL, timeout=120, follow_redirects=True)
+        logger.info(f"Downloading Chinese font from {CHINESE_FONT_URL}...")
+        # Use longer timeout for 16MB file
+        response = httpx.get(CHINESE_FONT_URL, timeout=300, follow_redirects=True)
         if response.status_code == 200 and len(response.content) > 1000000:
             temp_font_path.write_bytes(response.content)
             _cached_font_path = str(temp_font_path)
-            print(f"Chinese font downloaded: {len(response.content)} bytes")
+            logger.info(f"Chinese font downloaded: {len(response.content)} bytes to {_cached_font_path}")
             return _cached_font_path
         else:
-            print(f"Font download failed: status={response.status_code}, size={len(response.content)}")
+            logger.warning(f"Font download failed: status={response.status_code}, size={len(response.content)}")
     except Exception as e:
-        print(f"Failed to download Chinese font: {e}")
+        logger.error(f"Failed to download Chinese font: {e}")
 
     return None
+
+
+def _generate_ai_summary(
+    district: str,
+    district_en: str,
+    stats: "RentStatistics | AvailabilityStatistics",
+    report_type: str = "rent"
+) -> str:
+    """Generate AI summary of the market data.
+
+    Returns a 2-3 sentence summary in both Chinese and English.
+    """
+    try:
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            return ""
+
+        # Build data context
+        if hasattr(stats, 'avg_rent_sqft'):  # RentStatistics
+            data_context = f"""
+District: {district} ({district_en})
+Properties: {stats.count}
+Average Rent: ${stats.avg_rent_sqft}/sqft per month
+Rent Range: ${stats.min_rent_sqft} - ${stats.max_rent_sqft}/sqft
+Average Size: {stats.avg_size_sqft} sqft
+Buildings: {', '.join(list(stats.by_building.keys())[:5])}
+"""
+        else:  # AvailabilityStatistics
+            data_context = f"""
+District: {district} ({district_en})
+Available Units: {stats.count}
+Total Area: {stats.total_sqft:,.0f} sqft
+Size Range: {stats.size_range[0]:,.0f} - {stats.size_range[1]:,.0f} sqft
+"""
+
+        prompt = f"""Based on this commercial property data for {district} ({district_en}), write a brief 2-3 sentence market summary.
+Write in both Chinese and English. Be factual and concise.
+
+{data_context}
+
+Format:
+[Chinese summary in 1-2 sentences]
+
+[English summary in 1-2 sentences]"""
+
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "meta-llama/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 300,
+                "temperature": 0.3,
+            },
+            timeout=30,
+        )
+
+        if response.status_code == 200:
+            result = response.json()
+            return result["choices"][0]["message"]["content"].strip()
+    except Exception as e:
+        logger.error(f"AI summary generation failed: {e}")
+
+    return ""
 
 
 @dataclass
@@ -319,8 +392,13 @@ def generate_pdf_report(
         pdf = PropertyReportPDF(title_zh, title_en, logo_path if logo_path.exists() else None)
         pdf.add_page()
 
+        # Generate AI summary
+        ai_summary = _generate_ai_summary(
+            request.district, request.district_en, statistics, request.report_type
+        )
+
         if isinstance(statistics, RentStatistics):
-            _render_rent_report(pdf, statistics, images, document_count)
+            _render_rent_report(pdf, statistics, images, document_count, ai_summary)
             output.data = {
                 "count": statistics.count,
                 "total_sqft": statistics.total_sqft,
@@ -330,7 +408,7 @@ def generate_pdf_report(
                 "by_building": statistics.by_building,
             }
         elif isinstance(statistics, AvailabilityStatistics):
-            _render_availability_report(pdf, statistics, images, document_count)
+            _render_availability_report(pdf, statistics, images, document_count, ai_summary)
             output.data = {
                 "count": statistics.count,
                 "total_sqft": statistics.total_sqft,
@@ -446,8 +524,28 @@ def _render_image_grid(pdf: PropertyReportPDF, images: list[dict], max_images: i
                 pass
 
 
-def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: list[dict], doc_count: int):
+def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: list[dict], doc_count: int, ai_summary: str = ""):
     """Render rent analysis report content."""
+    # Section: AI Summary (if available)
+    if ai_summary and ai_summary.strip():
+        pdf.section_title("Market Summary")
+        if pdf.has_chinese_font:
+            pdf.set_font("Chinese", "", 10)
+        else:
+            pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(45, 55, 72)
+        # Sanitize entire summary if no Chinese font
+        if not pdf.has_chinese_font:
+            # Keep only ASCII printable characters
+            clean_summary = ''.join(c if ord(c) < 128 and c.isprintable() else ' ' for c in ai_summary)
+            clean_summary = ' '.join(clean_summary.split())  # Normalize whitespace
+        else:
+            clean_summary = ai_summary
+        # Render as single multi_cell block
+        if clean_summary.strip():
+            pdf.multi_cell(0, 5, clean_summary)
+        pdf.ln(5)
+
     # Section: Market Overview
     pdf.section_title("Market Overview")
 
@@ -511,8 +609,26 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
         _render_image_grid(pdf, images)
 
 
-def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStatistics, images: list[dict], doc_count: int):
+def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStatistics, images: list[dict], doc_count: int, ai_summary: str = ""):
     """Render availability report content."""
+    # Section: AI Summary (if available)
+    if ai_summary and ai_summary.strip():
+        pdf.section_title("Market Summary")
+        if pdf.has_chinese_font:
+            pdf.set_font("Chinese", "", 10)
+        else:
+            pdf.set_font("Helvetica", "", 10)
+        pdf.set_text_color(45, 55, 72)
+        # Sanitize entire summary if no Chinese font
+        if not pdf.has_chinese_font:
+            clean_summary = ''.join(c if ord(c) < 128 and c.isprintable() else ' ' for c in ai_summary)
+            clean_summary = ' '.join(clean_summary.split())
+        else:
+            clean_summary = ai_summary
+        if clean_summary.strip():
+            pdf.multi_cell(0, 5, clean_summary)
+        pdf.ln(5)
+
     # Section: Availability Overview
     pdf.section_title("Availability Overview")
 
