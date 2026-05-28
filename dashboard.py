@@ -29,6 +29,7 @@ def load_secrets_to_env():
         "AZURE_SEARCH_ENDPOINT",
         "AZURE_SEARCH_API_KEY",
         "AZURE_SEARCH_INDEX",
+        "AZURE_SEARCH_INDEXES",  # Multi-index search
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_KEY",
         "AZURE_OPENAI_EMBEDDING_DEPLOYMENT",
