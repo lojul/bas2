@@ -218,8 +218,10 @@ class PropertyReportPDF(FPDF):
                 self.set_fill_color(*self.light_gray)
 
             for i, cell in enumerate(row):
-                # Truncate long text
+                # Truncate long text, strip non-ASCII if no Chinese font
                 cell_text = str(cell)[:25] if len(str(cell)) > 25 else str(cell)
+                if not self.has_chinese_font:
+                    cell_text = _safe_text(cell_text, 25, ascii_only=True)
                 self.cell(col_widths[i], 7, cell_text, border=0, fill=True)
             self.ln()
 
@@ -228,10 +230,13 @@ class PropertyReportPDF(FPDF):
             self.line(10, self.get_y(), 200, self.get_y())
 
 
-def _safe_text(text: str, max_len: int = 50) -> str:
+def _safe_text(text: str, max_len: int = 50, ascii_only: bool = False) -> str:
     """Clean text for PDF display.
 
-    Keeps Chinese and English characters for display with Chinese font.
+    Args:
+        text: Input text
+        max_len: Maximum length to return
+        ascii_only: If True, strip non-ASCII characters (for when Chinese font unavailable)
     """
     if not text:
         return ""
@@ -240,6 +245,11 @@ def _safe_text(text: str, max_len: int = 50) -> str:
 
     # Clean up multiple spaces
     text = ' '.join(text.split())
+
+    if ascii_only:
+        # Keep only ASCII printable characters
+        text = ''.join(c for c in text if ord(c) < 128 and c.isprintable())
+        text = text.strip()
 
     return text[:max_len] if text else "N/A"
 
@@ -412,7 +422,8 @@ def _render_image_grid(pdf: PropertyReportPDF, images: list[dict], max_images: i
                         else:
                             pdf.set_font("Helvetica", "", 6)
                         pdf.set_text_color(113, 128, 150)
-                        pdf.cell(img_width, 4, _safe_text(building, 25), align="C")
+                        label = _safe_text(building, 25, ascii_only=not pdf.has_chinese_font)
+                        pdf.cell(img_width, 4, label, align="C")
                 except Exception as e:
                     print(f"Failed to embed image: {e}")
 
@@ -450,13 +461,14 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
     pdf.ln(5)
 
     # Section: Building Analysis
+    ascii_only = not pdf.has_chinese_font
     if stats.by_building:
         pdf.section_title("Building Analysis")
         headers = ["Building", "Units", "Avg $/sqft", "Min", "Max"]
         rows = []
         for building, data in list(stats.by_building.items())[:10]:
             rows.append([
-                _safe_text(building, 20),
+                _safe_text(building, 20, ascii_only),
                 str(data["count"]),
                 f"${data['avg_rent_sqft']:.1f}",
                 f"${data['min_rent_sqft']:.1f}",
@@ -473,12 +485,12 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
         rows = []
         for prop in stats.properties[:15]:
             rows.append([
-                _safe_text(prop.get("building_name", ""), 18),
-                _safe_text(prop.get("floor_unit", ""), 10),
+                _safe_text(prop.get("building_name", ""), 18, ascii_only),
+                _safe_text(prop.get("floor_unit", ""), 10, ascii_only),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")),
                 f"${prop.get('rent_sqft', 0):.1f}",
-                _safe_text(prop.get("contact_name", ""), 12),
+                _safe_text(prop.get("contact_name", ""), 12, ascii_only),
             ])
         pdf.data_table(headers, rows, [45, 25, 25, 30, 25, 40])
 
@@ -529,18 +541,19 @@ def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStati
         pdf.ln(5)
 
     # Section: Available Units
+    ascii_only = not pdf.has_chinese_font
     if stats.properties:
         pdf.section_title("Available Units")
         headers = ["Building", "Address", "Floor/Unit", "Size", "Rent", "Contact"]
         rows = []
         for prop in stats.properties[:20]:
             rows.append([
-                _safe_text(prop.get("building_name", ""), 15),
-                _safe_text(prop.get("address", ""), 20),
-                _safe_text(prop.get("floor_unit", ""), 8),
+                _safe_text(prop.get("building_name", ""), 15, ascii_only),
+                _safe_text(prop.get("address", ""), 20, ascii_only),
+                _safe_text(prop.get("floor_unit", ""), 8, ascii_only),
                 _format_number(prop.get("size_sqft")),
                 _format_currency(prop.get("rent_monthly")) if prop.get("rent_monthly") else "TBD",
-                _safe_text(prop.get("contact_name", ""), 10),
+                _safe_text(prop.get("contact_name", ""), 10, ascii_only),
             ])
         if rows:
             pdf.data_table(headers, rows, [35, 45, 20, 25, 30, 35])

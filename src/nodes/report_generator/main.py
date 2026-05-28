@@ -16,6 +16,29 @@ from .statistics import compute_rent_statistics, compute_availability_statistics
 from .pdf_generator import generate_pdf_report, upload_pdf_to_blob, ReportOutput
 
 
+def _extract_building_from_title(title: str) -> str:
+    """Extract building name from c21net title format.
+
+    Example: "新蒲崗 啟德工廠大廈1期_地下WorkshopA1_1200尺_$25,000.pdf"
+    Returns: "啟德工廠大廈1期"
+    """
+    if not title:
+        return ""
+
+    # Remove .pdf extension
+    title = title.replace(".pdf", "").replace(".PDF", "")
+
+    # Split by space to get parts after district
+    parts = title.split(" ", 1)
+    if len(parts) > 1:
+        # Take the part after district, split by underscore
+        building_part = parts[1].split("_")[0]
+        return building_part.strip()
+
+    # Fallback: split by underscore and take first part
+    return title.split("_")[0].strip()
+
+
 @dataclass
 class ReportResponse:
     """Response from report generation attempt."""
@@ -197,9 +220,25 @@ def generate_report_from_sources(
             except:
                 extracted = {}
 
+        # Handle c21net-intelligence-v2 index format
+        # c21net has data at root level, not in extracted_data
+        if src.get("monthly_rental_hkd") is not None or src.get("floor_area_sqft") is not None:
+            # Build extracted_data from c21net root-level fields
+            extracted = {
+                "rent_monthly": src.get("monthly_rental_hkd"),
+                "rent": src.get("monthly_rental_hkd"),
+                "size_sqft": src.get("floor_area_sqft"),
+                "size": src.get("floor_area_sqft"),
+                "building_name": _extract_building_from_title(src.get("title", "")),
+            }
+            # c21net uses 'title' instead of 'file_name'
+            file_name = src.get("title") or src.get("file_name", "Unknown")
+        else:
+            file_name = src.get("file_name", "Unknown")
+
         # Build document in format expected by statistics module
         doc = {
-            "file_name": src.get("file_name", "Unknown"),
+            "file_name": file_name,
             "document_type": doc_type,
             "content": src.get("content", "")[:500],
             "extracted_data": extracted,
@@ -208,7 +247,7 @@ def generate_report_from_sources(
         documents.append(doc)
 
         # Collect images
-        building_name = extracted.get("building_name") or src.get("file_name", "")
+        building_name = extracted.get("building_name") or file_name
         for url in src.get("image_urls", [])[:3]:
             images.append({
                 "url": url,
