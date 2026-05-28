@@ -71,6 +71,12 @@ def _get_size_bucket(size: float) -> str:
         return ">5000 sqft"
 
 
+# Document types that represent single listings (with direct rent/size)
+SINGLE_LISTING_TYPES = {"listing", "vacancy listing", "particular property"}
+# Document types that represent multiple listings (with units array)
+MULTI_LISTING_TYPES = {"listing_list"}
+
+
 @traceable(name="compute_rent_statistics", run_type="chain")
 def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
     """Compute rent statistics from documents.
@@ -89,9 +95,9 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
 
     for doc in documents:
         extracted = doc.get("extracted_data") or {}
-        doc_type = doc.get("document_type")
+        doc_type = (doc.get("document_type") or "").lower()
 
-        if doc_type == "listing":
+        if doc_type in SINGLE_LISTING_TYPES:
             # Single listing
             rent = _parse_number(extracted.get("rent_monthly") or extracted.get("rent"))
             size = _parse_number(extracted.get("size_sqft") or extracted.get("size"))
@@ -124,7 +130,7 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
                     "image_url": image_urls[0] if image_urls else None,
                 })
 
-        elif doc_type == "listing_list":
+        elif doc_type in MULTI_LISTING_TYPES:
             # Multiple listings - handle both old and new data formats
             # Old format: extracted_data.units[] (direct)
             # New format: extracted_data.items[].units[] (nested per building)
@@ -232,9 +238,9 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
 
     for doc in documents:
         extracted = doc.get("extracted_data") or {}
-        doc_type = doc.get("document_type")
+        doc_type = (doc.get("document_type") or "").lower()
 
-        if doc_type == "listing":
+        if doc_type in SINGLE_LISTING_TYPES:
             size = _parse_number(extracted.get("size_sqft") or extracted.get("size"))
             rent = _parse_number(extracted.get("rent_monthly") or extracted.get("rent"))
 
@@ -261,7 +267,7 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
                     "image_url": image_urls[0] if image_urls else None,
                 })
 
-        elif doc_type == "listing_list":
+        elif doc_type in MULTI_LISTING_TYPES:
             # Handle both old and new data formats
             direct_units = extracted.get("units") or []
             items = extracted.get("items") or []

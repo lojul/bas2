@@ -335,6 +335,100 @@ def generate_pdf_report(
     return output
 
 
+def _download_image_to_temp(url: str, timeout: int = 10) -> Optional[str]:
+    """Download image from URL to temp file.
+
+    Returns path to temp file, or None if download fails.
+    """
+    try:
+        response = httpx.get(url, timeout=timeout, follow_redirects=True)
+        if response.status_code == 200 and response.headers.get("content-type", "").startswith("image"):
+            # Determine extension from content-type
+            content_type = response.headers.get("content-type", "image/jpeg")
+            ext = ".jpg" if "jpeg" in content_type else ".png" if "png" in content_type else ".jpg"
+
+            # Write to temp file
+            temp_file = tempfile.NamedTemporaryFile(suffix=ext, delete=False)
+            temp_file.write(response.content)
+            temp_file.close()
+            return temp_file.name
+    except Exception as e:
+        print(f"Failed to download image {url}: {e}")
+    return None
+
+
+def _render_image_grid(pdf: PropertyReportPDF, images: list[dict], max_images: int = 9):
+    """Render property images in a grid layout.
+
+    Args:
+        pdf: PDF instance
+        images: List of image dicts with 'url' and optionally 'building' keys
+        max_images: Maximum number of images to display (default: 9 for 3x3 grid)
+    """
+    if not images:
+        return
+
+    # Filter to valid URLs and limit
+    valid_images = [img for img in images if img.get("url")][:max_images]
+    if not valid_images:
+        return
+
+    pdf.section_title("Property Images")
+
+    # Grid configuration: 3 columns
+    cols = 3
+    img_width = 58  # Width per image
+    img_height = 40  # Height per image
+    margin_x = 10
+    spacing = 5
+
+    downloaded_files = []
+    try:
+        for i, img in enumerate(valid_images):
+            # Calculate position
+            col = i % cols
+            row = i // cols
+            x = margin_x + col * (img_width + spacing)
+            y = pdf.get_y() + row * (img_height + 15)
+
+            # Check if we need a new page
+            if y + img_height + 15 > 270:
+                pdf.add_page()
+                y = pdf.get_y()
+
+            # Download image
+            temp_path = _download_image_to_temp(img["url"])
+            if temp_path:
+                downloaded_files.append(temp_path)
+                try:
+                    pdf.image(temp_path, x, y, img_width, img_height)
+
+                    # Add building name label below image
+                    building = img.get("building", "")
+                    if building:
+                        pdf.set_xy(x, y + img_height + 1)
+                        if pdf.has_chinese_font:
+                            pdf.set_font("Chinese", "", 6)
+                        else:
+                            pdf.set_font("Helvetica", "", 6)
+                        pdf.set_text_color(113, 128, 150)
+                        pdf.cell(img_width, 4, _safe_text(building, 25), align="C")
+                except Exception as e:
+                    print(f"Failed to embed image: {e}")
+
+        # Move Y position after grid
+        total_rows = (len(valid_images) + cols - 1) // cols
+        pdf.set_y(pdf.get_y() + total_rows * (img_height + 15) + 10)
+
+    finally:
+        # Clean up temp files
+        for f in downloaded_files:
+            try:
+                os.unlink(f)
+            except:
+                pass
+
+
 def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: list[dict], doc_count: int):
     """Render rent analysis report content."""
     # Section: Market Overview
@@ -393,6 +487,11 @@ def _render_rent_report(pdf: PropertyReportPDF, stats: RentStatistics, images: l
             pdf.set_text_color(113, 128, 150)
             pdf.cell(0, 5, f"Showing 15 of {len(stats.properties)} properties", align="C")
 
+    # Section: Property Images (if available)
+    if images:
+        pdf.ln(10)
+        _render_image_grid(pdf, images)
+
 
 def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStatistics, images: list[dict], doc_count: int):
     """Render availability report content."""
@@ -445,6 +544,11 @@ def _render_availability_report(pdf: PropertyReportPDF, stats: AvailabilityStati
             ])
         if rows:
             pdf.data_table(headers, rows, [35, 45, 20, 25, 30, 35])
+
+    # Section: Property Images (if available)
+    if images:
+        pdf.ln(10)
+        _render_image_grid(pdf, images)
 
 
 def _generate_summary_markdown(
