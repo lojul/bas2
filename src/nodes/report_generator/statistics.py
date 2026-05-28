@@ -125,11 +125,33 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
                 })
 
         elif doc_type == "listing_list":
-            # Multiple listings
-            units = extracted.get("units") or []
-            building = extracted.get("building_name") or "Unknown"
+            # Multiple listings - handle both old and new data formats
+            # Old format: extracted_data.units[] (direct)
+            # New format: extracted_data.items[].units[] (nested per building)
 
-            for unit in units:
+            direct_units = extracted.get("units") or []
+            items = extracted.get("items") or []
+
+            # Collect all units from both formats
+            all_units = []
+            building_map = {}  # unit -> building_name
+
+            # Old format: direct units array
+            building = extracted.get("building_name") or "Unknown"
+            for unit in direct_units:
+                all_units.append(unit)
+                building_map[id(unit)] = building
+
+            # New format: items array with nested units
+            for item in items:
+                item_building = item.get("building_name") or "Unknown"
+                item_units = item.get("units") or []
+                for unit in item_units:
+                    all_units.append(unit)
+                    building_map[id(unit)] = item_building
+
+            for unit in all_units:
+                building = building_map.get(id(unit), "Unknown")
                 rent = _parse_number(unit.get("rent"))
                 size = _parse_number(unit.get("size"))
 
@@ -240,10 +262,27 @@ def compute_availability_statistics(documents: list[dict]) -> AvailabilityStatis
                 })
 
         elif doc_type == "listing_list":
-            units = extracted.get("units") or []
-            building = extracted.get("building_name") or "Unknown"
+            # Handle both old and new data formats
+            direct_units = extracted.get("units") or []
+            items = extracted.get("items") or []
 
-            for unit in units:
+            # Collect all units from both formats
+            all_units = []
+            building_map = {}
+
+            building = extracted.get("building_name") or "Unknown"
+            for unit in direct_units:
+                all_units.append(unit)
+                building_map[id(unit)] = building
+
+            for item in items:
+                item_building = item.get("building_name") or "Unknown"
+                for unit in item.get("units") or []:
+                    all_units.append(unit)
+                    building_map[id(unit)] = item_building
+
+            for unit in all_units:
+                building = building_map.get(id(unit), "Unknown")
                 size = _parse_number(unit.get("size"))
                 rent = _parse_number(unit.get("rent"))
 
