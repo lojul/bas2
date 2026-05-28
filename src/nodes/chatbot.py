@@ -1089,7 +1089,7 @@ def retrieve_node(state: ChatState) -> dict:
     # Build combined context
     context = build_context(documents, web_results)
 
-    # Build sources list
+    # Build sources list - include all fields needed for report generation
     sources = []
     for doc in documents:
         sources.append({
@@ -1099,6 +1099,13 @@ def retrieve_node(state: ChatState) -> dict:
             "score": doc.get("score", 0),
             "index": doc.get("index", ""),  # Source index
             "type": "document",
+            # Fields for report generation
+            "extracted_data": doc.get("extracted_data", {}),
+            "content": doc.get("content", ""),
+            # c21net-specific fields (at root level)
+            "monthly_rental_hkd": doc.get("monthly_rental_hkd"),
+            "floor_area_sqft": doc.get("floor_area_sqft"),
+            "title": doc.get("title"),  # c21net uses title instead of file_name
         })
     # Only add valid web results (not errors)
     for r in web_results:
@@ -1472,6 +1479,7 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
 
     context = build_context(documents, web_results)
 
+    # Build sources list - include all fields needed for report generation
     sources = []
     for doc in documents:
         sources.append({
@@ -1481,6 +1489,13 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
             "score": doc.get("score", 0),
             "index": doc.get("index", ""),  # Source index
             "type": "document",
+            # Fields for report generation
+            "extracted_data": doc.get("extracted_data", {}),
+            "content": doc.get("content", ""),
+            # c21net-specific fields (at root level)
+            "monthly_rental_hkd": doc.get("monthly_rental_hkd"),
+            "floor_area_sqft": doc.get("floor_area_sqft"),
+            "title": doc.get("title"),  # c21net uses title instead of file_name
         })
     for r in web_results:
         if "error" not in r:
