@@ -692,6 +692,10 @@ def render_chat_tab():
     """Render the Property Intelligence chatbot tab."""
     import uuid
     from src.nodes.chatbot import chat
+    from src.nodes.indexer import SEARCH_INDEXES
+
+    # DEBUG: Show which indexes are configured
+    st.caption(f"DEBUG: Searching indexes: {SEARCH_INDEXES}")
 
     # Initialize thread_id for LangGraph memory (persists within session)
     if "chat_thread_id" not in st.session_state:
