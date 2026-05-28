@@ -526,7 +526,10 @@ AZURE_FUNCTION_URL = "..."
 admin = "your-password-here"
 ```
 
-**CRITICAL:** `AZURE_SEARCH_INDEXES` must be set for multi-index search to work. Without it, only `AZURE_SEARCH_INDEX` is searched.
+**CRITICAL:**
+1. `AZURE_SEARCH_INDEXES` must be set for multi-index search to work
+2. In TOML, it **MUST be placed BEFORE any `[section]`** headers (e.g., before `[passwords]`)
+3. Keys placed after a `[section]` become part of that section and won't be found at root level
 
 **Important:** In TOML format, once you declare a `[section]`, all subsequent keys belong to that section. Always put API keys at the TOP before any `[section]` headers.
 

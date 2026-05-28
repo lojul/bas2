@@ -692,16 +692,6 @@ def render_chat_tab():
     """Render the Property Intelligence chatbot tab."""
     import uuid
     from src.nodes.chatbot import chat
-    from src.nodes.indexer import SEARCH_INDEXES
-
-    # DEBUG: Show which indexes are configured
-    import os
-    env_val = os.environ.get("AZURE_SEARCH_INDEXES", "NOT SET")
-    try:
-        secret_val = st.secrets["AZURE_SEARCH_INDEXES"]
-    except:
-        secret_val = "NOT IN SECRETS"
-    st.caption(f"DEBUG: env={env_val} | secret={secret_val} | indexes={SEARCH_INDEXES}")
 
     # Initialize thread_id for LangGraph memory (persists within session)
     if "chat_thread_id" not in st.session_state:
