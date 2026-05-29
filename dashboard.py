@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 st.set_page_config(
-    page_title="Document Processor",
-    page_icon="📄",
+    page_title="Property Intelligence",
+    page_icon="🏢",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -101,8 +101,8 @@ def render_login_page():
     with center:
         st.write("")
         st.write("")
-        st.title("Document Processor")
-        st.subheader("Century 21 Property Intelligence")
+        st.title("Property Intelligence")
+        st.subheader("Century 21 Commercial Property Platform")
         st.write("")
         st.write("Please sign in to access the dashboard.")
         st.write("")
@@ -1249,9 +1249,9 @@ def main():
                 else:
                     st.logout()
 
-    st.title("Document Processor")
+    st.title("Property Intelligence")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Search", "Chat", "Document Process", "Vector"])
+    tab1, tab2, tab3 = st.tabs(["Keyword Search", "Chatbot", "Admin"])
 
     with tab1:
         render_search_tab()
@@ -1260,10 +1260,12 @@ def main():
         render_chat_tab()
 
     with tab3:
-        render_processing_tab()
-
-    with tab4:
-        render_vector_db_tab()
+        # Admin tab with nested tabs for Document Process and Vector
+        admin_tab1, admin_tab2 = st.tabs(["Document Process", "Vector Database"])
+        with admin_tab1:
+            render_processing_tab()
+        with admin_tab2:
+            render_vector_db_tab()
 
     # Footer
     st.divider()
