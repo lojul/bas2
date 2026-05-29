@@ -1175,9 +1175,47 @@ def render_search_tab():
                             st.write(f"**Phone:** {extracted.get('phone', 'N/A')}")
                             st.write(f"**Email:** {extracted.get('email', 'N/A')}")
 
+                    elif doc_type.lower() in ("vacancy listing", "particular property"):
+                        # c21net-intelligence-v2 document types
+                        # Data is at root level, not in extracted_data
+                        col_a, col_b = st.columns(2)
+                        with col_a:
+                            # Extract building from key_entities or file_name
+                            key_entities = doc.get("key_entities", []) or extracted.get("key_entities", [])
+                            if isinstance(key_entities, str):
+                                key_entities = [key_entities]
+                            building = key_entities[0] if key_entities else file_name.split("_")[0] if "_" in file_name else "N/A"
+                            st.write(f"**Building:** {building}")
+                            # District from key_entities
+                            districts = [e for e in key_entities if e in ["新蒲崗", "觀塘", "九龍灣", "長沙灣", "荃灣", "葵涌"]]
+                            if districts:
+                                st.write(f"**District:** {districts[0]}")
+                        with col_b:
+                            # Rent and size from root level
+                            rent = doc.get("monthly_rental_hkd") or extracted.get("rent_monthly")
+                            size = doc.get("floor_area_sqft") or extracted.get("size_sqft")
+                            if size:
+                                st.write(f"**Size:** {size:,.0f} sqft" if isinstance(size, (int, float)) else f"**Size:** {size} sqft")
+                            if rent:
+                                st.write(f"**Rent:** HK${rent:,.0f}/mo" if isinstance(rent, (int, float)) else f"**Rent:** HK${rent}/mo")
+                            else:
+                                st.write("**Rent:** Contact for details")
+
                     else:
-                        # Generic display
-                        st.json(extracted)
+                        # Generic display - show key fields only
+                        if extracted:
+                            # Show important fields, not raw JSON
+                            important_keys = ["building_name", "address", "district", "size_sqft", "rent_monthly", "property_type"]
+                            shown = False
+                            for key in important_keys:
+                                if key in extracted and extracted[key]:
+                                    st.write(f"**{key.replace('_', ' ').title()}:** {extracted[key]}")
+                                    shown = True
+                            if not shown:
+                                # Fallback to showing first few fields
+                                for key, value in list(extracted.items())[:5]:
+                                    if value and not isinstance(value, (list, dict)):
+                                        st.write(f"**{key.replace('_', ' ').title()}:** {value}")
 
                     # Show content summary/preview for all types
                     content = doc.get("content", "")
