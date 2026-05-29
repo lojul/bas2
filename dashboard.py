@@ -1289,37 +1289,12 @@ def main():
 
     st.title("Property Intelligence")
 
-    # n8n button positioned to align with tabs using CSS
+    # Tabs row with n8n button on the right
     n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
-    st.markdown(
-        f"""
-        <style>
-        .n8n-btn-container {{
-            position: absolute;
-            right: 2rem;
-            margin-top: 0.5rem;
-            z-index: 100;
-        }}
-        .n8n-btn {{
-            background-color: #1a365d;
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            text-decoration: none;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }}
-        .n8n-btn:hover {{
-            background-color: #c9a227;
-            color: white;
-        }}
-        </style>
-        <div class="n8n-btn-container">
-            <a href="{n8n_url}" target="_blank" class="n8n-btn">🤖 n8n Chatbot</a>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+
+    col1, col2 = st.columns([6, 1])
+    with col2:
+        st.link_button("🤖 n8n Chatbot", n8n_url)
 
     tab1, tab2, tab3 = st.tabs(["Keyword Search", "Chatbot", "Admin"])
 
