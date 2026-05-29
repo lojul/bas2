@@ -1287,14 +1287,39 @@ def main():
                 else:
                     st.logout()
 
-    # Header with title and n8n button
-    col_title, col_btn = st.columns([4, 1])
-    with col_title:
-        st.title("Property Intelligence")
-    with col_btn:
-        st.write("")  # Spacing
-        n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
-        st.link_button("🤖 n8n Chatbot", n8n_url, use_container_width=True)
+    st.title("Property Intelligence")
+
+    # n8n button positioned to align with tabs using CSS
+    n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
+    st.markdown(
+        f"""
+        <style>
+        .n8n-btn-container {{
+            position: absolute;
+            right: 2rem;
+            margin-top: 0.5rem;
+            z-index: 100;
+        }}
+        .n8n-btn {{
+            background-color: #1a365d;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }}
+        .n8n-btn:hover {{
+            background-color: #c9a227;
+            color: white;
+        }}
+        </style>
+        <div class="n8n-btn-container">
+            <a href="{n8n_url}" target="_blank" class="n8n-btn">🤖 n8n Chatbot</a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     tab1, tab2, tab3 = st.tabs(["Keyword Search", "Chatbot", "Admin"])
 
