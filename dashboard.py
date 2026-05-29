@@ -1,7 +1,7 @@
 """Streamlit Dashboard for Document Processor."""
 
 # Version for deployment verification
-__version__ = "2026.05.24.v17"
+__version__ = "2026.05.29.v18"
 
 import os
 import json
@@ -36,6 +36,12 @@ def load_secrets_to_env():
         "OPENROUTER_API_KEY",
         "AZURE_FUNCTION_URL",
         "TAVILY_API_KEY",
+        # Microsoft Graph for OneDrive upload
+        "MS_GRAPH_CLIENT_ID",
+        "MS_GRAPH_TENANT_ID",
+        "MS_GRAPH_CLIENT_SECRET",
+        "MS_GRAPH_DRIVE_ID",
+        "MS_GRAPH_INBOX_FOLDER",
     ]
     try:
         for key in secret_keys:
@@ -1246,6 +1252,83 @@ def render_search_tab():
         st.caption("• For AI-powered answers, use the Chat tab")
 
 
+# ============ Upload Tab ============
+
+def render_upload_tab():
+    """Render file upload tab - upload PDFs directly to OneDrive /In folder."""
+    st.caption("Upload documents to OneDrive for processing")
+
+    # Check if MS Graph is configured
+    drive_id = os.environ.get("MS_GRAPH_DRIVE_ID")
+    inbox_folder = os.environ.get("MS_GRAPH_INBOX_FOLDER", "/Document Processor/In")
+
+    if not drive_id:
+        st.error("OneDrive upload not configured. Missing MS_GRAPH_DRIVE_ID.")
+        st.caption("Required secrets: MS_GRAPH_CLIENT_ID, MS_GRAPH_TENANT_ID, MS_GRAPH_CLIENT_SECRET, MS_GRAPH_DRIVE_ID")
+        return
+
+    # File uploader
+    uploaded_files = st.file_uploader(
+        "Choose PDF files to upload",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help="Files will be uploaded to OneDrive /In folder for processing"
+    )
+
+    if uploaded_files:
+        st.write(f"**{len(uploaded_files)} file(s) selected:**")
+        for f in uploaded_files:
+            size_kb = f.size / 1024
+            st.write(f"• {f.name} ({size_kb:.1f} KB)")
+
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            upload_clicked = st.button("Upload to OneDrive", type="primary", use_container_width=True)
+
+        if upload_clicked:
+            from src.nodes.onedrive import upload_to_onedrive
+
+            success_count = 0
+            error_count = 0
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for idx, uploaded_file in enumerate(uploaded_files):
+                status_text.text(f"Uploading {uploaded_file.name}...")
+                progress_bar.progress((idx + 1) / len(uploaded_files))
+
+                try:
+                    file_content = uploaded_file.read()
+                    result = upload_to_onedrive(
+                        drive_id=drive_id,
+                        folder_path=inbox_folder,
+                        file_name=uploaded_file.name,
+                        file_content=file_content,
+                    )
+                    success_count += 1
+                    st.success(f"✓ Uploaded: {uploaded_file.name}")
+                except Exception as e:
+                    error_count += 1
+                    st.error(f"✗ Failed: {uploaded_file.name} - {str(e)}")
+
+            progress_bar.empty()
+            status_text.empty()
+
+            # Summary
+            st.divider()
+            if success_count > 0:
+                st.success(f"Successfully uploaded {success_count} file(s) to {inbox_folder}")
+                st.info("Files will be processed automatically (every 5 min) or click 'Process Now' in Document Process tab.")
+            if error_count > 0:
+                st.warning(f"{error_count} file(s) failed to upload")
+
+    else:
+        st.info("📁 Select PDF files to upload. They will be placed in OneDrive /In folder and processed automatically.")
+        st.caption("**Supported formats:** PDF")
+        st.caption(f"**Destination:** {inbox_folder}")
+
+
 # ============ Main ============
 
 def main():
@@ -1318,12 +1401,14 @@ def main():
         render_chat_tab()
 
     with tab3:
-        # Admin tab with nested tabs for Document Process and Vector
-        admin_tab1, admin_tab2 = st.tabs(["Document Process", "Vector Database"])
+        # Admin tab with nested tabs for Document Process, Vector, and Upload
+        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Document Process", "Vector Database", "Upload"])
         with admin_tab1:
             render_processing_tab()
         with admin_tab2:
             render_vector_db_tab()
+        with admin_tab3:
+            render_upload_tab()
 
     # Footer
     st.divider()

@@ -332,3 +332,49 @@ def list_drives(site_id: str) -> list[dict]:
         })
 
     return drives
+
+
+@traceable(name="upload_to_onedrive")
+def upload_to_onedrive(
+    drive_id: str,
+    folder_path: str,
+    file_name: str,
+    file_content: bytes,
+) -> dict:
+    """Upload a file to OneDrive folder.
+
+    Uses simple upload for files < 4MB. For larger files, use resumable upload.
+
+    Args:
+        drive_id: The drive ID
+        folder_path: Path to folder (e.g., "/Document Processor/In")
+        file_name: Name for the uploaded file
+        file_content: File content as bytes
+
+    Returns:
+        Uploaded file metadata including id, name, webUrl
+    """
+    token = get_access_token()
+
+    # Build URL: PUT /drives/{drive-id}/root:/{folder-path}/{filename}:/content
+    # Remove leading slash from folder_path for URL construction
+    path = folder_path.strip("/")
+    url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}/{file_name}:/content"
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/octet-stream",
+    }
+
+    with httpx.Client(timeout=60) as client:
+        response = client.put(url, headers=headers, content=file_content)
+        response.raise_for_status()
+        data = response.json()
+
+    return {
+        "id": data.get("id"),
+        "name": data.get("name"),
+        "size": data.get("size"),
+        "web_url": data.get("webUrl"),
+        "created": data.get("createdDateTime"),
+    }
