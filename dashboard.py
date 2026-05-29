@@ -1298,12 +1298,17 @@ def main():
         render_chat_tab()
 
     with tab3:
-        # n8n Chatbot - embed external chat interface
-        st.caption("n8n Workflow Chatbot")
+        # n8n Chatbot - link to external chat interface
+        st.caption("n8n Workflow Chatbot | n8n 工作流聊天機器人")
         n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
 
-        # Embed as iframe
-        st.components.v1.iframe(n8n_url, height=700, scrolling=True)
+        st.markdown("""
+        This chatbot is powered by n8n workflow automation.
+
+        此聊天機器人由 n8n 工作流程自動化驅動。
+        """)
+
+        st.link_button("🚀 Open n8n Chatbot / 開啟 n8n 聊天機器人", n8n_url, use_container_width=True)
 
     with tab4:
         # Admin tab with nested tabs for Document Process and Vector
