@@ -1289,8 +1289,21 @@ def main():
 
     st.title("Property Intelligence")
 
-    # Tabs row with n8n button on the right
+    # n8n button aligned with tabs using CSS positioning
     n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
+    st.markdown(
+        f"""
+        <style>
+        div[data-testid="stHorizontalBlock"]:has(a[href*="n8n"]) {{
+            position: absolute;
+            right: 1rem;
+            top: 8.5rem;
+            z-index: 100;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
     col1, col2 = st.columns([6, 1])
     with col2:
