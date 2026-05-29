@@ -334,6 +334,35 @@ def list_drives(site_id: str) -> list[dict]:
     return drives
 
 
+def _get_access_token_standalone() -> str:
+    """Get access token using environment variables directly.
+
+    This is a standalone version that doesn't require full config loading.
+    Used by upload_to_onedrive for dashboard uploads.
+    """
+    import os
+
+    client_id = os.environ.get("MS_GRAPH_CLIENT_ID")
+    tenant_id = os.environ.get("MS_GRAPH_TENANT_ID")
+    client_secret = os.environ.get("MS_GRAPH_CLIENT_SECRET")
+
+    if not all([client_id, tenant_id, client_secret]):
+        raise Exception("Missing MS Graph credentials in environment")
+
+    app = ConfidentialClientApplication(
+        client_id=client_id,
+        client_credential=client_secret,
+        authority=f"https://login.microsoftonline.com/{tenant_id}",
+    )
+
+    result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+
+    if "access_token" not in result:
+        raise Exception(f"Failed to get access token: {result.get('error_description', 'Unknown error')}")
+
+    return result["access_token"]
+
+
 @traceable(name="upload_to_onedrive")
 def upload_to_onedrive(
     drive_id: str,
@@ -354,7 +383,8 @@ def upload_to_onedrive(
     Returns:
         Uploaded file metadata including id, name, webUrl
     """
-    token = get_access_token()
+    # Use standalone token getter to avoid loading full config
+    token = _get_access_token_standalone()
 
     # Build URL: PUT /drives/{drive-id}/root:/{folder-path}/{filename}:/content
     # Remove leading slash from folder_path for URL construction
