@@ -102,16 +102,20 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
             rent = _parse_number(extracted.get("rent_monthly") or extracted.get("rent"))
             size = _parse_number(extracted.get("size_sqft") or extracted.get("size"))
 
-            if rent and size and size > 0:
-                rent_sqft = rent / size
-                rent_sqft_values.append(rent_sqft)
-                size_values.append(size)
-
-                building = extracted.get("building_name") or "Unknown"
+            # Include property if it has size (rent optional - will show as "Contact")
+            if size and size > 0:
+                building = extracted.get("building_name") or doc.get("file_name", "Unknown")
                 prop_type = extracted.get("property_type") or "Unknown"
 
-                building_data[building].append(rent_sqft)
-                type_data[prop_type].append(rent_sqft)
+                # Only compute rent/sqft if both values exist
+                rent_sqft = None
+                if rent and size:
+                    rent_sqft = rent / size
+                    rent_sqft_values.append(rent_sqft)
+                    building_data[building].append(rent_sqft)
+                    type_data[prop_type].append(rent_sqft)
+
+                size_values.append(size)
 
                 # Handle contact safely (might be None)
                 contact = extracted.get("contact") or {}
@@ -121,12 +125,12 @@ def compute_rent_statistics(documents: list[dict]) -> RentStatistics:
                     "building_name": building,
                     "address": extracted.get("address") or "",
                     "size_sqft": size,
-                    "rent_monthly": rent,
-                    "rent_sqft": round(rent_sqft, 2),
-                    "floor_unit": extracted.get("floor_unit") or "",
+                    "rent_monthly": rent,  # May be None
+                    "rent_sqft": round(rent_sqft, 2) if rent_sqft else None,
+                    "floor_unit": extracted.get("floor_unit") or extracted.get("floor") or "",
                     "property_type": prop_type,
-                    "contact_name": contact.get("name") or "",
-                    "contact_phone": contact.get("phone") or "",
+                    "contact_name": contact.get("name") or extracted.get("contact_name") or "",
+                    "contact_phone": contact.get("phone") or extracted.get("contact_phone") or "",
                     "image_url": image_urls[0] if image_urls else None,
                 })
 

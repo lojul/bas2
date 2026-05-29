@@ -300,8 +300,8 @@
                     <td>{{ prop.building_name }}</td>
                     <td>{{ prop.floor_unit }}</td>
                     <td class="number">{{ prop.size_sqft|format_number }}</td>
-                    <td class="number">${{ prop.rent_monthly|format_number }}</td>
-                    <td class="number">${{ prop.rent_sqft|format_decimal }}</td>
+                    <td class="number">{% if prop.rent_monthly %}${{ prop.rent_monthly|format_number }}{% else %}議價{% endif %}</td>
+                    <td class="number">{% if prop.rent_sqft %}${{ prop.rent_sqft|format_decimal }}{% else %}-{% endif %}</td>
                     <td>{{ prop.contact_name }}<br>{{ prop.contact_phone }}</td>
                 </tr>
                 {% endfor %}
