@@ -776,22 +776,19 @@ def render_chat_tab():
     pdf_data = st.session_state.get("report_pdf")
     pdf_filename = st.session_state.get("report_filename")
 
-    # Buttons row: Send | Clear | Create Report | Download (if district detected)
-    if detected_district and detected_district_en:
-        col1, col2, col3, col4 = st.columns([1, 1, 1.2, 1.2])
-    else:
-        col1, col2 = st.columns([1, 1])
+    # Buttons row: Always 4 columns for consistent sizing
+    col1, col2, col3, col4 = st.columns([1, 1, 1.5, 1])
 
     with col1:
         send_clicked = st.button("Send / 發送", type="primary", use_container_width=True)
     with col2:
         st.button("Clear / 清除", use_container_width=True, on_click=clear_chat)
 
-    # Report buttons in col3 and col4 (same row)
+    # Report buttons in col3 and col4 (only if district detected)
     if detected_district and detected_district_en:
         with col3:
             generate_clicked = st.button(
-                f"District Report ({detected_district_en})",
+                "Generate District Report",
                 key="create_report_btn",
                 use_container_width=True
             )
@@ -815,8 +812,8 @@ def render_chat_tab():
         # Grey caption showing report status
         if has_report and pdf_filename:
             st.caption(f"Ready: {pdf_filename}")
-        elif detected_district:
-            st.caption(f"Report district: {detected_district} ({detected_district_en})")
+        else:
+            st.caption(f"District: {detected_district} ({detected_district_en})")
 
     # Show message if sources exist but no district found
     elif st.session_state["chat_messages"]:
