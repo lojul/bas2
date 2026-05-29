@@ -9,6 +9,17 @@ from src.state import DocumentState, DocumentType, ProcessingStatus, ExtractedDa
 from src.utils.json_parser import parse_json_response
 
 
+# Hong Kong districts for extraction hints
+HK_DISTRICTS = """
+Hong Kong Island: 中環/Central, 金鐘/Admiralty, 灣仔/Wan Chai, 銅鑼灣/Causeway Bay, 北角/North Point,
+鰂魚涌/Quarry Bay, 太古/Tai Koo, 柴灣/Chai Wan, 上環/Sheung Wan, 黃竹坑/Wong Chuk Hang
+Kowloon: 尖沙咀/Tsim Sha Tsui, 佐敦/Jordan, 油麻地/Yau Ma Tei, 旺角/Mong Kok, 深水埗/Sham Shui Po,
+長沙灣/Cheung Sha Wan, 九龍灣/Kowloon Bay, 觀塘/Kwun Tong, 牛頭角/Ngau Tau Kok, 紅磡/Hung Hom,
+新蒲崗/San Po Kong, 黃大仙/Wong Tai Sin, 土瓜灣/To Kwa Wan
+New Territories: 葵涌/Kwai Chung, 荃灣/Tsuen Wan, 沙田/Sha Tin, 火炭/Fo Tan, 大埔/Tai Po,
+元朗/Yuen Long, 屯門/Tuen Mun, 將軍澳/Tseung Kwan O, 馬鞍山/Ma On Shan
+"""
+
 # Extraction prompts for each document type
 PROMPTS = {
     DocumentType.LISTING: """Extract the MAIN property listing data from this document.
@@ -19,6 +30,9 @@ IMPORTANT RULES:
 - DO NOT invent or hallucinate any information
 - If this text does NOT contain property listing information, return {{"_no_data": true}}
 
+DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
+""" + HK_DISTRICTS + """
+
 TEXT:
 {text}
 
@@ -26,7 +40,7 @@ Return a SINGLE JSON object (NOT an array):
 {{
   "building_name": "name from text or null",
   "address": "full address from text or null",
-  "district": "area/district from text or null",
+  "district": "Hong Kong district from text/address (use Chinese name like 沙田, 觀塘, 中環) or null",
   "property_type": "office/retail/residential/industrial or null",
   "size_sqft": number from text or null,
   "rent_monthly": number from text or null,
@@ -46,6 +60,9 @@ IMPORTANT RULES:
 - DO NOT invent or hallucinate any information
 - If this text does NOT contain property listing information, return {{"_no_data": true}}
 
+DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
+""" + HK_DISTRICTS + """
+
 TEXT:
 {text}
 
@@ -53,7 +70,7 @@ Return JSON with building info and list of available units (max 10 units):
 {{
   "building_name": "name from text or null",
   "address": "address from text or null",
-  "district": "area from text or null",
+  "district": "Hong Kong district from text/address (use Chinese name like 沙田, 觀塘, 中環) or null",
   "contact_phone": "phone from text or null",
   "units": [
     {{"floor": "from text", "unit": "from text", "size": number, "rent": number}}
@@ -111,6 +128,9 @@ IMPORTANT RULES:
 - DO NOT invent or hallucinate any information
 - For arrays, include all items found (up to 10)
 
+DISTRICT DETECTION - Look for these Hong Kong districts:
+""" + HK_DISTRICTS + """
+
 TEXT:
 {text}
 
@@ -120,7 +140,7 @@ Return a JSON object with ALL available information:
   "project_name_zh": "Chinese name if available",
   "developer": "developer company name",
   "address": "full address",
-  "district": "area/district (e.g., North Point, Central)",
+  "district": "Hong Kong district (use Chinese name like 北角, 中環, 觀塘) or null",
   "property_type": "mixed-use/retail/office/residential",
 
   "project_summary": {{

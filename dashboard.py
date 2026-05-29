@@ -791,7 +791,7 @@ def render_chat_tab():
     if detected_district and detected_district_en:
         with col3:
             generate_clicked = st.button(
-                "Generate Report / 生成報告",
+                f"District Report ({detected_district_en})",
                 key="create_report_btn",
                 use_container_width=True
             )
