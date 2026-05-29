@@ -1287,9 +1287,16 @@ def main():
                 else:
                     st.logout()
 
-    st.title("Property Intelligence")
+    # Header with title and n8n button
+    col_title, col_btn = st.columns([4, 1])
+    with col_title:
+        st.title("Property Intelligence")
+    with col_btn:
+        st.write("")  # Spacing
+        n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
+        st.link_button("🤖 n8n Chatbot", n8n_url, use_container_width=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Keyword Search", "Chatbot", "n8n Chatbot", "Admin"])
+    tab1, tab2, tab3 = st.tabs(["Keyword Search", "Chatbot", "Admin"])
 
     with tab1:
         render_search_tab()
@@ -1298,19 +1305,6 @@ def main():
         render_chat_tab()
 
     with tab3:
-        # n8n Chatbot - link to external chat interface
-        st.caption("n8n Workflow Chatbot | n8n 工作流聊天機器人")
-        n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
-
-        st.markdown("""
-        This chatbot is powered by n8n workflow automation.
-
-        此聊天機器人由 n8n 工作流程自動化驅動。
-        """)
-
-        st.link_button("🚀 Open n8n Chatbot / 開啟 n8n 聊天機器人", n8n_url, use_container_width=True)
-
-    with tab4:
         # Admin tab with nested tabs for Document Process and Vector
         admin_tab1, admin_tab2 = st.tabs(["Document Process", "Vector Database"])
         with admin_tab1:
