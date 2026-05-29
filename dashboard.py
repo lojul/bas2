@@ -1425,14 +1425,14 @@ def main():
         render_chat_tab()
 
     with tab3:
-        # Admin tab with nested tabs for Document Process, Vector, and Upload
-        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Document Process", "Vector Database", "Upload"])
+        # Admin tab with nested tabs for Upload, Document Process, and Vector
+        admin_tab1, admin_tab2, admin_tab3 = st.tabs(["Upload", "Document Process", "Vector Database"])
         with admin_tab1:
-            render_processing_tab()
-        with admin_tab2:
-            render_vector_db_tab()
-        with admin_tab3:
             render_upload_tab()
+        with admin_tab2:
+            render_processing_tab()
+        with admin_tab3:
+            render_vector_db_tab()
 
     # Footer
     st.divider()
