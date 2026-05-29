@@ -1289,7 +1289,7 @@ def main():
 
     st.title("Property Intelligence")
 
-    tab1, tab2, tab3 = st.tabs(["Keyword Search", "Chatbot", "Admin"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Keyword Search", "Chatbot", "n8n Chatbot", "Admin"])
 
     with tab1:
         render_search_tab()
@@ -1298,6 +1298,14 @@ def main():
         render_chat_tab()
 
     with tab3:
+        # n8n Chatbot - embed external chat interface
+        st.caption("n8n Workflow Chatbot")
+        n8n_url = "https://c21net.app.n8n.cloud/webhook/1c17a313-dbb7-4fc3-8dbf-c7e7b50bd3de/chat"
+
+        # Embed as iframe
+        st.components.v1.iframe(n8n_url, height=700, scrolling=True)
+
+    with tab4:
         # Admin tab with nested tabs for Document Process and Vector
         admin_tab1, admin_tab2 = st.tabs(["Document Process", "Vector Database"])
         with admin_tab1:
