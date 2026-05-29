@@ -732,26 +732,39 @@ def render_chat_tab():
     if "report_district" not in st.session_state:
         st.session_state["report_district"] = None
 
-    # Detect district from conversation
+    # Detect district from source documents (not chat text)
     detected_district = None
     detected_district_en = None
     generate_clicked = False
 
     if st.session_state["chat_messages"]:
         from src.nodes.report_generator.router import DISTRICTS, DISTRICTS_EN_TO_ZH
-        all_text = " ".join([m["content"] for m in st.session_state["chat_messages"]])
 
-        for zh, en in DISTRICTS.items():
-            if zh in all_text:
-                detected_district = zh
-                detected_district_en = en
-                break
-
-        if not detected_district:
-            for en_lower, zh in DISTRICTS_EN_TO_ZH.items():
-                if en_lower in all_text.lower():
-                    detected_district = zh
-                    detected_district_en = DISTRICTS[zh]
+        # Get district from source documents' extracted data
+        for msg in st.session_state["chat_messages"]:
+            if msg.get("role") == "assistant" and msg.get("sources"):
+                for src in msg["sources"]:
+                    if src.get("type") == "web":
+                        continue
+                    # Check extracted_data for district
+                    extracted = src.get("extracted_data", {})
+                    if isinstance(extracted, str):
+                        try:
+                            import json
+                            extracted = json.loads(extracted)
+                        except:
+                            extracted = {}
+                    district = extracted.get("district", "")
+                    if district and district in DISTRICTS:
+                        detected_district = district
+                        detected_district_en = DISTRICTS[district]
+                        break
+                    # Also check English district names
+                    if district and district.lower() in DISTRICTS_EN_TO_ZH:
+                        detected_district = DISTRICTS_EN_TO_ZH[district.lower()]
+                        detected_district_en = district
+                        break
+                if detected_district:
                     break
 
     # Check if report ready
@@ -802,6 +815,17 @@ def render_chat_tab():
         # Grey caption showing report status
         if has_report and pdf_filename:
             st.caption(f"Ready: {pdf_filename}")
+        elif detected_district:
+            st.caption(f"Report district: {detected_district} ({detected_district_en})")
+
+    # Show message if sources exist but no district found
+    elif st.session_state["chat_messages"]:
+        has_sources = any(
+            msg.get("sources") for msg in st.session_state["chat_messages"]
+            if msg.get("role") == "assistant"
+        )
+        if has_sources:
+            st.caption("ℹ️ No district found in documents. Reports require district data.")
 
     # Handle report generation (outside columns for spinner visibility)
     if generate_clicked:
