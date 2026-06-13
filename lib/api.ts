@@ -131,6 +131,38 @@ export function streamMessage(
   return () => controller.abort();
 }
 
+export async function generateReport(
+  sources: Source[],
+  district = "",
+  districtEn = "",
+  reportType = "rent",
+): Promise<Blob> {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/api/chat/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      sources,
+      district,
+      district_en: districtEn,
+      report_type: reportType,
+    }),
+  });
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail ?? "Report generation failed");
+  }
+  return res.blob();
+}
+
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export async function search(query: string, topK = 20) {
@@ -185,6 +217,26 @@ export async function getAdminDocuments(topK = 1000): Promise<{
 }> {
   const res = await apiFetch(`/api/admin/documents?top_k=${topK}`);
   if (!res.ok) throw new Error("Failed to fetch documents");
+  return res.json();
+}
+
+export interface AdminConfig {
+  inbox_folder: string;
+  move_when_done: boolean;
+}
+
+export async function getAdminConfig(): Promise<AdminConfig> {
+  const res = await apiFetch("/api/admin/config");
+  if (!res.ok) throw new Error("Failed to fetch config");
+  return res.json();
+}
+
+export async function updateAdminConfig(cfg: Partial<AdminConfig>): Promise<AdminConfig> {
+  const res = await apiFetch("/api/admin/config", {
+    method: "PUT",
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) throw new Error("Failed to update config");
   return res.json();
 }
 
