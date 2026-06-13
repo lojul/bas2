@@ -11,13 +11,14 @@ interface NavItem {
 
 const mainNav: NavItem[] = [
   { href: "/chat", label: "Chat" },
-  { href: "/search", label: "Search" },
+  { href: "/search", label: "Keyword Search" },
 ];
 
 const adminNav: NavItem[] = [
   { href: "/admin/upload", label: "Upload" },
   { href: "/admin/process", label: "Processing" },
   { href: "/admin/vector", label: "Vector DB" },
+  { href: "/admin/settings", label: "Settings" },
 ];
 
 function NavLink({ href, label, pathname }: NavItem & { pathname: string }) {
