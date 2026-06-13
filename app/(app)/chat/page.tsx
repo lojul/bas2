@@ -106,8 +106,9 @@ export default function ChatPage() {
     .filter((m) => m.role === "assistant" && m.sources && m.sources.length > 0)
     .flatMap((m) => m.sources!);
 
+  const hasCompletedResponse = messages.some((m) => m.role === "assistant" && !m.streaming);
+
   const handleGenerateReport = useCallback(async () => {
-    if (allSources.length === 0) return;
     setReportLoading(true);
     try {
       const blob = await generateReport(allSources);
@@ -129,9 +130,12 @@ export default function ChatPage() {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shrink-0">
-        <span className="text-sm font-medium text-gray-700">Chat / 搜尋助手</span>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-gray-700">Chat / 搜尋助手</span>
+          <span className="text-xs text-gray-400">Llama 3.3 70B</span>
+        </div>
         <div className="flex items-center gap-2">
-          {allSources.length > 0 && (
+          {hasCompletedResponse && (
             <button
               onClick={handleGenerateReport}
               disabled={reportLoading}
