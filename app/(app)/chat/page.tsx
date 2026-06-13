@@ -135,7 +135,7 @@ export default function ChatPage() {
           <span className="text-xs text-gray-400">Llama 3.3 70B</span>
         </div>
         <div className="flex items-center gap-2">
-          {hasCompletedResponse && (
+          {allSources.length > 0 && (
             <button
               onClick={handleGenerateReport}
               disabled={reportLoading}
