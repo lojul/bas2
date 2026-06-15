@@ -263,6 +263,33 @@ export async function updateAdminConfig(cfg: Partial<AdminConfig>): Promise<Admi
   return res.json();
 }
 
+export interface TriageResult {
+  file_name: string;
+  can_process: boolean;
+  detected_type: string;
+  format: string;
+  confidence: number;
+  reason: string | null;
+}
+
+export async function triageFile(file: File): Promise<TriageResult> {
+  const token = localStorage.getItem("token");
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API_URL}/api/admin/triage`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) throw new Error(`Triage failed (${res.status})`);
+  return res.json();
+}
+
 export async function uploadFiles(
   files: File[],
 ): Promise<{ results: Array<{ name: string; ok: boolean; error?: string; web_url?: string }>; folder: string }> {

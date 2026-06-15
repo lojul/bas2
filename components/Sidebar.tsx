@@ -15,7 +15,7 @@ const mainNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-  { href: "/admin/upload", label: "Upload" },
+  { href: "/admin/ingest", label: "Ingest" },
   { href: "/admin/process", label: "Processing" },
   { href: "/admin/vector", label: "Vector DB" },
   { href: "/admin/settings", label: "Settings" },
