@@ -11,7 +11,7 @@ LangGraph + LangSmith document processor. Users drop PDFs in OneDrive `/In`, pro
 - **Users never see a terminal** — background service
 - **Users interact with OneDrive** — drop files in `/In`, find results in `/Processed`
 - **LangSmith is the monitoring UI** — traces, errors, debugging
-- **Dashboard Upload** — users can also upload PDFs directly from Admin → Upload tab
+- **Dashboard Ingest** — users can drop PDF, Word, PowerPoint, JPG, PNG in Admin → Ingest tab; AI triages each file before processing
 
 ## Development Rules
 
@@ -37,15 +37,16 @@ langgraph/
 │   ├── graph.py        # Workflow graph
 │   ├── config.py       # Configuration
 │   └── utils/
-│       ├── json_parser.py   # Shared JSON parsing
-│       └── blob_storage.py  # Azure Blob upload
+│       ├── json_parser.py     # Shared JSON parsing
+│       ├── blob_storage.py    # Azure Blob upload
+│       └── table_storage.py   # Azure Table Storage — permanent history log
 ├── api/
 │   ├── main.py         # FastAPI app entry point
 │   ├── auth.py         # JWT auth + bcrypt + rate limiting
 │   └── routes/
 │       ├── chat.py     # /api/chat (stream, report)
 │       ├── search.py   # /api/search
-│       └── admin.py    # /api/admin (upload, process, vector)
+│       └── admin.py    # /api/admin (triage, upload, process, vector, history)
 ├── tests/              # Mirror src structure
 ├── function_app.py     # Azure Functions (timer + HTTP)
 └── .env                # Local secrets (never commit)
@@ -109,7 +110,11 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] Next.js Dashboard (replaced Streamlit as primary UI; deployed on Vercel)
 - [x] FastAPI Backend (Azure App Service; JWT auth + bcrypt + rate limiting)
 - [x] Chat "Generate Report PDF" button (Next.js → FastAPI → fpdf2)
+- [x] Permanent Processing History (Azure Table Storage — survives LangSmith 14-day expiry)
+- [x] Ingest Page with AI Triage (multi-format upload; AI identifies doc type before processing; unsupported files logged)
+- [x] JWT sessions extended to 30 days
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
+- [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
 
 ---
 
@@ -250,8 +255,8 @@ Entry point: `generate_report_from_sources(sources, district, district_en, repor
 |-------|-------|-------|
 | `/chat` | Chat | RAG chatbot, Llama 3.3 70B label, "生成報告 PDF" button |
 | `/search` | Keyword Search | Direct keyword search, no AI |
-| `/admin/upload` | Upload | Upload PDFs to OneDrive /In |
-| `/admin/process` | Processing | LangSmith traces |
+| `/admin/ingest` | Ingest | Drop PDF/Word/PPT/JPG/PNG; AI triages each file then upload to OneDrive /In |
+| `/admin/process` | Processing | Two tabs: Recent (LangSmith 72h) + History (Azure Table Storage, all time) |
 | `/admin/vector` | Vector DB | Azure AI Search documents |
 | `/admin/settings` | Settings | (placeholder) |
 
@@ -284,18 +289,35 @@ NEXT_PUBLIC_API_URL=https://<azure-app-service-url>
 ### Deploy Workflow
 ```bash
 # 1. Sync source files to deploy dir
-rsync -av --delete langgraph/src/ /private/tmp/api_deploy_dir/src/
-rsync -av langgraph/api/ /private/tmp/api_deploy_dir/api/
+cd "/Users/kincheonglau/Active Projects/document processor/langgraph"
+rsync -a --delete src/ /private/tmp/api_deploy_dir/src/
+rsync -a --delete api/ /private/tmp/api_deploy_dir/api/
+cp requirements-api.txt /private/tmp/api_deploy_dir/requirements.txt
 
-# 2. Zip (exclude pycache)
-cd /private/tmp/api_deploy_dir && zip -r /tmp/api_deploy.zip . -x "__pycache__/*" "*.pyc"
+# 2. Zip (clear pycache first)
+cd /private/tmp/api_deploy_dir
+find . -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+zip -r /private/tmp/api_deploy.zip . -x "*.DS_Store"
 
-# 3. Deploy
-az webapp deployment source config-zip \
-  --resource-group <rg> --name property-intelligence-api \
-  --src /tmp/api_deploy.zip
+# 3. Deploy via Kudu REST API (most reliable — az webapp deploy drops connection)
+KUDU_USER='$property-api-c21'
+KUDU_PASS='<publishing-password>'  # az webapp deployment list-publishing-credentials
+curl -X POST \
+  "https://property-api-c21.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
+  -u "$KUDU_USER:$KUDU_PASS" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @/private/tmp/api_deploy.zip
+
+# 4. Poll until status 4 (success)
+curl -s -u "$KUDU_USER:$KUDU_PASS" \
+  "https://property-api-c21.scm.azurewebsites.net/api/deployments/latest"
 ```
-**Never use `az webapp deploy`** — it does not trigger Oryx/pip. Always use `config-zip`.
+
+**Deploy notes:**
+- `az webapp deploy` drops connection mid-upload — use Kudu curl instead
+- `az webapp deployment source config-zip --build-remote true` flag not available in this CLI version
+- Kudu async deploy: status 1 = building, status 4 = success
+- `requirements-api.txt` is the canonical dep list for the API; `requirements.txt` is for Azure Functions only
 
 ### API Routes
 | Method | Path | Auth | Purpose |
@@ -305,15 +327,17 @@ az webapp deployment source config-zip \
 | POST | `/api/chat/stream` | Bearer | SSE streaming chat |
 | POST | `/api/chat/report` | Bearer | Generate PDF report |
 | POST | `/api/search` | Bearer | Keyword/hybrid search |
-| POST | `/api/admin/upload` | Bearer | Upload PDF to OneDrive |
-| POST | `/api/admin/process` | Bearer | Trigger document processing |
-| GET | `/api/admin/vector` | Bearer | List indexed documents |
+| POST | `/api/admin/triage` | Bearer | Quick OCR + classify file before pipeline (single file) |
+| POST | `/api/admin/upload` | Bearer | Upload file(s) to OneDrive /In (PDF/DOCX/PPTX/JPG/PNG) |
+| GET | `/api/admin/runs` | Bearer | LangSmith runs (last N hours) |
+| GET | `/api/admin/history` | Bearer | Permanent history from Azure Table Storage |
+| GET | `/api/admin/documents` | Bearer | List indexed documents from Azure Search |
 
 ### Authentication & Security (`api/auth.py`)
 
 **JWT:**
 - Secret: `JWT_SECRET_KEY` env var. If missing, generates a random key per process — tokens invalidated on restart (acceptable for dev; never uses a known public string).
-- Algorithm: HS256, TTL: 8 hours
+- Algorithm: HS256, TTL: 720 hours (30 days)
 
 **Passwords (`DASHBOARD_USERS` env var):**
 ```
@@ -412,6 +436,38 @@ If the key is missing, pipeline silently uses Azure text only — no code change
 Uses `llama-parse` pip package. The package shows a deprecation warning but the underlying API and functionality remain fully operational.
 
 Free tier: 10,000 credits/month. Monitor at https://cloud.llamaindex.ai/usage
+
+## Ingest & Triage
+
+### Supported Upload Formats
+`SUPPORTED_FORMATS = {"pdf", "jpg", "jpeg", "png", "docx", "pptx"}` (defined in `api/routes/admin.py`)
+
+Unsupported formats (e.g. `.xls`, `.doc`, `.ppt`, `.mp4`) are rejected at triage and logged to Azure Table Storage with `status="unsupported"`.
+
+### Triage Endpoint (`POST /api/admin/triage`)
+Single-file endpoint called before uploading. Steps:
+1. Check extension against `SUPPORTED_FORMATS` — if not supported, log and return `can_process: false`
+2. Run Azure DI `prebuilt-read` on first 2 pages (PDFs) or full file (images/docs)
+3. Quick LLM classify (`call_openrouter` from `src/nodes/classifier.py`) on first 3000 chars
+4. Return `{ file_name, can_process, detected_type, format, confidence, reason }`
+
+Designed to be fast (~3–5s) — only first 2 pages, no full pipeline.
+
+### Azure Table Storage — Processing History
+**Account:** `blobhk04472` | **Table:** `ProcessingHistory`
+**SAS env var:** `AZURE_TABLE_SAS`
+
+**Functions in `src/utils/table_storage.py`:**
+- `log_run(...)` — called by `process_file()` in `graph.py` after every pipeline run
+- `log_unsupported(file_name, ext)` — called by triage for unsupported formats
+- `list_runs(months, top)` — used by `GET /api/admin/history`
+
+**PartitionKey** = `YYYY-MM` (monthly partitions for fast range queries)
+**Status values:** `"success"`, `"error"`, `"unsupported"`
+
+If `AZURE_TABLE_SAS` is not set, all logging silently skips — never crashes the pipeline.
+
+---
 
 ## Known Issues
 
