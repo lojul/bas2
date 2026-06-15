@@ -99,8 +99,13 @@ export function streamMessage(
         headers: { Authorization: `Bearer ${token}` },
         signal: controller.signal,
       });
+      if (res.status === 401) {
+        clearToken();
+        window.location.href = "/login";
+        return;
+      }
       if (!res.ok || !res.body) {
-        onError("Stream failed");
+        onError(`Stream failed (${res.status})`);
         return;
       }
       const reader = res.body.getReader();
