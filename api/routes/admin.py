@@ -308,6 +308,88 @@ def get_documents(
     }
 
 
+# ── Triage ─────────────────────────────────────────────────────────────────────
+
+SUPPORTED_FORMATS = {"pdf", "jpg", "jpeg", "png", "docx", "pptx"}
+
+
+@router.post("/triage")
+async def triage_file(
+    file: UploadFile = File(...),
+    username: Annotated[str, Depends(get_current_user)] = None,
+):
+    """Analyse a file's type before processing — returns detected doc type and whether it can be processed."""
+    fname = file.filename or "unknown"
+    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+
+    if ext not in SUPPORTED_FORMATS:
+        from src.utils.table_storage import log_unsupported
+        log_unsupported(fname, ext)
+        return {
+            "file_name": fname,
+            "can_process": False,
+            "detected_type": "unsupported",
+            "format": ext or "unknown",
+            "confidence": 0.0,
+            "reason": f".{ext} files are not yet supported" if ext else "Unknown file type",
+        }
+
+    content = await file.read()
+
+    # Quick Azure DI OCR — first 2 pages only for speed
+    try:
+        from azure.ai.documentintelligence import DocumentIntelligenceClient
+        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
+        from azure.core.credentials import AzureKeyCredential
+
+        di_endpoint = os.environ.get("AZURE_DOC_INTEL_ENDPOINT", "")
+        di_key = os.environ.get("AZURE_DOC_INTEL_KEY", "")
+        if not di_endpoint or not di_key:
+            raise ValueError("Azure Document Intelligence not configured")
+
+        di_client = DocumentIntelligenceClient(
+            endpoint=di_endpoint,
+            credential=AzureKeyCredential(di_key),
+        )
+        req_kwargs: dict = {"bytes_source": content}
+        if ext == "pdf":
+            req_kwargs["pages"] = "1-2"
+
+        poller = di_client.begin_analyze_document("prebuilt-read", AnalyzeDocumentRequest(**req_kwargs))
+        di_result = poller.result()
+        text = di_result.content or ""
+        page_count = len(di_result.pages) if di_result.pages else 1
+
+    except Exception as e:
+        return {
+            "file_name": fname,
+            "can_process": True,
+            "detected_type": "unknown",
+            "format": ext,
+            "confidence": 0.0,
+            "reason": f"OCR unavailable: {str(e)[:80]}",
+        }
+
+    # Quick LLM classification on first 3000 chars
+    try:
+        from src.nodes.classifier import call_openrouter
+        clf = call_openrouter(text[:3000], page_count, len(text), 0)
+        doc_type = clf.get("type", "unknown")
+        confidence = float(clf.get("confidence", 0.5))
+    except Exception:
+        doc_type = "unknown"
+        confidence = 0.0
+
+    return {
+        "file_name": fname,
+        "can_process": True,
+        "detected_type": doc_type,
+        "format": ext,
+        "confidence": confidence,
+        "reason": None,
+    }
+
+
 # ── OneDrive upload ────────────────────────────────────────────────────────────
 
 class UploadResult(BaseModel):
@@ -322,7 +404,7 @@ async def upload_files(
     files: list[UploadFile] = File(...),
     username: Annotated[str, Depends(get_current_user)] = None,
 ):
-    """Upload PDF files to OneDrive /In folder for processing."""
+    """Upload files to OneDrive /In folder for processing."""
     drive_id = os.environ.get("MS_GRAPH_DRIVE_ID")
     inbox_folder = os.environ.get("MS_GRAPH_INBOX_FOLDER", "/Document Processor/In")
 
@@ -337,8 +419,9 @@ async def upload_files(
     results: list[dict] = []
     for f in files:
         fname = f.filename or "unknown"
-        if not fname.lower().endswith(".pdf"):
-            results.append({"name": fname, "ok": False, "error": "Only PDF files accepted"})
+        ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+        if ext not in SUPPORTED_FORMATS:
+            results.append({"name": fname, "ok": False, "error": f".{ext} not supported"})
             continue
         try:
             content = await f.read()

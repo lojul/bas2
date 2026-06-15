@@ -60,6 +60,16 @@ def log_run(
         logger.error("Failed to log run to Table Storage: %s", e)
 
 
+def log_unsupported(file_name: str, ext: str) -> None:
+    """Log a file with an unsupported format to ProcessingHistory."""
+    log_run(
+        file_name=file_name,
+        document_type=f"unsupported_{ext}" if ext else "unsupported",
+        status="unsupported",
+        duration_ms=0,
+    )
+
+
 def list_runs(months: int = 3, top: int = 500) -> list[dict]:
     """Return recent runs from ProcessingHistory, newest first."""
     try:
