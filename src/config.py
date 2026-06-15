@@ -99,6 +99,7 @@ class Config:
     openrouter: OpenRouterConfig
     langsmith: LangSmithConfig
     msgraph: MSGraphConfig
+    llama_cloud_api_key: str = ""
 
 
 def load_config() -> Config:
@@ -138,6 +139,7 @@ def load_config() -> Config:
             tenant_id=os.environ["MS_GRAPH_TENANT_ID"],
             client_secret=os.environ["MS_GRAPH_CLIENT_SECRET"],
         ),
+        llama_cloud_api_key=os.environ.get("LLAMA_CLOUD_API_KEY", ""),
     )
 
 

@@ -4,6 +4,7 @@ Workflow: get_download_url → run_ocr → classify → analyze → extract → 
 """
 
 import os
+import time
 from typing import TypedDict
 
 from langsmith import traceable
@@ -148,6 +149,8 @@ def process_file(item_id: str, file_name: str) -> DocumentState:
     Returns:
         Final DocumentState after processing
     """
+    from src.utils.table_storage import log_run
+
     initial_state = DocumentState(
         file_path=item_id,
         file_name=file_name,
@@ -155,8 +158,32 @@ def process_file(item_id: str, file_name: str) -> DocumentState:
         status=ProcessingStatus.PENDING,
     )
 
+    start_ms = time.monotonic()
     result = app.invoke({"state": initial_state})
-    return result["state"]
+    duration_ms = int((time.monotonic() - start_ms) * 1000)
+
+    final: DocumentState = result["state"]
+    is_error = final.status == ProcessingStatus.ERROR
+
+    extracted = {}
+    if final.extracted:
+        try:
+            from dataclasses import asdict
+            extracted = asdict(final.extracted)
+        except Exception:
+            extracted = {}
+
+    log_run(
+        file_name=final.file_name,
+        document_type=final.document_type.value if final.document_type else "unknown",
+        status="error" if is_error else "success",
+        duration_ms=duration_ms,
+        extracted_data=extracted,
+        error_message=final.error_message if is_error else None,
+        index_id=final.index_id,
+    )
+
+    return final
 
 
 def print_graph() -> None:

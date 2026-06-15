@@ -1,47 +1,66 @@
 # Document Processor - Development Rules
 
 ## Project Overview
-LangGraph + LangSmith document processor running in parallel with n8n workflow.
+LangGraph + LangSmith document processor. Users drop PDFs in OneDrive `/In`, processed results appear in `/Processed`.
+
+- **Dashboard (production):** Next.js app on Vercel (see Next.js Dashboard section)
+- **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
 
 ## Product Design Philosophy
 
-### User-Friendly First
-- **Users will never see a terminal** - this is a background service
-- **Users only interact with OneDrive** - drop files in `/In`, find results in `/Processed`
-- **LangSmith is the monitoring UI** - all traces, errors, and debugging happen there
-- **No technical knowledge required** - clients just drop files and get results
-
-### OneDrive Workflow
-```
-/Document Processor/In        ← Client drops files here
-/Document Processor/Processed ← System moves completed files here
-```
+- **Users never see a terminal** — background service
+- **Users interact with OneDrive** — drop files in `/In`, find results in `/Processed`
+- **LangSmith is the monitoring UI** — traces, errors, debugging
+- **Dashboard Upload** — users can also upload PDFs directly from Admin → Upload tab
 
 ## Development Rules
 
 ### 1. Testing
-- **Always run tests** before marking a sprint complete
 - Test command: `cd langgraph && source .venv/bin/activate && pytest -v`
 - All new nodes must have corresponding tests
 - Use mocks for external Azure services in unit tests
 
 ### 2. Code Standards
-- Python 3.11+
-- Use type hints throughout
+- Python 3.11+, type hints throughout
 - Dataclasses for state objects
 - `@traceable` decorator on all nodes for LangSmith observability
-- Keep functions small and focused
 
 ### 3. Project Structure
 ```
 langgraph/
-├── src/           # Source code
-│   ├── nodes/     # Processing nodes
-│   ├── state.py   # State schema
-│   ├── graph.py   # Workflow graph
-│   └── config.py  # Configuration
-├── tests/         # Test files (mirror src structure)
-└── .env           # Local secrets (never commit)
+├── src/
+│   ├── nodes/          # Processing nodes
+│   │   ├── chatbot.py  # RAG chatbot (production)
+│   │   ├── chatbot_v2.py  # LangChain refactored (ready for Phase 2)
+│   │   └── report_generator/  # PDF report generation
+│   ├── state.py        # DocumentState schema
+│   ├── graph.py        # Workflow graph
+│   ├── config.py       # Configuration
+│   └── utils/
+│       ├── json_parser.py   # Shared JSON parsing
+│       └── blob_storage.py  # Azure Blob upload
+├── api/
+│   ├── main.py         # FastAPI app entry point
+│   ├── auth.py         # JWT auth + bcrypt + rate limiting
+│   └── routes/
+│       ├── chat.py     # /api/chat (stream, report)
+│       ├── search.py   # /api/search
+│       └── admin.py    # /api/admin (upload, process, vector)
+├── tests/              # Mirror src structure
+├── function_app.py     # Azure Functions (timer + HTTP)
+└── .env                # Local secrets (never commit)
+
+nextjs-dashboard/       # Next.js frontend (primary UI)
+├── app/
+│   ├── (app)/
+│   │   ├── chat/       # Chat UI
+│   │   ├── search/     # Keyword Search UI
+│   │   └── admin/      # Upload / Processing / Vector DB / Settings
+│   └── login/
+├── components/
+│   └── Sidebar.tsx
+└── lib/
+    └── api.ts          # All API calls (fetch wrapper with JWT)
 ```
 
 ### 4. Sprint Workflow
@@ -57,59 +76,85 @@ langgraph/
 - Install: `pip install -e ".[dev]"`
 
 ### 6. Key Configurations
-- LangSmith projects:
-  - `document-processor` - Document processing pipeline logs
-  - `property-chatbot` - Chatbot conversation logs
+- LangSmith projects: `document-processor`, `property-chatbot`
 - Azure region: Hong Kong / Sweden Central (OpenAI)
 - Blob container: `property-pdf`
+
+---
 
 ## Current Status
 - [x] Project setup & LangSmith tracing
 - [x] OneDrive integration (list files, get download URL, move files)
 - [x] Azure Document Intelligence OCR
 - [x] Folder watcher script (process_inbox.py)
-- [x] AI Classification (listing/listing_list/news/contact) via OpenRouter
+- [x] AI Classification (listing/listing_list/pitching_deck/news/contact) via OpenRouter Qwen
 - [x] Streamlit Dashboard (pulls data from LangSmith + Process Now button)
-- [x] Data Extraction (structured fields via DeepSeek AI)
+- [x] Data Extraction (structured fields via Qwen 2.5 72B)
 - [x] Azure AI Search indexing (vector search with embeddings)
 - [x] Azure Functions deployed (timer + HTTP triggers)
 - [x] COMPLETE - Full pipeline running in Azure
 - [x] RAG Chatbot (Property Intelligence Assistant)
 - [x] Streaming responses (real-time answer display)
-- [x] Phase 1: Hybrid Search (Vector + Web via Tavily)
+- [x] Hybrid Search (Vector + Web via Tavily)
 - [x] Smart Query Router (vector/web/hybrid based on query type)
-- [x] Multi-query retrieval (bilingual query variations)
-- [x] LLM reranking (DeepSeek relevance scoring)
-- [x] Parallel execution (ThreadPoolExecutor)
-- [x] Token usage tracking in dashboard
-- [x] PDF Report Generator (Rent Analysis, Availability reports with images)
+- [x] Semantic Ranking (Azure AI Search semantic configuration)
+- [x] Pitching Deck support (comprehensive property marketing extraction)
+- [x] Document Analysis (pre-extraction structure analysis)
+- [x] Smart Index Merge (preserve existing data, don't overwrite with nulls)
+- [x] Image Display (extract PDF images, store in blob, display in dashboard)
+- [x] Report from Chat Results (generate PDF reports using chatbot search results)
+- [x] Multi-Index Search (chatbot searches multiple Azure AI Search indexes)
+- [x] Dashboard Upload (upload PDFs directly to OneDrive /In via dashboard)
+- [x] Search REST API (external chatbots can query our search via `/api/search`)
+- [x] Next.js Dashboard (replaced Streamlit as primary UI; deployed on Vercel)
+- [x] FastAPI Backend (Azure App Service; JWT auth + bcrypt + rate limiting)
+- [x] Chat "Generate Report PDF" button (Next.js → FastAPI → fpdf2)
+- [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 
-## Graph Flow
+---
+
+## Graph 1: Document Processing
+
+**File:** `src/graph.py` | **LangSmith Project:** `document-processor`
+
+### Flow
 ```
-__start__ → get_download_url → run_ocr → classify → extract → index → __end__
+__start__
+    ↓
+get_download_url (OneDrive via Microsoft Graph)
+    ↓
+run_ocr (Azure Document Intelligence + PyMuPDF image extraction)
+    ↓
+classify (OpenRouter Qwen 2.5)
+    ↓
+analyze (Pre-extraction document structure analysis)
+    ↓
+extract (OpenRouter Qwen 2.5)
+    ↓
+index (Azure AI Search + Azure OpenAI embeddings + Smart Merge)
+    ↓
+__end__
 ```
 
-## Document Types & Extracted Fields
-- **Single Listing** (`listing`): One property per file (building_name, address, size, rent, contact)
-- **Multi Listing** (`listing_list`): Multiple properties in a table (building info + units array)
-- **News** (`news`): Article (title, date, source, summary, topics)
-- **Contact** (`contact`): Business card (name, company, phone, email)
+### Document Types & Extracted Fields
+- **listing**: One property (building_name, address, size, rent, contact)
+- **listing_list**: Multiple properties in a table (building info + units array)
+- **pitching_deck**: Property marketing presentations (project_summary, available_units, location, key_features, design_team, contact)
+- **news**: Article (title, date, source, summary, topics)
+- **contact**: Business card (name, company, phone, email)
+
+---
 
 ## Key Services
 
 ### Azure AI Search
 - Endpoint: `aisearch-eastasia-basic.search.windows.net`
-- Primary Index: `processed-documents` (for writing new documents)
-- Search Indexes: `processed-documents`, `c21net-intelligence-v2` (for chatbot reading)
-- Features: Vector search with embeddings, semantic ranking, multi-index search
+- Default Write Index: `processed-documents`
+- Read Indexes: `processed-documents,c21net-intelligence-v2` (set via `AZURE_SEARCH_INDEXES`)
+- Features: Vector search (text-embedding-3-small, 1536 dims), BM25, hybrid, semantic ranking
 
-#### Multi-Index Search Configuration
-The chatbot can search multiple indexes. Configure via environment variable:
-```bash
-AZURE_SEARCH_INDEXES=processed-documents,c21net-intelligence-v2
-```
-
-**IMPORTANT:** If `AZURE_SEARCH_INDEXES` is not set, only `AZURE_SEARCH_INDEX` is searched.
+#### Multi-Index Search
+The chatbot searches ALL indexes in `AZURE_SEARCH_INDEXES`. Writing always goes to `AZURE_SEARCH_INDEX`.
 
 #### Index Schema Differences
 | Field | processed-documents | c21net-intelligence-v2 |
@@ -119,528 +164,340 @@ AZURE_SEARCH_INDEXES=processed-documents,c21net-intelligence-v2
 | Data | `extracted_data` | *(built from fields)* |
 | Images | `image_urls` | *(not available)* |
 | Semantic Config | `default-semantic-config` | `unified-semantic-config` |
-| Document Types | `listing`, `listing_list` | `Vacancy Listing`, `Particular Property` |
-
-The chatbot code normalizes these differences automatically.
-
-#### Test Queries for Multi-Index
-| Query | Expected Top Index |
-|-------|-------------------|
-| `中環` | processed-documents (c21net has no Central data) |
-| `新蒲崗` | c21net-intelligence-v2 |
-| `竹園` | c21net-intelligence-v2 |
-| `Lake Silver` | c21net-intelligence-v2 |
+| Doc Types | `listing`, `listing_list` | `Vacancy Listing`, `Particular Property` |
 
 ### Azure OpenAI
 - Endpoint: `swedencentral.api.cognitive.microsoft.com`
 - Embedding model: `text-embedding-3-small` (1536 dimensions)
 
 ### AI Classification/Extraction
-- Provider: OpenRouter
-- Model: `deepseek/deepseek-chat`
+- Provider: OpenRouter — `qwen/qwen-2.5-72b-instruct`
+- Temperature: 0 (deterministic)
+- Anti-hallucination prompts: return null for missing fields
 
-### Tavily Web Search
-- API: `tavily.com`
-- Used for: Market trends, news, real-time information
-- Integrated in chatbot hybrid search
-- Free tier: 1,000 searches/month
+### OpenRouter Models — Hong Kong
 
-### AI Classification/Extraction Notes
-- Good for Chinese/English documents
-- Classifier uses Hong Kong property keywords (樓盤編號, 已吉, 招租, 成交, etc.)
-- Auto-detection logic for listing_list (multiple properties) and contact (short text with email/phone)
+**Working:** `qwen/qwen-2.5-72b-instruct`, `deepseek/deepseek-chat`, `meta-llama/llama-3.3-70b-instruct`, `mistralai/*`
 
-## RAG Chatbot
+**May not work:** `anthropic/claude-*`, `openai/gpt-*`, `google/gemini-*` (US company regional blocks)
 
-### Architecture (Hybrid Search)
+---
+
+## Graph 2: RAG Chatbot
+
+**File:** `src/nodes/chatbot.py` | **LangSmith Project:** `property-chatbot`
+
+### Architecture
 ```
-User Question → Route Query → Search(es) → Build Context → LLM → Answer
-     ↓              ↓            ↓              ↓           ↓
-  thread_id    vector/web/   Azure AI      Combined    Llama 3.3
-               hybrid        + Tavily      context       70B
+User Question → route_query → search (vector/web/hybrid) → build_context → call_llm → Answer
 ```
+
+| Node | Purpose |
+|------|---------|
+| `route_query` | Determines search strategy |
+| `search_documents` | Multi-index hybrid search (Azure AI Search) |
+| `web_search` | Tavily web search for trends/news |
+| `build_context` | Merges & formats results for LLM |
+| `call_llm` | OpenRouter Llama 3.3 70B |
 
 ### Query Router
-Smart routing based on query keywords:
-| Route | Keywords | Example |
-|-------|----------|---------|
-| `vector` | 出租, 寫字樓, district names | "中環有什麼寫字樓出租" |
-| `web` | 趨勢, 市場, 新聞, forecast | "香港商業地產市場趨勢" |
-| `hybrid` | 比較, compare | "比較中環租金同市場走勢" |
+| Route | Keywords |
+|-------|----------|
+| `vector` | 出租, 寫字樓, office, district names |
+| `web` | 趨勢, 市場, 新聞, forecast, 2024/2025/2026 |
+| `hybrid` | 比較, compare, versus |
 
 ### Configuration
-- Provider: OpenRouter
-- Model: `meta-llama/llama-3.3-70b-instruct`
-- LangSmith project: `property-chatbot`
-- Vector index: `processed-documents` (same as document processor)
-- Web search: Tavily API
+- LLM: `meta-llama/llama-3.3-70b-instruct`, temperature 0.5, max 2000 tokens
+- Memory: `MemorySaver` (session-scoped; use `PostgresSaver` for persistent)
+- Guardrail: ONLY Hong Kong commercial property questions
 
-### Features
-- **Hybrid Search**: Combines vector DB (documents) + web search (Tavily)
-- **Smart Routing**: Auto-selects search method based on query type
-- **Non-Streaming**: Reliable responses (streaming caused timeout issues)
-- **Semantic Ranking**: Azure AI Search semantic configuration for relevance
-- **Bilingual**: Auto-detects Traditional Chinese / English
-- **Property Search**: Find offices, retail, industrial units
-- **Recommendations**: Suggests properties based on criteria
-- **Market Analysis**: Compare rents, identify trends (uses web search)
-- **Source Citations**: Shows documents (📄) and web results (🌐)
-- **Scope Restriction**: ONLY answers property-related questions
-
-### Conversation Memory
-- Uses **LangGraph Checkpointing** with `MemorySaver`
-- Each session gets unique `thread_id` stored in `st.session_state`
-- Memory persists within session (follow-up questions work)
-- "Clear" button resets memory (generates new thread_id)
-- For persistent memory across sessions, use `PostgresSaver`
-
-### Key Files
-- `src/nodes/chatbot.py` - RAG implementation with LangGraph
-- `dashboard.py` - Chat tab UI with memory integration
-
-### System Prompt Guardrails
-The chatbot ONLY answers Hong Kong commercial property questions:
-- Property listings, leasing, recommendations, market analysis
-- Declines off-topic questions (cooking, coding, travel, etc.)
-- Redirects user to property-related queries
+### Chatbot v2 (Ready for Phase 2)
+`src/nodes/chatbot_v2.py` — LangChain-based refactor (580 lines vs 1,098). Switch when starting Phase 2 (tool-calling agent). Tests pass: 15 passed, 1 skipped.
 
 ---
 
 ## Report Generator
 
-**Files:** `langgraph/src/nodes/report_generator/`
-**Triggered via:** Chatbot (natural language commands)
+**Files:** `src/nodes/report_generator/` | Triggered by: Chat tab "生成報告 PDF" button in Next.js dashboard
 
-### How to Use
-
-```
-User: "Generate rent report for Central"
-User: "幫我生成中環租金報告"
-User: "Create availability report for Kwun Tong"
-```
-
-### Available Report Types
-
-| Type | ID | Description |
-|------|-----|-------------|
-| Rent Analysis | `rent` | Average rent, price/sqft, building comparison |
-| Availability | `availability` | Vacant units, sizes, contacts |
-| Market Overview | `market` | Trends, news, inventory (Phase 2) |
-| Development Pipeline | `pipeline` | New projects, GFA (Phase 2) |
-| Contact Directory | `contacts` | Agent/broker contacts (Phase 2) |
-
-### Supported Districts
-
-**Hong Kong Island:** 中環, 金鐘, 灣仔, 銅鑼灣, 北角, 鰂魚涌, 上環, 黃竹坑
-**Kowloon:** 尖沙咀, 旺角, 九龍灣, 觀塘, 紅磡, 長沙灣
-**New Territories:** 荃灣, 葵涌, 沙田, 大埔, 元朗, 屯門
-
-### Architecture
+Uses **chat conversation sources** (not a separate search) to generate PDF reports.
 
 ```
-User Request
-     ↓
-detect_report_intent() → Is this a report request?
-     ↓
-parse_report_request() → Extract district, type
-     ↓
-validate_request() → Missing params? Ask user
-     ↓
-aggregate_documents() → Fetch from Azure Search
-     ↓
-compute_statistics() → Python calculations (no LLM)
-     ↓
-generate_pdf_report() → Jinja2 + WeasyPrint
-     ↓
-upload_pdf_to_blob() → Azure Blob Storage
-     ↓
-Return download link to user
+router.py → validator.py → aggregator.py → statistics.py → pdf_generator.py → main.py
 ```
 
-### Module Structure
+Entry point: `generate_report_from_sources(sources, district, district_en, report_type)`
 
-```
-src/nodes/report_generator/
-├── __init__.py
-├── router.py           # Intent detection, parameter parsing
-├── validator.py        # Validate params, prompt for missing
-├── aggregator.py       # Fetch docs from Azure Search
-├── statistics.py       # Compute stats (Python, no LLM)
-├── pdf_generator.py    # WeasyPrint PDF generation
-├── main.py             # Main orchestrator
-├── templates/
-│   ├── rent_analysis.html
-│   └── availability_analysis.html
-└── assets/
-    └── c21_logo.png
-```
+- Format: A4, professional, C21 branding, bilingual (Chinese + English)
+- Types: Rent Analysis, Availability
+- Dependencies: `fpdf2` (in requirements.txt), `jinja2`
+- `pdf_bytes` is `bytearray` — must cast to `bytes` in FastAPI: `Response(content=bytes(result.report.pdf_bytes), ...)`
 
-### PDF Output
-
-- **Format:** A4, professional layout with C21 branding
-- **Sections:** Header, Stats cards, Building analysis table, Property listings, Images grid
-- **Bilingual:** Chinese and English labels
-- **Images:** Up to 9 property images in 3x3 grid
-
-### Dependencies
-
-Pure Python - no system dependencies required:
-```
-pip install jinja2 fpdf2
-```
-
-Works on: Azure Functions, Streamlit Cloud, any Python environment.
-
-### Integration with Chatbot
-
-The report generator is integrated into the chatbot's `route_query()` function:
-- Query containing report keywords → routes to "report"
-- `retrieve_node` calls `handle_report_request()`
-- If params missing, returns prompt asking for more info
-- If complete, generates PDF and returns download link
+**Known issue:** Chinese font may not render correctly in PDF reports (debug `_get_chinese_font()` in `pdf_generator.py`).
 
 ---
 
-## Dashboard
-- URL: `http://localhost:8501`
-- Production: `https://c21-document-processing.streamlit.app/`
-- Data source: LangSmith (real-time) + Azure AI Search (vector DB) + Tavily (web)
-- Timezone: HKT (GMT+8)
-- Theme: Light (configured in `~/.streamlit/config.toml`)
-- Run: `streamlit run dashboard.py`
-- Current Version: v17
+## Next.js Dashboard (Primary UI)
 
-### Tab Order (Search is default)
-1. **Search** - Direct keyword search with semantic ranking + image display
-2. **Chat** - Property Intelligence Assistant (RAG chatbot) + image display
-3. **Document Process** - LangSmith traces, file status
-4. **Vector** - Azure AI Search indexed documents + image display
+- **Local:** `cd nextjs-dashboard && npm run dev` → http://localhost:3000
+- **Production:** https://c21-property-intelligence.vercel.app/ (Vercel)
+- **GitHub:** https://github.com/lojul/c21-document-processor (same repo, `nextjs-dashboard/` subdirectory)
+- **Auth:** JWT login via `POST /api/auth/login`; token stored in `localStorage`, sent as `Bearer` on every API call
 
-### Search Tab Features
-- Simple search input + button (no filters)
-- Semantic ranking with reranker score filtering (threshold: 2.5)
-- Results show: building, address, district, size, rent, type
-- Contact details: name, title, phone 📞, email ✉️
-- Summary: First 250 chars of document content
-- **Image gallery**: Expandable thumbnails for documents with images
-- Responsive styling with proper margins
+### Routes
+| Route | Label | Notes |
+|-------|-------|-------|
+| `/chat` | Chat | RAG chatbot, Llama 3.3 70B label, "生成報告 PDF" button |
+| `/search` | Keyword Search | Direct keyword search, no AI |
+| `/admin/upload` | Upload | Upload PDFs to OneDrive /In |
+| `/admin/process` | Processing | LangSmith traces |
+| `/admin/vector` | Vector DB | Azure AI Search documents |
+| `/admin/settings` | Settings | (placeholder) |
 
-### Chat Tab Features
-- Non-streaming for reliability (avoids timeout issues)
-- Clear button uses callback (properly clears input + messages)
-- Hybrid search: vector + web (Tavily)
-- Source citations with expandable details
-- **Image display**: Thumbnails in sources expander (max 3 per source)
+### Chat UI Details
+- Bilingual (Chinese/English) — responds in same language as query
+- Model label: "Llama 3.3 70B" shown dimmed in chat header
+- "生成報告 PDF" button: only visible when conversation has listing/listing_list sources
+- Uses `allSources` (collected across all completed assistant messages) — not just last response
+- Clicking "生成報告 PDF" calls `generateReport(allSources)` → downloads PDF blob
 
-### Document Process Tab
-- LangSmith traces, file status, pagination
-- Grouped by filename (no duplicate rows), sorted newest first
-- Status: OK, ERR, Fixed (reprocessed), x2/x3 (run count)
-- View button to expand extracted data
-
-### Vector Tab
-- Azure AI Search indexed documents
-- Filter by document type
-- Display names: "Single Listing" / "Multi Listing" (internal: listing/listing_list)
-
-## Code Structure
-
-### Shared Utilities
-- `src/utils/json_parser.py` - Shared JSON parsing for AI responses
-  - Handles markdown code blocks, trailing commas, partial JSON
-  - Used by classifier and extractor
-
-### Node Functions
-All node functions have:
-- `@traceable` decorator for LangSmith observability
-- Type hints
-- Proper error handling (distinguishes API errors vs parse errors)
-
-### Performance Optimizations
-- Reusable HTTP client in `indexer.py` (avoids creating new connections per call)
-- Single-pass stats calculation in dashboard
-- Text truncation done once, not redundantly
-
-## Azure Functions Deployment
-
-### Files
-- `function_app.py` - Main entry point (timer + HTTP triggers)
-- `host.json` - Azure Functions config
-- `requirements.txt` - Python dependencies
-- `local.settings.json` - Local dev settings
-
-### Triggers
-- **Timer**: Every 5 minutes (`0 */5 * * * *`) - processes 7 files per batch
-- **HTTP**: `POST /api/process` for manual trigger
-- Files moved to `/Processed` after successful processing
-
-### Production Settings
-- Function App: `doc-processor-c21`
-- Resource Group: `blob-storage-hk-rg`
-- Region: East Asia
-- Batch Size: 7 files per run (to avoid timeout)
-- URL: `https://doc-processor-c21.azurewebsites.net`
-
-### Control Timer Trigger
+### Deploy
 ```bash
-# Disable timer (manual only)
+cd nextjs-dashboard && npx vercel --prod --yes
+```
+GitHub auto-deploy is configured but use the CLI to force when needed.
+
+### Environment Variables (Vercel)
+```
+NEXT_PUBLIC_API_URL=https://<azure-app-service-url>
+```
+
+---
+
+## FastAPI Backend
+
+- **Local:** `cd langgraph && uvicorn api.main:app --reload`
+- **Production:** `https://property-intelligence-api.azurewebsites.net` (Azure App Service Linux, Python 3.11)
+- **Deploy dir:** `/private/tmp/api_deploy_dir/` — always sync here before deploying
+
+### Deploy Workflow
+```bash
+# 1. Sync source files to deploy dir
+rsync -av --delete langgraph/src/ /private/tmp/api_deploy_dir/src/
+rsync -av langgraph/api/ /private/tmp/api_deploy_dir/api/
+
+# 2. Zip (exclude pycache)
+cd /private/tmp/api_deploy_dir && zip -r /tmp/api_deploy.zip . -x "__pycache__/*" "*.pyc"
+
+# 3. Deploy
+az webapp deployment source config-zip \
+  --resource-group <rg> --name property-intelligence-api \
+  --src /tmp/api_deploy.zip
+```
+**Never use `az webapp deploy`** — it does not trigger Oryx/pip. Always use `config-zip`.
+
+### API Routes
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/auth/login` | None | Get JWT token |
+| GET | `/api/health` | None | Health check |
+| POST | `/api/chat/stream` | Bearer | SSE streaming chat |
+| POST | `/api/chat/report` | Bearer | Generate PDF report |
+| POST | `/api/search` | Bearer | Keyword/hybrid search |
+| POST | `/api/admin/upload` | Bearer | Upload PDF to OneDrive |
+| POST | `/api/admin/process` | Bearer | Trigger document processing |
+| GET | `/api/admin/vector` | Bearer | List indexed documents |
+
+### Authentication & Security (`api/auth.py`)
+
+**JWT:**
+- Secret: `JWT_SECRET_KEY` env var. If missing, generates a random key per process — tokens invalidated on restart (acceptable for dev; never uses a known public string).
+- Algorithm: HS256, TTL: 8 hours
+
+**Passwords (`DASHBOARD_USERS` env var):**
+```
+# Bcrypt hash (recommended)
+DASHBOARD_USERS="admin:$2b$12$..."
+
+# Multiple users
+DASHBOARD_USERS="admin:$2b$12$...,user2:$2b$12$..."
+```
+To generate a hash: `python -c "import bcrypt; print(bcrypt.hashpw(b'PASSWORD', bcrypt.gensalt()).decode())"`
+
+Single-user fallback: `DASHBOARD_ADMIN_PASSWORD` env var (plaintext, legacy).
+
+The code warns when a plaintext password is detected and instructs to migrate to bcrypt.
+
+**Rate limiting:** 5 login attempts per 60 seconds per IP (in-memory `defaultdict`). Returns HTTP 429 on breach.
+
+**IMPORTANT — bcrypt import:** Use `import bcrypt` directly. Do NOT use `passlib` — it is incompatible with newer `bcrypt` versions and throws `MissingBackendError` / "password cannot be longer than 72 bytes".
+
+### Report Endpoint (`POST /api/chat/report`)
+```python
+# Request body
+{ "sources": [...], "district": "中環", "district_en": "Central", "report_type": "rent" }
+
+# Response: application/pdf binary
+# Critical: convert bytearray → bytes before returning
+return Response(content=bytes(result.report.pdf_bytes), media_type="application/pdf", ...)
+```
+
+### CRITICAL: `src/nodes/__init__.py`
+Must contain ONLY the docstring:
+```python
+"""Processing nodes for the document workflow."""
+```
+Any imports here cause `fitz` (PyMuPDF) to be loaded at startup → Azure App Service crash. The chatbot, report generator, and other nodes import `fitz` transitively; loading them at module init time breaks the API process.
+
+---
+
+## Azure Functions
+
+**File:** `function_app.py`
+
+| Trigger | Schedule/Path | Purpose |
+|---------|--------------|---------|
+| Timer | every 5 min | Process 7 files per batch from OneDrive /In |
+| HTTP POST | `/api/process` | Manual trigger |
+| HTTP POST | `/api/search` | External search API (auth: `X-API-Key` header) |
+
+**Production:** `doc-processor-c21.azurewebsites.net` | Resource group: `blob-storage-hk-rg` | Region: East Asia
+
+```bash
+# Deploy
+func azure functionapp publish doc-processor-c21 --python
+
+# Disable timer
 az functionapp config appsettings set --name doc-processor-c21 \
   --resource-group blob-storage-hk-rg \
   --settings "AzureWebJobs.timer_trigger.Disabled=true"
-
-# Enable timer (auto-processing)
-az functionapp config appsettings delete --name doc-processor-c21 \
-  --resource-group blob-storage-hk-rg \
-  --setting-names "AzureWebJobs.timer_trigger.Disabled"
 ```
 
-### Deploy Commands
-```bash
-# Deploy to Azure
-cd langgraph
-func azure functionapp publish doc-processor-c21 --python
+### Search REST API (`/api/search`)
+```json
+POST https://doc-processor-c21.azurewebsites.net/api/search
+X-API-Key: <SEARCH_API_KEY>
 
-# Check logs
-az monitor app-insights query --app doc-processor-c21 \
-  --resource-group blob-storage-hk-rg \
-  --analytics-query "traces | where timestamp > ago(30m) | project timestamp, message | order by timestamp desc | take 20"
+{ "query": "中環寫字樓出租", "top_k": 5, "search_type": "hybrid" }
+```
+`search_type`: `hybrid` (default), `keyword`, `vector`
+
+---
+
+## LlamaParse Integration
+
+**Status: Implemented** — `src/nodes/ocr.py`
+
+LlamaParse runs as the **primary text extractor** for all PDFs; Azure Document Intelligence is the **fallback** and still runs for tables, figures, and page count (LlamaParse doesn't return those).
+
+### How it works
+```
+PDF bytes ──┬── LlamaParse API ──► clean markdown text  (preferred)
+            │
+            └── Azure Doc Intelligence ──► tables + figures + page count
+                                                    │
+                                          final_text = llamaparse_text OR azure_text
+                                          confidence = 0.98 if llamaparse, else 0.95
 ```
 
-## Known Issues & Fixes
+### Setup
+Add to `.env` and Azure App Service settings:
+```
+LLAMA_CLOUD_API_KEY=llx-...
+```
+If the key is missing, pipeline silently uses Azure text only — no code changes needed to disable.
+
+### Package
+Uses `llama-parse` pip package. The package shows a deprecation warning but the underlying API and functionality remain fully operational.
+
+Free tier: 10,000 credits/month. Monitor at https://cloud.llamaindex.ai/usage
+
+## Known Issues
 
 ### 409 Conflict on Move to /Processed
-**Problem:** Files fail to move from /In to /Processed with 409 Conflict error when a file with the same name already exists.
-
-**Fix:** Added `@microsoft.graph.conflictBehavior: replace` to `move_to_processed()` in `src/nodes/onedrive.py`. This overwrites existing files instead of failing.
-
-**Symptoms:** Files stuck in /In, timer reprocessing same files repeatedly, dashboard showing x9/x10 run counts.
-
-### Dashboard Tabs
-Using `st.tabs()` for navigation between Processing Status and Vector Database views. Multi-page apps with `pages/` folder had issues with Streamlit version.
-
-### LangSmith Run Deletion Not Supported
-**Problem:** LangSmith API doesn't support deleting individual runs (DELETE returns 405 Method Not Allowed).
-
-**Note:** Dashboard no longer has hide/delete functionality. Runs are permanent in LangSmith.
-
-### View Button Performance
-Using View button in each row. Data expands below the row when clicked.
-
-### LangSmith API Limits
-- Maximum 100 runs per query (400 error if exceeded)
-- Cache TTL: 30 seconds
-- Incomplete runs (no outputs) are filtered from cache to avoid stale "Unknown" types
-
-### Dashboard Data Sorting
-Runs are sorted by time (newest first) before grouping by filename. When grouping, if a run has "unknown" type but another run for the same file has valid data, the valid data is used.
+**Fix:** `@microsoft.graph.conflictBehavior: replace` in `move_to_processed()` (`src/nodes/onedrive.py`).
 
 ### Multi-Index Search Not Working
-**Problem:** Chatbot only shows results from `processed-documents`, not from `c21net-intelligence-v2`.
-
-**Cause:** `AZURE_SEARCH_INDEXES` not set in Streamlit Cloud secrets.
-
-**Fix:** Add to Streamlit secrets:
-```toml
-AZURE_SEARCH_INDEXES = "processed-documents,c21net-intelligence-v2"
-```
-
-**Verify locally:**
-```bash
-cd langgraph && source .venv/bin/activate
-python -c "from src.nodes.indexer import SEARCH_INDEXES; print(SEARCH_INDEXES)"
-# Should output: ['processed-documents', 'c21net-intelligence-v2']
-```
-
-**Test query:** Search `新蒲崗` - should show `c21net-intelligence-v2` as top result.
+**Cause:** `AZURE_SEARCH_INDEXES` missing from Azure App Service settings.
 
 ### Report Shows 0 Properties
-**Problem:** PDF report shows "0 Properties" and "N/A" for all statistics.
+**Cause:** `listing_list` has two formats — `extracted_data.units[]` (old) and `extracted_data.items[].units[]` (new). Statistics module handles both.
 
-**Cause:** `listing_list` documents have two data formats:
-- Old: `extracted_data.units[]` (direct)
-- New: `extracted_data.items[].units[]` (nested per building)
+### PDF Report Chinese Font
+**Problem:** Chinese building names may show as boxes in PDF reports.
+**Debug:** Add logging to `_get_chinese_font()` in `pdf_generator.py`.
 
-**Fix:** Statistics module updated to handle both formats (2024-05-28).
+### Azure App Service Startup Crash (`fitz` / PyMuPDF)
+**Problem:** API process crashes at startup with `ImportError` related to `fitz`.
+**Cause:** `src/nodes/__init__.py` had imports (`from src.nodes.ocr import ...`) which pulled in PyMuPDF transitively. Azure App Service cannot load the binary extension at import time.
+**Fix:** `src/nodes/__init__.py` must contain ONLY `"""Processing nodes for the document workflow."""` — no imports.
 
-### Streamlit Theme
-Light theme configured in `~/.streamlit/config.toml`:
-```toml
-[theme]
-base = "light"
+### passlib Incompatible with bcrypt ≥ 4.0
+**Problem:** `passlib` throws `MissingBackendError` or `ValueError: password cannot be longer than 72 bytes`.
+**Fix:** Use `import bcrypt` directly in `api/auth.py`. `passlib` is kept in `requirements.txt` for backward compat but not imported in auth code.
+
+### Report PDF: `bytearray` vs `bytes` in FastAPI
+**Problem:** `starlette.responses.Response` calls `.encode()` on content; `bytearray` lacks this method → "Load failed" in browser.
+**Fix:** `content=bytes(result.report.pdf_bytes)` in `api/routes/chat.py`.
+
+---
+
+## Planned: Manual Data Editor
+
+**Status:** Not implemented | **Location:** Admin → Vector Database tab → Edit button per document
+
+### Purpose
+Allow admins to correct AI-extracted data directly from the dashboard.
+
+### Storage
+Edits saved to Azure AI Search `extracted_data` field via merge (preserves unedited fields). Smart merge ensures manual edits survive reprocessing if AI returns null.
+
+### UI Design (Admin → Vector tab)
+- "Edit" button per document row → expands form in-place
+- **Standard fields** (text/number/dropdown): building_name, address, district, property_type, size_sqft, rent_monthly, floor_unit, contact_name, contact_phone, contact_email
+- **Custom fields** section: add/remove arbitrary key-value pairs
+- "Save" → PATCH to Azure AI Search, refresh cache
+
+### API for Saving
+```python
+def update_document_extracted_data(doc_id: str, extracted_data: dict):
+    url = f"{SEARCH_ENDPOINT}/indexes/{INDEX}/docs/index?api-version=2024-07-01"
+    body = {
+        "value": [{
+            "@search.action": "merge",
+            "id": doc_id,
+            "extracted_data": json.dumps(extracted_data, ensure_ascii=False)
+        }]
+    }
+    # POST with api-key header
 ```
 
-### PDF Report Chinese Font (NOT WORKING)
-**Problem:** Chinese building names show as "N/A" in PDF reports.
+---
 
-**Current State:**
-- Chinese font (WenQuanYi Micro Hei, 4.9MB) uploaded to Azure Blob: `https://blobhk04472.blob.core.windows.net/fonts/wqy-microhei.ttc`
-- Code attempts to download and cache font at runtime
-- Font works locally but NOT on Streamlit Cloud
+## Code Review (2026-06-13)
 
-**Possible Issues:**
-1. Font download may be failing on Streamlit Cloud (network/timeout)
-2. The data in Azure Search may not have Chinese names (extraction issue)
-3. Font caching path may differ on Streamlit Cloud
+Principal-grade review was conducted and documented externally:
+- **Confluence:** https://c21net.atlassian.net/wiki/x/BAD_AQ ("Document Processor — Code Review, Principal Grade, 2026-06-13")
+- **Notion:** https://app.notion.com/p/37eecf49be518179839cd376c418dbf6
 
-**Debug Steps for Next Time:**
-1. Add logging to `_get_chinese_font()` in `pdf_generator.py`
-2. Check if font download succeeds on Streamlit Cloud
-3. Verify Azure Search data contains Chinese building names
-4. Test with smaller font file or different font format
+Key findings acted on:
+1. **JWT secret fallback** — was hardcoded string `"change-me-in-production"`, changed to `secrets.token_hex(32)` per-process random key
+2. **Plaintext passwords** — `verify_credentials()` now bcrypt-checks `$2b$`/`$2a$` hashes; plaintext falls back with warning to migrate
+3. **No rate limiting on login** — added in-memory per-IP rate limit (5 attempts / 60 sec) via `_check_rate_limit()`
 
-**Files:**
-- `src/nodes/report_generator/pdf_generator.py` - Font download logic
-- Font URL: `CHINESE_FONT_URL` constant
+---
 
-## Streamlit Cloud Deployment
+## Monthly Costs
 
-### Production URL
-- **URL**: https://c21-document-processing.streamlit.app/
-- **GitHub Repo**: https://github.com/lojul/c21-document-processor (private)
-
-### Authentication
-- **Method**: Username/Password only (OAuth removed)
-- **Credentials**: Stored in Streamlit Cloud secrets under `[passwords]`
-- **Login**: Centered responsive form
-
-### Secrets Configuration
-Secrets are stored in Streamlit Cloud (Settings → Secrets), NOT in code.
-
-Required secrets:
-```toml
-# API Keys (MUST be at root level, BEFORE any [section])
-TAVILY_API_KEY = "..."
-LANGCHAIN_API_KEY = "..."
-LANGCHAIN_PROJECT = "document-processor"
-AZURE_SEARCH_ENDPOINT = "..."
-AZURE_SEARCH_API_KEY = "..."
-AZURE_SEARCH_INDEX = "processed-documents"
-AZURE_SEARCH_INDEXES = "processed-documents,c21net-intelligence-v2"  # Multi-index search
-AZURE_OPENAI_ENDPOINT = "..."
-AZURE_OPENAI_KEY = "..."
-OPENROUTER_API_KEY = "..."
-AZURE_FUNCTION_URL = "..."
-
-# Authentication (sections MUST come after root-level keys)
-[passwords]
-admin = "your-password-here"
-```
-
-**CRITICAL:**
-1. `AZURE_SEARCH_INDEXES` must be set for multi-index search to work
-2. In TOML, it **MUST be placed BEFORE any `[section]`** headers (e.g., before `[passwords]`)
-3. Keys placed after a `[section]` become part of that section and won't be found at root level
-
-**Important:** In TOML format, once you declare a `[section]`, all subsequent keys belong to that section. Always put API keys at the TOP before any `[section]` headers.
-
-### Deployment Workflow
-1. Push to GitHub: `git push origin master`
-2. Streamlit Cloud auto-deploys on push
-3. Manual reboot: Streamlit dashboard → App settings → Reboot
-
-### Local Development
-- Auth is skipped when secrets are not configured
-- Set `STREAMLIT_LOCAL_DEV=true` to explicitly skip auth
-- Run: `streamlit run dashboard.py`
-
-### Monthly Costs
 | Service | Cost |
 |---------|------|
-| Streamlit Cloud | Free |
+| Vercel (Next.js) | Free (hobby) |
+| Azure App Service (FastAPI) | ~$15-20/mo (B1) |
 | Azure AI Search | ~$70/mo |
 | Azure OpenAI | ~$5-20/mo |
 | Azure Functions | ~$0-5/mo |
 | OpenRouter (LLM) | ~$1-5/mo |
 | Tavily (Web Search) | Free (1k/mo) |
 | LangSmith | Free tier |
-| **Total** | **~$80-100/mo** |
-
-## Roadmap
-
-### Completed
-- [x] Phase 1: Hybrid Search + Advanced RAG
-  - Hybrid search (Vector + Web via Tavily)
-  - Multi-query retrieval (bilingual query variations)
-  - LLM reranking (DeepSeek relevance scoring)
-  - Parallel execution (ThreadPoolExecutor)
-  - Token usage tracking in dashboard
-
-### Planned
-- [ ] Phase 2: Tool-Calling Agent (LangChain)
-  - PDF report generation
-  - PPT presentation creation
-  - Email with attachments
-
-### Potential Improvements (LangSmith/LangGraph)
-
-| Priority | Feature | Status | Effort | Benefit |
-|----------|---------|--------|--------|---------|
-| 1 | PostgresSaver | Not started | 2 hours | Persistent memory across sessions |
-| 2 | LangSmith Evaluations | Not started | 1 day | Automated RAG quality testing |
-| 3 | Online Monitoring | Not started | 4 hours | Real-time quality scoring |
-| 4 | Human-in-the-Loop | Not started | 1 day | Approval workflows for Phase 2 |
-
-#### PostgresSaver - Persistent Memory
-- Current: `MemorySaver` resets when app restarts
-- Improvement: `PostgresSaver` persists conversations forever
-- Users can continue conversations days later
-- Requires PostgreSQL database
-
-#### LangSmith Evaluations - RAG Quality Testing
-- Create test dataset with expected Q&A pairs
-- Automated evaluators: relevance, groundedness
-- Run on every PR via pytest integration
-- Catch regressions before deploy
-
-#### Online Monitoring - Production Quality
-- Score every production response automatically
-- Track quality trends over time
-- Detect issues early via alerts
-
-#### Human-in-the-Loop - Approval Workflows
-- Agent pauses for human approval before actions
-- Useful for Phase 2: email sending, file generation
-- LangGraph checkpointer enables pause/resume
-
-### Future Integrations (Researched)
-- [ ] Slack Bot Integration (Socket Mode or Azure Functions)
-  - Uses Slack Bolt Python SDK
-  - Can reuse existing chatbot.py
-
-### Refactored Chatbot (Ready for Phase 2)
-
-**Files:**
-```
-src/nodes/chatbot.py        # Current production (1,098 lines)
-src/nodes/chatbot_backup.py # Backup of original
-src/nodes/chatbot_v2.py     # LangChain refactored (580 lines, 47% smaller)
-tests/test_chatbot_v2.py    # Test suite for v2
-```
-
-**What chatbot_v2.py uses:**
-- LangChain `ChatOpenAI` for LLM calls (simpler streaming)
-- LangChain messages (`HumanMessage`, `AIMessage`, `SystemMessage`)
-- Same embeddings from `indexer.py` (Azure OpenAI)
-- Same LangGraph + MemorySaver for conversation memory
-
-**When to switch to v2:**
-- When starting Phase 2 (tool-calling agent)
-- LangChain agents work better with LangChain LLM instances
-- v2 provides cleaner base for adding tools
-
-**How to switch:**
-```bash
-# Backup current
-cp src/nodes/chatbot.py src/nodes/chatbot_v1_production.py
-
-# Switch to v2
-cp src/nodes/chatbot_v2.py src/nodes/chatbot.py
-
-# Run tests
-python tests/run_chatbot_tests.py
-
-# Deploy
-git add . && git commit -m "Switch to LangChain-based chatbot" && git push
-```
-
-**v2 test status:** 15 passed, 1 skipped (TAVILY_API_KEY optional)
+| **Total** | **~$95-120/mo** |

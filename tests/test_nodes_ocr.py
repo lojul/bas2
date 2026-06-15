@@ -102,6 +102,9 @@ class TestRunOCR:
         "AZURE_SEARCH_API_KEY": "test-key",
         "OPENROUTER_API_KEY": "test-key",
         "LANGCHAIN_API_KEY": "test-key",
+        "MS_GRAPH_CLIENT_ID": "test-client-id",
+        "MS_GRAPH_TENANT_ID": "test-tenant-id",
+        "MS_GRAPH_CLIENT_SECRET": "test-secret",
     })
     @patch("src.nodes.ocr.DocumentIntelligenceClient")
     def test_run_ocr_with_tables(self, mock_client_class):
@@ -163,6 +166,9 @@ class TestOCRFromUrl:
         "AZURE_SEARCH_API_KEY": "test-key",
         "OPENROUTER_API_KEY": "test-key",
         "LANGCHAIN_API_KEY": "test-key",
+        "MS_GRAPH_CLIENT_ID": "test-client-id",
+        "MS_GRAPH_TENANT_ID": "test-tenant-id",
+        "MS_GRAPH_CLIENT_SECRET": "test-secret",
     })
     @patch("src.nodes.ocr.DocumentIntelligenceClient")
     def test_ocr_from_url_success(self, mock_client_class):

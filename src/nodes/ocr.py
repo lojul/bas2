@@ -1,8 +1,8 @@
-"""Azure Document Intelligence OCR node."""
+"""OCR node: LlamaParse (primary) + Azure Document Intelligence (fallback + tables/figures)."""
 
 import hashlib
-import io
-import time
+import os
+import tempfile
 from typing import Any
 
 import fitz  # PyMuPDF
@@ -15,6 +15,50 @@ from langsmith import traceable
 from src.config import get_config
 from src.state import DocumentState, OCRResult, ProcessingStatus
 from src.utils.blob_storage import upload_images_batch
+
+
+def _run_llamaparse(pdf_data: bytes, file_name: str) -> str | None:
+    """Parse PDF with LlamaParse. Returns markdown text, or None if unavailable/failed.
+
+    LlamaParse produces clean markdown that improves Qwen extraction quality,
+    especially for pitching decks and complex multi-column layouts.
+    Azure Doc Intelligence still runs in parallel for tables/figures/page count.
+    """
+    config = get_config()
+    if not config.llama_cloud_api_key:
+        return None
+
+    try:
+        from llama_parse import LlamaParse
+    except ImportError:
+        print("llama-parse not installed. Run: pip install llama-parse")
+        return None
+
+    try:
+        parser = LlamaParse(
+            api_key=config.llama_cloud_api_key,
+            result_type="markdown",
+            parsing_instruction=(
+                "This is a Hong Kong commercial property document in Chinese and/or English. "
+                "Extract all text, tables, floor plans, and unit listings accurately. "
+                "Preserve table structure in markdown format."
+            ),
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(pdf_data)
+            tmp_path = tmp.name
+
+        try:
+            documents = parser.load_data(tmp_path)
+            text = "\n\n".join(doc.text for doc in documents)
+            return text.strip() or None
+        finally:
+            os.unlink(tmp_path)
+
+    except Exception as e:
+        print(f"LlamaParse failed, falling back to Azure OCR: {e}")
+        return None
 
 
 def _extract_tables(result: AnalyzeResult) -> list[dict[str, Any]]:
@@ -130,53 +174,49 @@ def run_ocr(state: DocumentState) -> DocumentState:
 
     config = get_config()
 
-    # Create Document Intelligence client
+    # Download PDF bytes upfront — needed for LlamaParse and image extraction
+    pdf_data: bytes | None = None
+    if state.file_name.lower().endswith(".pdf"):
+        pdf_data = _download_document(state.blob_url)
+
+    # Run Azure Document Intelligence (always — for tables, figures, page count)
     client = DocumentIntelligenceClient(
         endpoint=config.doc_intel.endpoint,
         credential=AzureKeyCredential(config.doc_intel.key),
     )
-
-    # Start analysis
     poller = client.begin_analyze_document(
         model_id="prebuilt-layout",
         body=AnalyzeDocumentRequest(url_source=state.blob_url),
     )
-
-    # Poll for result
     result = poller.result()
 
-    # Extract text content
-    full_text = result.content if result.content else ""
-
-    # Extract tables and figures
     tables = _extract_tables(result)
     figures = _extract_figures(result)
+    page_count = len(result.pages) if result.pages else 0
+    azure_text = result.content if result.content else ""
 
-    # Calculate confidence (average of page confidence scores)
-    confidence = 0.0
-    if result.pages:
-        page_count = len(result.pages)
-        # Document Intelligence doesn't provide overall confidence in the same way
-        # We'll use a default high confidence since it succeeded
-        confidence = 0.95
+    # Try LlamaParse for better text quality (pitching decks, complex layouts)
+    llamaparse_text: str | None = None
+    if pdf_data:
+        llamaparse_text = _run_llamaparse(pdf_data, state.file_name)
+
+    full_text = llamaparse_text if llamaparse_text else azure_text
+    confidence = 0.98 if llamaparse_text else 0.95
 
     # Extract images from PDF and upload to blob storage
     image_urls = []
-    if state.file_name.lower().endswith(".pdf"):
-        pdf_data = _download_document(state.blob_url)
-        if pdf_data:
-            images = _extract_images_from_pdf(pdf_data, max_images=10)
-            if images:
-                # Generate doc_id from filename
-                doc_id = hashlib.md5(state.file_name.encode()).hexdigest()
-                image_urls = upload_images_batch(images, doc_id)
+    if pdf_data:
+        images = _extract_images_from_pdf(pdf_data, max_images=10)
+        if images:
+            doc_id = hashlib.md5(state.file_name.encode()).hexdigest()
+            image_urls = upload_images_batch(images, doc_id)
 
     # Update state with OCR results
     state.ocr = OCRResult(
         text=full_text,
         tables=tables,
         figures=figures,
-        pages=len(result.pages) if result.pages else 0,
+        pages=page_count,
         confidence=confidence,
         image_urls=image_urls,
     )
@@ -204,28 +244,37 @@ def ocr_from_url(blob_url: str, file_name: str = "") -> OCRResult:
         credential=AzureKeyCredential(config.doc_intel.key),
     )
 
+    # Download PDF bytes upfront — needed for LlamaParse and image extraction
+    pdf_data: bytes | None = None
+    if file_name.lower().endswith(".pdf"):
+        pdf_data = _download_document(blob_url)
+
     poller = client.begin_analyze_document(
         model_id="prebuilt-layout",
         body=AnalyzeDocumentRequest(url_source=blob_url),
     )
-
     result = poller.result()
+
+    azure_text = result.content if result.content else ""
+
+    # Try LlamaParse for better text quality
+    llamaparse_text: str | None = None
+    if pdf_data:
+        llamaparse_text = _run_llamaparse(pdf_data, file_name)
 
     # Extract images from PDF
     image_urls = []
-    if file_name.lower().endswith(".pdf"):
-        pdf_data = _download_document(blob_url)
-        if pdf_data:
-            images = _extract_images_from_pdf(pdf_data, max_images=10)
-            if images:
-                doc_id = hashlib.md5(file_name.encode()).hexdigest()
-                image_urls = upload_images_batch(images, doc_id)
+    if pdf_data:
+        images = _extract_images_from_pdf(pdf_data, max_images=10)
+        if images:
+            doc_id = hashlib.md5(file_name.encode()).hexdigest()
+            image_urls = upload_images_batch(images, doc_id)
 
     return OCRResult(
-        text=result.content if result.content else "",
+        text=llamaparse_text if llamaparse_text else azure_text,
         tables=_extract_tables(result),
         figures=_extract_figures(result),
         pages=len(result.pages) if result.pages else 0,
-        confidence=0.95,
+        confidence=0.98 if llamaparse_text else 0.95,
         image_urls=image_urls,
     )
