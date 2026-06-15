@@ -263,6 +263,44 @@ export async function updateAdminConfig(cfg: Partial<AdminConfig>): Promise<Admi
   return res.json();
 }
 
+export interface IngestResult {
+  file_name: string;
+  document_type: string;
+  confidence: number;
+  status: "success" | "error";
+  pages: number;
+  tables: number;
+  extracted_data: Record<string, unknown>;
+  error?: string | null;
+  index_id?: string;
+}
+
+export async function processIngest(
+  file?: File,
+  folderPath?: string,
+): Promise<{ results: IngestResult[]; message?: string }> {
+  const token = localStorage.getItem("token");
+  const form = new FormData();
+  if (file) form.append("file", file);
+  if (folderPath) form.append("folder_path", folderPath);
+
+  const res = await fetch(`${API_URL}/api/admin/process`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error((detail as { detail?: string }).detail ?? "Processing failed");
+  }
+  return res.json();
+}
+
 export interface TriageResult {
   file_name: string;
   can_process: boolean;
