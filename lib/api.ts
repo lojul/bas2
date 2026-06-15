@@ -208,6 +208,24 @@ export interface DocumentRecord {
   chunk_count: number;
 }
 
+export interface HistoryRecord {
+  row_key: string;
+  file_name: string;
+  document_type: string;
+  status: "success" | "error";
+  duration_ms: number;
+  processed_at: string;
+  extracted_data: Record<string, unknown>;
+  error_message: string;
+  index_id: string;
+}
+
+export async function getAdminHistory(months = 3, top = 500): Promise<{ runs: HistoryRecord[]; total: number }> {
+  const res = await apiFetch(`/api/admin/history?months=${months}&top=${top}`);
+  if (!res.ok) throw new Error("Failed to fetch history");
+  return res.json();
+}
+
 export async function getAdminRuns(hours = 72): Promise<{ runs: RunRecord[]; token_stats: TokenStats }> {
   const res = await apiFetch(`/api/admin/runs?hours=${hours}`);
   if (!res.ok) throw new Error("Failed to fetch runs");
