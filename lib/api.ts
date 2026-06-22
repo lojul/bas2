@@ -403,6 +403,14 @@ export interface OneDriveCheckResult {
   processed_folder?: string;
 }
 
+export async function listOneDriveFolders(
+  path = "/",
+): Promise<{ folders: Array<{ name: string; path: string }>; path: string }> {
+  const res = await apiFetch(`/api/admin/onedrive-folders?path=${encodeURIComponent(path)}`);
+  if (!res.ok) return { folders: [], path };
+  return res.json();
+}
+
 export async function checkOneDrive(fileName: string): Promise<OneDriveCheckResult> {
   const token = getToken();
   const res = await fetch(

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  checkFile, checkOneDrive, processIngest, streamIngest, triageFile, uploadFiles,
+  checkFile, checkOneDrive, listOneDriveFolders, processIngest, streamIngest, triageFile, uploadFiles,
 } from "@/lib/api";
 import type { CheckResult, IngestResult, OneDriveCheckResult, TriageResult } from "@/lib/api";
 
@@ -238,6 +238,89 @@ function extractHighlights(data?: Record<string, unknown>): string[] {
   return h;
 }
 
+// ── Folder browser ────────────────────────────────────────────────────────────
+
+function FolderBrowser({ selected, onSelect }: { selected: string; onSelect: (path: string) => void }) {
+  const [browsePath, setBrowsePath] = useState(() => {
+    // Start at parent of current selection so user can see it as a clickable item
+    const p = selected.trim();
+    if (!p || p === "/") return "/";
+    const parts = p.split("/").filter(Boolean);
+    return parts.length > 1 ? "/" + parts.slice(0, -1).join("/") : "/";
+  });
+  const [folders, setFolders] = useState<Array<{ name: string; path: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    listOneDriveFolders(browsePath)
+      .then((data) => { if (!cancelled) { setFolders(data.folders); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setError("Could not load folders"); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [browsePath]);
+
+  function navigate(path: string) {
+    setBrowsePath(path);
+    onSelect(path);
+  }
+
+  const parts = browsePath === "/" ? [] : browsePath.split("/").filter(Boolean);
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden text-xs">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex-wrap">
+        <button onClick={() => navigate("/")} className="text-blue-600 hover:underline">OneDrive</button>
+        {parts.map((part, i) => {
+          const path = "/" + parts.slice(0, i + 1).join("/");
+          return (
+            <span key={i} className="flex items-center gap-1">
+              <span className="text-gray-300">/</span>
+              <button onClick={() => navigate(path)} className="text-blue-600 hover:underline">{part}</button>
+            </span>
+          );
+        })}
+      </div>
+
+      {/* Folder list */}
+      <div className="max-h-36 overflow-y-auto bg-white divide-y divide-gray-50">
+        {/* "Use this folder" row for current level */}
+        <button
+          onClick={() => onSelect(browsePath === "/" ? "/" : browsePath)}
+          className={`w-full text-left flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 ${
+            selected === browsePath ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-500"
+          }`}
+        >
+          <span>·</span>
+          <span className="italic">Use this folder ({browsePath === "/" ? "root" : browsePath.split("/").pop()})</span>
+        </button>
+
+        {loading && <p className="px-3 py-2 text-gray-400">Loading…</p>}
+        {!loading && error && <p className="px-3 py-2 text-red-500">{error}</p>}
+        {!loading && !error && folders.length === 0 && (
+          <p className="px-3 py-2 text-gray-400 italic">No subfolders here</p>
+        )}
+        {folders.map((f) => (
+          <button
+            key={f.path}
+            onClick={() => navigate(f.path)}
+            className={`w-full text-left flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 ${
+              selected === f.path ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
+            }`}
+          >
+            <span className="text-gray-400">📁</span>
+            {f.name}
+            <span className="ml-auto text-gray-300">›</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── Confirm block ─────────────────────────────────────────────────────────────
 
 function ConfirmBlock({
@@ -254,19 +337,39 @@ function ConfirmBlock({
   onCancel: () => void;
 }) {
   const [folder, setFolder] = useState(info.suggestedFolder ?? "");
+  const [showBrowser, setShowBrowser] = useState(false);
 
   return (
     <div className="mt-3 space-y-2">
       {info.primaryUpload && (
-        <div className="space-y-1">
-          <p className="text-xs text-gray-400">OneDrive destination (new folders will be created):</p>
-          <input
-            type="text"
-            value={folder}
-            onChange={(e) => setFolder(e.target.value)}
-            placeholder="/Document Processor/In"
-            className="w-full text-xs font-mono border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white text-gray-800"
-          />
+        <div className="space-y-1.5">
+          <p className="text-xs text-gray-400">OneDrive destination:</p>
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={folder}
+              onChange={(e) => { setFolder(e.target.value); setShowBrowser(false); }}
+              placeholder="/Document Processor/In"
+              className="flex-1 text-xs font-mono border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white text-gray-800"
+            />
+            <button
+              onClick={() => setShowBrowser((v) => !v)}
+              className={`shrink-0 text-xs px-2.5 py-1.5 border rounded-lg transition-colors ${
+                showBrowser
+                  ? "bg-blue-50 border-blue-300 text-blue-700"
+                  : "border-gray-200 text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              Browse
+            </button>
+          </div>
+          {showBrowser && (
+            <FolderBrowser
+              selected={folder}
+              onSelect={(path) => setFolder(path)}
+            />
+          )}
+          <p className="text-xs text-gray-400">New folders will be created automatically.</p>
         </div>
       )}
       <div className="flex flex-wrap gap-2">
