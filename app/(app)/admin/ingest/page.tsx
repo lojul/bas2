@@ -768,20 +768,9 @@ export default function IngestPage() {
         })}
       </div>
 
-      {/* Input bar */}
+      {/* Input bar — file upload only */}
       <div className="shrink-0 bg-white border-t border-gray-200 px-4 py-3">
-        <div className="flex items-center gap-2 max-w-2xl mx-auto">
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={busy}
-            className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors disabled:opacity-40"
-            title="Upload file"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
-            </svg>
-          </button>
+        <div className="flex items-center justify-center max-w-2xl mx-auto">
           <input
             ref={fileInputRef}
             type="file"
@@ -789,23 +778,16 @@ export default function IngestPage() {
             className="hidden"
             onChange={handleFileChange}
           />
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="Or scan a OneDrive folder, e.g. /Document Processor/In"
-            disabled={busy}
-            className="flex-1 text-sm border border-gray-200 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
-          />
           <button
-            onClick={handleSend}
-            disabled={busy || !input.trim()}
-            className="p-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy}
+            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14m-7-7l7 7-7 7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
             </svg>
+            Upload file
           </button>
         </div>
       </div>
