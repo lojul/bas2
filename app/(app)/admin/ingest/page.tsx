@@ -209,7 +209,7 @@ type Message = BotMsg | UserMsg | ResultsMsg | ResultItemMsg | SaveMsg;
 
 const GREETING: Message = {
   role: "bot",
-  text: "Please upload a PDF (or Word / PowerPoint / image) file, or enter a OneDrive folder path, and I'll process it for you.",
+  text: "Please upload a PDF (or Word / PowerPoint / image) file and I'll process it for you.",
 };
 
 function isUrl(s: string) {
@@ -794,7 +794,7 @@ export default function IngestPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder="Or type a OneDrive folder path, e.g. /Document Processor/In"
+            placeholder="Or scan a OneDrive folder, e.g. /Document Processor/In"
             disabled={busy}
             className="flex-1 text-sm border border-gray-200 rounded-xl px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:opacity-50"
           />
