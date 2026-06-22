@@ -1,8 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { processIngest } from "@/lib/api";
-import type { IngestResult } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import {
+  checkFile, checkOneDrive, processIngest, streamIngest, triageFile, uploadFiles,
+} from "@/lib/api";
+import type { CheckResult, IngestResult, OneDriveCheckResult, TriageResult } from "@/lib/api";
 
 const TYPE_LABELS: Record<string, string> = {
   listing: "Single Listing",
@@ -22,127 +24,560 @@ const TYPE_COLORS: Record<string, string> = {
   unknown: "bg-gray-100 text-gray-500",
 };
 
-function ResultCard({ r }: { r: IngestResult }) {
-  const [expanded, setExpanded] = useState(false);
-  const ed = r.extracted_data ?? {};
+const TYPE_FIELDS: Record<string, string> = {
+  listing: "building name, address, district, size, rent, floor/unit, contact",
+  listing_list: "building name, address, district, contact · unit table (size, floor, rent per unit)",
+  pitching_deck: "project name, developer, address, available units, location, key features, design team, contact",
+  news: "title, date, source, summary, topics",
+  contact: "name, company, phone, email",
+  unknown: "available fields",
+};
 
-  const highlights: string[] = [];
-  if (ed.building_name) highlights.push(String(ed.building_name));
-  if (ed.address) highlights.push(String(ed.address));
-  if (ed.size_sqft) highlights.push(`${ed.size_sqft} sqft`);
-  if (ed.rent_monthly) highlights.push(`HK$${ed.rent_monthly}/mo`);
-  if (ed.project_name) highlights.push(String(ed.project_name));
-  if (ed.name) highlights.push(String(ed.name));
-  if (ed.title) highlights.push(String(ed.title));
+const FIELD_LABELS: Record<string, string> = {
+  building_name: "Building Name", address: "Address", district: "District",
+  size_sqft: "Size (sqft)", rent_monthly: "Rent (HK$/mo)", floor_unit: "Floor / Unit",
+  contact: "Contact", name: "Name", company: "Company", phone: "Phone", email: "Email",
+  title: "Title", date: "Date", source: "Source", summary: "Summary", topics: "Topics",
+  project_name: "Project Name", developer: "Developer", property_type: "Property Type",
+  project_summary: "Project Summary", available_units: "Available Units",
+  location: "Location", key_features: "Key Features", design_team: "Design Team",
+  units: "Units", total_gfa: "Total GFA", floors: "Floors",
+  leasing_agent: "Leasing Agent", website: "Website",
+};
+
+// ── Field renderers ────────────────────────────────────────────────────────────
+
+function FieldRow({ label, value }: { label: string; value: unknown }) {
+  if (value === null || value === undefined || value === "") return null;
+
+  let display: React.ReactNode;
+
+  if (Array.isArray(value)) {
+    if (value.length === 0) return null;
+    if (typeof value[0] === "object" && value[0] !== null) {
+      display = <span className="text-gray-400 italic">{value.length} item{value.length !== 1 ? "s" : ""}</span>;
+    } else {
+      display = <span>{(value as unknown[]).map(String).join(", ")}</span>;
+    }
+  } else if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).filter(
+      ([, v]) => v !== null && v !== undefined && v !== ""
+    );
+    if (entries.length === 0) return null;
+    display = (
+      <div className="mt-0.5 space-y-0.5">
+        {entries.map(([k, v]) => (
+          <div key={k} className="flex gap-2">
+            <span className="text-gray-400 shrink-0" style={{ minWidth: "5rem" }}>
+              {FIELD_LABELS[k] ?? k}
+            </span>
+            <span className="text-gray-700 break-words">
+              {typeof v === "object" ? JSON.stringify(v) : String(v ?? "")}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  } else {
+    display = <span>{String(value)}</span>;
+  }
+
+  return (
+    <div className="flex gap-3 py-0.5">
+      <span className="text-gray-400 shrink-0 text-xs" style={{ minWidth: "7rem" }}>
+        {FIELD_LABELS[label] ?? label}
+      </span>
+      <span className="text-gray-800 text-xs break-words flex-1">{display}</span>
+    </div>
+  );
+}
+
+function ExtractedFields({ data }: { data: Record<string, unknown> }) {
+  const entries = Object.entries(data).filter(
+    ([, v]) => v !== null && v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0)
+  );
+  if (entries.length === 0) return <p className="text-xs text-gray-400 italic">No fields extracted</p>;
+  return (
+    <div className="space-y-0.5">
+      {entries.map(([k, v]) => <FieldRow key={k} label={k} value={v} />)}
+    </div>
+  );
+}
+
+// ── ResultCard ────────────────────────────────────────────────────────────────
+
+function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: string }) {
+  const [showRaw, setShowRaw] = useState(false);
+  const ed = r.extracted_data ?? {};
+  const hasFields = Object.keys(ed).length > 0;
 
   return (
     <div className="mt-2 bg-white border border-gray-200 rounded-xl overflow-hidden text-sm">
-      <div className="flex items-start gap-3 px-4 py-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {r.status === "success" ? (
-              <span className="text-green-600 font-medium">✓</span>
-            ) : (
-              <span className="text-red-500 font-medium">✗</span>
-            )}
-            <span className="font-medium text-gray-800 truncate">{r.file_name}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${TYPE_COLORS[r.document_type] ?? "bg-gray-100 text-gray-500"}`}>
-              {TYPE_LABELS[r.document_type] ?? r.document_type}
-            </span>
-            {r.confidence > 0 && (
-              <span className="text-xs text-gray-400">{Math.round(r.confidence * 100)}%</span>
-            )}
-          </div>
-
-          {r.status === "error" ? (
-            <p className="mt-1 text-xs text-red-500">{r.error}</p>
-          ) : (
-            <>
-              <p className="mt-0.5 text-xs text-gray-400">
-                {r.pages} page{r.pages !== 1 ? "s" : ""}
-                {r.tables > 0 ? ` · ${r.tables} table${r.tables !== 1 ? "s" : ""}` : ""}
-                {r.index_id ? " · Indexed" : ""}
-              </p>
-              {highlights.length > 0 && (
-                <p className="mt-1 text-xs text-gray-600 truncate">{highlights.join(" · ")}</p>
-              )}
-            </>
-          )}
-        </div>
-
-        {r.status === "success" && Object.keys(ed).length > 0 && (
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="shrink-0 text-xs text-gray-400 hover:text-gray-600"
-          >
-            {expanded ? "Hide" : "Details"}
-          </button>
+      {/* Header */}
+      <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
+        {r.status === "success" ? (
+          <span className="text-green-600 font-medium text-base leading-none">✓</span>
+        ) : (
+          <span className="text-red-500 font-medium text-base leading-none">✗</span>
         )}
+        <span className="font-medium text-gray-800 truncate">{r.file_name}</span>
+        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${TYPE_COLORS[r.document_type] ?? "bg-gray-100 text-gray-500"}`}>
+          {TYPE_LABELS[r.document_type] ?? r.document_type}
+        </span>
+        {r.confidence > 0 && (
+          <span className="text-xs text-gray-400">{Math.round(r.confidence * 100)}%</span>
+        )}
+        <span className="text-xs text-gray-400 ml-auto">
+          {r.pages} page{r.pages !== 1 ? "s" : ""}
+          {r.tables > 0 ? ` · ${r.tables} table${r.tables !== 1 ? "s" : ""}` : ""}
+        </span>
       </div>
 
-      {expanded && (
+      {r.status === "error" ? (
         <div className="px-4 pb-3 border-t border-gray-50">
-          <pre className="mt-2 text-xs text-gray-600 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
-            {JSON.stringify(ed, null, 2)}
-          </pre>
+          <p className="mt-2 text-xs text-red-500">{r.error}</p>
+        </div>
+      ) : (
+        <div className="border-t border-gray-100">
+          {/* OneDrive section — only if uploaded */}
+          {uploadedFolder && (
+            <div className="px-4 py-2.5 border-b border-gray-50 bg-gray-50/50">
+              <p className="text-xs font-medium text-gray-500 mb-1">OneDrive</p>
+              <p className="text-xs text-gray-700 font-mono">
+                {uploadedFolder}/{r.file_name}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Will be moved to /Processed when the timer runs (every 5 min)
+              </p>
+            </div>
+          )}
+
+          {/* Azure AI Search section */}
+          <div className="px-4 py-2.5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-1.5">
+                <p className="text-xs font-medium text-gray-500">Azure AI Search</p>
+                <span className="text-xs text-gray-300">·</span>
+                <span className="text-xs text-gray-400 font-mono">processed-documents</span>
+              </div>
+              {hasFields && (
+                <button
+                  onClick={() => setShowRaw((v) => !v)}
+                  className="text-xs text-gray-400 hover:text-gray-600"
+                >
+                  {showRaw ? "Fields" : "Raw JSON"}
+                </button>
+              )}
+            </div>
+
+            {hasFields ? (
+              showRaw ? (
+                <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-x-auto max-h-56 whitespace-pre-wrap break-words">
+                  {JSON.stringify(ed, null, 2)}
+                </pre>
+              ) : (
+                <ExtractedFields data={ed} />
+              )
+            ) : (
+              <p className="text-xs text-gray-400 italic">No structured fields extracted</p>
+            )}
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-type Message =
-  | { role: "bot"; text: string }
-  | { role: "user"; text: string; fileName?: string }
-  | { role: "results"; results: IngestResult[] };
+// ── Message types ─────────────────────────────────────────────────────────────
+
+type ConfirmInfo = {
+  file: File;
+  triage?: TriageResult;
+  existing?: CheckResult;
+  oneDrive?: OneDriveCheckResult;
+  // primary button behaviour
+  primaryLabel: string;
+  primaryUpload: boolean;   // true = upload to OneDrive first, then process
+  suggestedFolder?: string; // pre-filled destination folder (editable by user)
+  // optional second action (e.g. "Process directly")
+  secondaryLabel?: string;
+  secondaryUpload: boolean;
+};
+
+type BotMsg = { role: "bot"; text: string; sub?: string; confirm?: ConfirmInfo };
+type UserMsg = { role: "user"; text: string; fileName?: string };
+type ResultsMsg = { role: "results"; results: IngestResult[]; uploadedFolder?: string };
+type ResultItemMsg = { role: "result-item"; result: IngestResult; uploadedFolder?: string };
+type Message = BotMsg | UserMsg | ResultsMsg | ResultItemMsg;
 
 const GREETING: Message = {
   role: "bot",
   text: "Please upload a PDF (or Word / PowerPoint / image) file, or enter a OneDrive folder path, and I'll process it for you.",
 };
 
+function isUrl(s: string) {
+  return /^https?:\/\//i.test(s.trim());
+}
+
+function formatDate(iso?: string): string {
+  if (!iso) return "previously";
+  try {
+    return new Date(iso).toLocaleDateString("en-HK", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return "previously";
+  }
+}
+
+function extractHighlights(data?: Record<string, unknown>): string[] {
+  if (!data) return [];
+  const h: string[] = [];
+  if (data.building_name) h.push(String(data.building_name));
+  if (data.address) h.push(String(data.address));
+  if (data.district) h.push(String(data.district));
+  if (data.project_name) h.push(String(data.project_name));
+  return h;
+}
+
+// ── Confirm block ─────────────────────────────────────────────────────────────
+
+function ConfirmBlock({
+  info,
+  busy,
+  onPrimary,
+  onSecondary,
+  onCancel,
+}: {
+  info: ConfirmInfo;
+  busy: boolean;
+  onPrimary: (info: ConfirmInfo, folder: string) => void;
+  onSecondary: (info: ConfirmInfo) => void;
+  onCancel: () => void;
+}) {
+  const [folder, setFolder] = useState(info.suggestedFolder ?? "");
+
+  return (
+    <div className="mt-3 space-y-2">
+      {info.primaryUpload && (
+        <div className="space-y-1">
+          <p className="text-xs text-gray-400">OneDrive destination (new folders will be created):</p>
+          <input
+            type="text"
+            value={folder}
+            onChange={(e) => setFolder(e.target.value)}
+            placeholder="/Document Processor/In"
+            className="w-full text-xs font-mono border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white text-gray-800"
+          />
+        </div>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => onPrimary(info, folder)}
+          disabled={busy || (info.primaryUpload && !folder.trim())}
+          className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+        >
+          {info.primaryLabel}
+        </button>
+        {info.secondaryLabel && (
+          <button
+            onClick={() => onSecondary(info)}
+            disabled={busy}
+            className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+          >
+            {info.secondaryLabel}
+          </button>
+        )}
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 export default function IngestPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<(() => void) | null>(null);
   const [messages, setMessages] = useState<Message[]>([GREETING]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
 
   function push(msg: Message) {
     setMessages((prev) => [...prev, msg]);
   }
 
-  async function run(file?: File, folderPath?: string) {
-    if (busy) return;
+  function updateLastBot(patch: Partial<BotMsg>) {
+    setMessages((prev) => {
+      const next = [...prev];
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].role === "bot") {
+          next[i] = { ...next[i] as BotMsg, ...patch };
+          return next;
+        }
+      }
+      return next;
+    });
+  }
+
+  // ── Core process (no upload) ────────────────────────────────────────────────
+
+  async function runProcess(file: File) {
     setBusy(true);
-    push({ role: "bot", text: file ? `Processing ${file.name}…` : `Looking for files in ${folderPath}…` });
-
+    push({ role: "bot", text: `Processing ${file.name}…` });
     try {
-      const data = await processIngest(file, folderPath);
-
+      const data = await processIngest(file);
       if (!data.results.length) {
-        push({ role: "bot", text: data.message ?? "No supported files found." });
+        updateLastBot({ text: "No supported files found." });
       } else {
         const ok = data.results.filter((r) => r.status === "success").length;
         const total = data.results.length;
-        const summary = ok === total
-          ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
-          : `Done — ${ok}/${total} succeeded.`;
-        push({ role: "bot", text: summary });
+        updateLastBot({
+          text: ok === total
+            ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
+            : `Done — ${ok}/${total} succeeded.`,
+        });
         push({ role: "results", results: data.results });
       }
     } catch (e: unknown) {
-      push({ role: "bot", text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
+      updateLastBot({ text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
     } finally {
       setBusy(false);
     }
   }
+
+  // ── Upload to OneDrive /In, then process ────────────────────────────────────
+
+  async function runUploadAndProcess(file: File, inboxFolder: string) {
+    setBusy(true);
+    let uploadedFolder: string | undefined;
+    push({ role: "bot", text: `Uploading ${file.name} to ${inboxFolder}…` });
+    try {
+      const result = await uploadFiles([file], inboxFolder);
+      const uploaded = result.results[0];
+      if (uploaded?.ok) {
+        uploadedFolder = result.folder;
+        updateLastBot({ text: `Uploaded to ${result.folder}. Processing…` });
+      } else {
+        updateLastBot({ text: `Upload failed (${uploaded?.error ?? "unknown"}). Processing directly…` });
+      }
+    } catch (e: unknown) {
+      updateLastBot({
+        text: `Upload error: ${e instanceof Error ? e.message : "Unknown"}. Processing directly…`,
+      });
+    }
+    // Process regardless — file content is still in memory
+    try {
+      const data = await processIngest(file);
+      const ok = data.results.filter((r) => r.status === "success").length;
+      const total = data.results.length;
+      push({
+        role: "bot",
+        text: ok === total
+          ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
+          : `Done — ${ok}/${total} succeeded.`,
+      });
+      push({ role: "results", results: data.results, uploadedFolder });
+    } catch (e: unknown) {
+      push({ role: "bot", text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
+    }
+    setBusy(false);
+  }
+
+  // ── Interactive pre-check ───────────────────────────────────────────────────
+
+  async function prepareFile(file: File) {
+    setBusy(true);
+    push({ role: "bot", text: "Checking if already indexed…" });
+
+    try {
+      // Step 1: Azure Search — already indexed?
+      const check = await checkFile(file.name);
+      if (check.exists) {
+        const typeLabel = TYPE_LABELS[check.document_type ?? "unknown"] ?? check.document_type ?? "Unknown";
+        const highlights = extractHighlights(check.extracted_data);
+        const subParts = [...highlights, "Stored in Azure AI Search (processed-documents)"];
+        updateLastBot({
+          text: `Previously processed on ${formatDate(check.processed_at)} as ${typeLabel}. Process again?`,
+          sub: subParts.join(" · "),
+          confirm: {
+            file,
+            existing: check,
+            primaryLabel: "Process again",
+            primaryUpload: false,
+            secondaryUpload: false,
+          },
+        });
+        setBusy(false);
+        return;
+      }
+
+      // Step 2: OneDrive — where is the file?
+      updateLastBot({ text: "Not in the index. Checking OneDrive…" });
+      const od = await checkOneDrive(file.name);
+
+      if (od.drive_configured) {
+        if (od.in_inbox) {
+          updateLastBot({
+            text: `Found in OneDrive at ${od.inbox_folder}/${file.name}`,
+            sub: "Already queued — auto-processes every 5 min. Process it now instead?",
+            confirm: {
+              file,
+              oneDrive: od,
+              primaryLabel: "Process now",
+              primaryUpload: false,
+              secondaryUpload: false,
+            },
+          });
+          setBusy(false);
+          return;
+        }
+
+        if (od.in_processed) {
+          updateLastBot({
+            text: `Found in OneDrive at ${od.processed_folder}/${file.name} — previously processed via the timer pipeline.`,
+            sub: `Re-upload to OneDrive and process again?`,
+            confirm: {
+              file,
+              oneDrive: od,
+              primaryLabel: "Re-upload & Process",
+              primaryUpload: true,
+              suggestedFolder: od.inbox_folder ?? "/Document Processor/In",
+              secondaryUpload: false,
+            },
+          });
+          setBusy(false);
+          return;
+        }
+      }
+
+      // Step 3: File not found anywhere — run triage
+      updateLastBot({ text: "Not found in OneDrive. Analysing the file…" });
+      const triage = await triageFile(file);
+
+      if (!triage.can_process) {
+        updateLastBot({
+          text: `Cannot process this file: ${triage.reason ?? `${triage.format} files are not supported`}.`,
+        });
+        setBusy(false);
+        return;
+      }
+
+      const typeLabel = TYPE_LABELS[triage.detected_type] ?? triage.detected_type ?? "Unknown";
+      const pct = triage.confidence > 0 ? ` (${Math.round(triage.confidence * 100)}% confidence)` : "";
+      const fields = TYPE_FIELDS[triage.detected_type] ?? TYPE_FIELDS.unknown;
+      const inboxFolder = od.inbox_folder ?? "/Document Processor/In";
+
+      if (od.drive_configured) {
+        // Offer both upload+process and process-only
+        updateLastBot({
+          text: `Looks like a ${typeLabel}${pct}. Choose a OneDrive folder to upload to, then process:`,
+          sub: `Will extract: ${fields} → saved to Azure AI Search (processed-documents)`,
+          confirm: {
+            file,
+            triage,
+            oneDrive: od,
+            primaryLabel: "Upload & Process",
+            primaryUpload: true,
+            suggestedFolder: inboxFolder,
+            secondaryLabel: "Process directly (no OneDrive)",
+            secondaryUpload: false,
+          },
+        });
+      } else {
+        // OneDrive not configured — just offer direct process
+        updateLastBot({
+          text: `Looks like a ${typeLabel}${pct}. Ready to process?`,
+          sub: `Will extract: ${fields} → saved to Azure AI Search (processed-documents)`,
+          confirm: {
+            file,
+            triage,
+            primaryLabel: "Yes, process it",
+            primaryUpload: false,
+            secondaryUpload: false,
+          },
+        });
+      }
+    } catch (e: unknown) {
+      updateLastBot({ text: `Error: ${e instanceof Error ? e.message : "Check failed"}` });
+    }
+
+    setBusy(false);
+  }
+
+  function handlePrimary(info: ConfirmInfo, folder: string) {
+    updateLastBot({ confirm: undefined });
+    if (info.primaryUpload) {
+      runUploadAndProcess(info.file, folder || info.oneDrive?.inbox_folder || "/Document Processor/In");
+    } else {
+      runProcess(info.file);
+    }
+  }
+
+  function handleSecondary(info: ConfirmInfo) {
+    updateLastBot({ confirm: undefined });
+    runProcess(info.file);
+  }
+
+  function handleCancel() {
+    updateLastBot({ text: "Cancelled.", confirm: undefined, sub: undefined });
+  }
+
+  // ── Folder stream flow (unchanged) ─────────────────────────────────────────
+
+  function runFolder(folderPath: string) {
+    setBusy(true);
+    push({ role: "bot", text: `Scanning ${folderPath}…` });
+    // Derive processed folder: /Document Processor/In → /Document Processor/Processed
+    const processedFolder = folderPath.replace(/\/In\s*$/, "/Processed");
+
+    cancelRef.current = streamIngest(
+      folderPath,
+      (count, files) => {
+        updateLastBot({ text: `Found ${count} file${count !== 1 ? "s" : ""}`, sub: files.join(", ") });
+      },
+      (result) => {
+        push({ role: "result-item", result, uploadedFolder: processedFolder });
+      },
+      (ok, total, message) => {
+        if (message) {
+          push({ role: "bot", text: message });
+        } else {
+          push({
+            role: "bot",
+            text: ok === total
+              ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
+              : `Done — ${ok}/${total} succeeded.`,
+          });
+        }
+        setBusy(false);
+        cancelRef.current = null;
+      },
+      (err) => {
+        push({ role: "bot", text: `Error: ${err}` });
+        setBusy(false);
+        cancelRef.current = null;
+      },
+    );
+  }
+
+  // ── Input handlers ──────────────────────────────────────────────────────────
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     push({ role: "user", text: file.name, fileName: file.name });
     if (fileInputRef.current) fileInputRef.current.value = "";
-    run(file);
+    prepareFile(file);
   }
 
   function handleSend() {
@@ -150,8 +585,18 @@ export default function IngestPage() {
     if (!path || busy) return;
     setInput("");
     push({ role: "user", text: path });
-    run(undefined, path);
+    if (isUrl(path)) {
+      push({
+        role: "bot",
+        text: "That looks like a URL — please enter a folder path instead.",
+        sub: "Example: /Document Processor/In",
+      });
+      return;
+    }
+    runFolder(path);
   }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
@@ -160,39 +605,56 @@ export default function IngestPage() {
         <p className="text-xs text-gray-400">Upload a file or enter a OneDrive folder path</p>
       </header>
 
-      {/* Message list */}
-      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
         {messages.map((msg, i) => {
           if (msg.role === "results") {
             return (
               <div key={i} className="space-y-2">
-                {msg.results.map((r, j) => <ResultCard key={j} r={r} />)}
+                {msg.results.map((r, j) => (
+                  <ResultCard key={j} r={r} uploadedFolder={msg.uploadedFolder} />
+                ))}
               </div>
             );
           }
+          if (msg.role === "result-item") return (
+            <ResultCard key={i} r={msg.result} uploadedFolder={msg.uploadedFolder} />
+          );
           if (msg.role === "user") {
             return (
               <div key={i} className="flex justify-end">
-                <div className="max-w-sm bg-blue-600 text-white text-sm px-4 py-2 rounded-2xl rounded-br-sm">
+                <div className="max-w-sm bg-blue-600 text-white text-sm px-4 py-2 rounded-2xl rounded-br-sm break-all">
                   {msg.fileName ? (
                     <span className="flex items-center gap-1.5">
                       <span className="text-blue-200 text-xs">📄</span>
                       {msg.text}
                     </span>
-                  ) : (
-                    msg.text
-                  )}
+                  ) : msg.text}
                 </div>
               </div>
             );
           }
+
           // bot
+          const isLast = i === messages.length - 1;
+          const hasConfirm = !!msg.confirm && isLast;
           return (
             <div key={i} className="flex justify-start">
               <div className="max-w-sm bg-white border border-gray-200 text-gray-700 text-sm px-4 py-2.5 rounded-2xl rounded-bl-sm">
-                {msg.text}
-                {busy && i === messages.length - 1 && (
-                  <span className="ml-1 inline-block w-1 h-3 bg-gray-400 animate-pulse rounded-sm" />
+                <span>{msg.text}</span>
+                {busy && isLast && !hasConfirm && (
+                  <span className="ml-1 inline-block w-1 h-3 bg-gray-400 animate-pulse rounded-sm align-middle" />
+                )}
+                {msg.sub && (
+                  <p className="mt-0.5 text-xs text-gray-400">{msg.sub}</p>
+                )}
+                {hasConfirm && (
+                  <ConfirmBlock
+                    info={msg.confirm!}
+                    busy={busy}
+                    onPrimary={handlePrimary}
+                    onSecondary={handleSecondary}
+                    onCancel={handleCancel}
+                  />
                 )}
               </div>
             </div>

@@ -284,21 +284,88 @@ export async function processIngest(
   if (file) form.append("file", file);
   if (folderPath) form.append("folder_path", folderPath);
 
-  const res = await fetch(`${API_URL}/api/admin/process`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: form,
-  });
-  if (res.status === 401) {
-    clearToken();
-    window.location.href = "/login";
-    throw new Error("Unauthorized");
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90_000);
+
+  try {
+    const res = await fetch(`${API_URL}/api/admin/process`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+      signal: controller.signal,
+    });
+    if (res.status === 401) {
+      clearToken();
+      window.location.href = "/login";
+      throw new Error("Unauthorized");
+    }
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error((detail as { detail?: string }).detail ?? "Processing failed");
+    }
+    return res.json();
+  } catch (e: unknown) {
+    if (e instanceof Error && e.name === "AbortError") throw new Error("Request timed out after 90 seconds");
+    throw e;
+  } finally {
+    clearTimeout(timeout);
   }
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new Error((detail as { detail?: string }).detail ?? "Processing failed");
-  }
-  return res.json();
+}
+
+export function streamIngest(
+  folderPath: string,
+  onFound: (count: number, files: string[]) => void,
+  onFileDone: (result: IngestResult) => void,
+  onDone: (ok: number, total: number, message?: string) => void,
+  onError: (err: string) => void,
+): () => void {
+  const token = getToken();
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const form = new FormData();
+      form.append("folder_path", folderPath);
+      const res = await fetch(`${API_URL}/api/admin/process/stream`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+        signal: controller.signal,
+      });
+      if (res.status === 401) { clearToken(); window.location.href = "/login"; return; }
+      if (!res.ok || !res.body) { onError(`Server error (${res.status})`); return; }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const raw = line.slice(6).trim();
+          if (!raw) continue;
+          try {
+            const ev = JSON.parse(raw);
+            if (ev.error) { onError(ev.error); return; }
+            if (ev.event === "found") onFound(ev.count, ev.files ?? []);
+            else if (ev.event === "file_done") onFileDone(ev.result);
+            else if (ev.event === "done") {
+              if (Array.isArray(ev.results) && ev.results.length === 0) onDone(0, 0, ev.message);
+              else onDone(ev.ok ?? 0, ev.total ?? 0);
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== "AbortError") onError(e.message);
+    }
+  })();
+
+  return () => controller.abort();
 }
 
 export interface TriageResult {
@@ -328,12 +395,51 @@ export async function triageFile(file: File): Promise<TriageResult> {
   return res.json();
 }
 
+export interface OneDriveCheckResult {
+  drive_configured: boolean;
+  in_inbox?: boolean;
+  in_processed?: boolean;
+  inbox_folder?: string;
+  processed_folder?: string;
+}
+
+export async function checkOneDrive(fileName: string): Promise<OneDriveCheckResult> {
+  const token = getToken();
+  const res = await fetch(
+    `${API_URL}/api/admin/onedrive-check?file_name=${encodeURIComponent(fileName)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
+  if (!res.ok) return { drive_configured: false };
+  return res.json();
+}
+
+export interface CheckResult {
+  exists: boolean;
+  document_type?: string;
+  processed_at?: string;
+  extracted_data?: Record<string, unknown>;
+}
+
+export async function checkFile(fileName: string): Promise<CheckResult> {
+  const token = getToken();
+  const res = await fetch(
+    `${API_URL}/api/admin/check?file_name=${encodeURIComponent(fileName)}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
+  if (!res.ok) return { exists: false };
+  return res.json();
+}
+
 export async function uploadFiles(
   files: File[],
+  folderPath?: string,
 ): Promise<{ results: Array<{ name: string; ok: boolean; error?: string; web_url?: string }>; folder: string }> {
   const token = localStorage.getItem("token");
   const form = new FormData();
   for (const f of files) form.append("files", f);
+  if (folderPath) form.append("folder_path", folderPath);
   const res = await fetch(`${API_URL}/api/admin/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
