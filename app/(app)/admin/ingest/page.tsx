@@ -47,6 +47,56 @@ const FIELD_LABELS: Record<string, string> = {
 
 // ── Field renderers ────────────────────────────────────────────────────────────
 
+const UNIT_KEY_ORDER = ["floor_unit", "size_sqft", "rent_monthly", "unit_type", "facing", "features", "notes"];
+
+function ObjectArrayField({ items }: { items: Record<string, unknown>[] }) {
+  const allKeys = Array.from(
+    new Set(items.flatMap((item) => Object.keys(item).filter((k) => item[k] !== null && item[k] !== undefined && item[k] !== "")))
+  ).sort((a, b) => {
+    const ai = UNIT_KEY_ORDER.indexOf(a);
+    const bi = UNIT_KEY_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  return (
+    <div className="mt-1 w-full">
+      <div className="rounded-lg border border-gray-100 overflow-x-auto">
+        <table className="text-xs w-full">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-100">
+              <th className="text-left px-2 py-1 text-gray-400 font-medium w-5">#</th>
+              {allKeys.map((k) => (
+                <th key={k} className="text-left px-2 py-1 text-gray-400 font-medium whitespace-nowrap">
+                  {FIELD_LABELS[k] ?? k}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, i) => (
+              <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                <td className="px-2 py-1 text-gray-300">{i + 1}</td>
+                {allKeys.map((k) => {
+                  const v = item[k];
+                  const str = v === null || v === undefined || v === "" ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+                  return (
+                    <td key={k} className="px-2 py-1 text-gray-700 whitespace-nowrap max-w-[12rem] truncate" title={str}>
+                      {str || <span className="text-gray-300">—</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function FieldRow({ label, value }: { label: string; value: unknown }) {
   if (value === null || value === undefined || value === "") return null;
 
@@ -55,7 +105,7 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
   if (Array.isArray(value)) {
     if (value.length === 0) return null;
     if (typeof value[0] === "object" && value[0] !== null) {
-      display = <span className="text-gray-400 italic">{value.length} item{value.length !== 1 ? "s" : ""}</span>;
+      display = <ObjectArrayField items={value as Record<string, unknown>[]} />;
     } else {
       display = <span>{(value as unknown[]).map(String).join(", ")}</span>;
     }
@@ -80,6 +130,17 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
     );
   } else {
     display = <span>{String(value)}</span>;
+  }
+
+  const isTable = Array.isArray(value) && value.length > 0 && typeof (value as unknown[])[0] === "object" && (value as unknown[])[0] !== null;
+
+  if (isTable) {
+    return (
+      <div className="py-1">
+        <span className="text-gray-400 text-xs">{FIELD_LABELS[label] ?? label}</span>
+        {display}
+      </div>
+    );
   }
 
   return (
