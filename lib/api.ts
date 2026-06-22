@@ -305,7 +305,7 @@ export async function processIngest(
     }
     return res.json();
   } catch (e: unknown) {
-    if (e instanceof Error && e.name === "AbortError") throw new Error("Request timed out after 90 seconds");
+    if (e instanceof Error && e.name === "AbortError") throw new Error("Processing took longer than expected. Large or complex documents may take more time — please try again.");
     throw e;
   } finally {
     clearTimeout(timeout);

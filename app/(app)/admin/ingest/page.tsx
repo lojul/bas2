@@ -769,7 +769,7 @@ export default function IngestPage() {
       </div>
 
       {/* Input bar — file upload only */}
-      <div className="shrink-0 bg-white border-t border-gray-200 px-4 py-3">
+      <div className="shrink-0 bg-white border-t border-gray-200 px-4 py-4">
         <div className="flex items-center justify-center max-w-2xl mx-auto">
           <input
             ref={fileInputRef}
@@ -781,13 +781,13 @@ export default function IngestPage() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={busy}
-            className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
+            className="flex items-center gap-2.5 px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-sm font-medium rounded-2xl transition-colors shadow-sm"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M18.375 12.739l-7.693 7.693a4.5 4.5 0 01-6.364-6.364l10.94-10.94A3 3 0 1119.5 7.372L8.552 18.32m.009-.01l-.01.01m5.699-9.941l-7.81 7.81a1.5 1.5 0 002.112 2.13" />
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
             </svg>
-            Upload file
+            Select a document to process
           </button>
         </div>
       </div>

@@ -21,11 +21,17 @@ const adminNav: NavItem[] = [
   { href: "/admin/settings", label: "Settings" },
 ];
 
-function NavLink({ href, label, pathname }: NavItem & { pathname: string }) {
+function NavLink({
+  href,
+  label,
+  pathname,
+  onClose,
+}: NavItem & { pathname: string; onClose?: () => void }) {
   const active = pathname === href || pathname.startsWith(href + "/");
   return (
     <Link
       href={href}
+      onClick={onClose}
       className={`block text-sm px-3 py-2 rounded-lg transition-colors ${
         active
           ? "bg-blue-50 text-blue-700 font-medium"
@@ -37,32 +43,46 @@ function NavLink({ href, label, pathname }: NavItem & { pathname: string }) {
   );
 }
 
-export function Sidebar() {
+export function Sidebar({ onClose }: { onClose?: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
 
   function handleLogout() {
     clearToken();
+    onClose?.();
     router.replace("/login");
   }
 
   return (
     <aside className="w-52 shrink-0 bg-white border-r border-gray-200 flex flex-col h-full">
-      <div className="px-4 py-4 border-b border-gray-100">
-        <p className="font-semibold text-gray-900 text-sm leading-snug">Property Intelligence</p>
-        <p className="text-xs text-gray-400 mt-0.5">Century 21 Hong Kong</p>
+      <div className="px-4 py-4 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm leading-snug">Property Intelligence</p>
+          <p className="text-xs text-gray-400 mt-0.5">Century 21 Hong Kong</p>
+        </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors lg:hidden"
+            aria-label="Close menu"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
 
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
         {mainNav.map((item) => (
-          <NavLink key={item.href} pathname={pathname} {...item} />
+          <NavLink key={item.href} pathname={pathname} onClose={onClose} {...item} />
         ))}
 
         <div className="pt-4 pb-1 px-3">
           <p className="text-xs font-medium text-gray-400 uppercase tracking-wider">Admin</p>
         </div>
         {adminNav.map((item) => (
-          <NavLink key={item.href} pathname={pathname} {...item} />
+          <NavLink key={item.href} pathname={pathname} onClose={onClose} {...item} />
         ))}
       </nav>
 

@@ -129,26 +129,26 @@ export default function ChatPage() {
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
-      <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shrink-0">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-gray-700">Chat / 搜尋助手</span>
-          <span className="text-xs text-gray-400">Powered by Llama 3.3 70B</span>
+      <header className="flex items-center justify-between px-4 lg:px-6 py-3 bg-white border-b border-gray-200 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-sm font-medium text-gray-700 truncate">Chat / 搜尋助手</span>
+          <span className="hidden sm:inline text-xs text-gray-400 shrink-0">Powered by Llama 3.3 70B</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 shrink-0">
           {allSources.length > 0 && (
             <button
               onClick={handleGenerateReport}
               disabled={reportLoading}
-              className="text-sm text-blue-600 hover:text-blue-800 px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40"
+              className="text-xs sm:text-sm text-blue-600 hover:text-blue-800 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40"
             >
-              {reportLoading ? "生成中…" : "生成報告 PDF"}
+              {reportLoading ? "生成中…" : <><span className="hidden sm:inline">生成報告 </span>PDF</>}
             </button>
           )}
           <button
             onClick={handleClear}
-            className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
           >
-            New chat / 新對話
+            <span className="hidden sm:inline">New chat / </span>新對話
           </button>
         </div>
       </header>
