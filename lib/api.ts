@@ -232,6 +232,17 @@ export async function getAdminRuns(hours = 72): Promise<{ runs: RunRecord[]; tok
   return res.json();
 }
 
+export async function updateDocument(docId: string, extractedData: Record<string, unknown>): Promise<void> {
+  const res = await apiFetch(`/api/admin/documents/${encodeURIComponent(docId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ extracted_data: extractedData }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error((detail as { detail?: string }).detail ?? "Failed to save changes");
+  }
+}
+
 export async function getAdminDocuments(topK = 1000): Promise<{
   total_chunks: number;
   total_files: number;

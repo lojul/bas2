@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  checkFile, checkOneDrive, listOneDriveFolders, processIngest, streamIngest, triageFile, uploadFiles,
+  checkFile, checkOneDrive, listOneDriveFolders, processIngest, streamIngest, triageFile, updateDocument, uploadFiles,
 } from "@/lib/api";
 import type { CheckResult, IngestResult, OneDriveCheckResult, TriageResult } from "@/lib/api";
 
@@ -165,11 +165,200 @@ function ExtractedFields({ data }: { data: Record<string, unknown> }) {
   );
 }
 
+// ── Edit form ─────────────────────────────────────────────────────────────────
+
+const NUMERIC_FIELDS = new Set(["size_sqft", "rent_monthly", "total_gfa", "floors"]);
+
+function isObjArray(v: unknown): v is Record<string, unknown>[] {
+  return Array.isArray(v) && v.length > 0 && typeof v[0] === "object" && v[0] !== null;
+}
+
+function EditForm({
+  data, docId, onSave, onCancel,
+}: {
+  data: Record<string, unknown>;
+  docId: string;
+  onSave: (updated: Record<string, unknown>) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState<Record<string, unknown>>(() => JSON.parse(JSON.stringify(data)));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function setField(key: string, value: unknown) {
+    setDraft((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function setUnitCell(key: string, row: number, col: string, val: string) {
+    setDraft((prev) => {
+      const rows = JSON.parse(JSON.stringify(prev[key] as Record<string, unknown>[]));
+      rows[row] = { ...rows[row], [col]: val };
+      return { ...prev, [key]: rows };
+    });
+  }
+
+  function addUnitRow(key: string) {
+    const rows = draft[key] as Record<string, unknown>[];
+    const blank = Object.fromEntries(Object.keys(rows[0] ?? {}).map((k) => [k, ""]));
+    setField(key, [...rows, blank]);
+  }
+
+  function removeUnitRow(key: string, idx: number) {
+    const rows = (draft[key] as Record<string, unknown>[]).filter((_, i) => i !== idx);
+    setField(key, rows);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      await updateDocument(docId, draft);
+      setSaved(true);
+      onSave(draft);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save — please try again");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const inputCls = "border border-gray-200 rounded-lg px-3 py-1.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-blue-400";
+
+  return (
+    <div className="space-y-3 text-sm">
+      {Object.entries(draft).map(([key, value]) => {
+        const label = FIELD_LABELS[key] ?? key;
+
+        if (isObjArray(value)) {
+          const rows = value as Record<string, unknown>[];
+          const cols = Array.from(new Set(rows.flatMap(Object.keys))).sort((a, b) => {
+            const ai = UNIT_KEY_ORDER.indexOf(a), bi = UNIT_KEY_ORDER.indexOf(b);
+            if (ai !== -1 && bi !== -1) return ai - bi;
+            return ai !== -1 ? -1 : bi !== -1 ? 1 : a.localeCompare(b);
+          });
+          return (
+            <div key={key}>
+              <p className="text-xs text-gray-500 mb-1.5 font-medium">{label}</p>
+              <div className="border border-gray-200 rounded-lg overflow-x-auto">
+                <table className="text-xs w-full">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-100">
+                      <th className="px-2 py-1.5 text-gray-400 font-medium w-6 text-center">#</th>
+                      {cols.map((c) => (
+                        <th key={c} className="text-left px-2 py-1.5 text-gray-400 font-medium whitespace-nowrap">
+                          {FIELD_LABELS[c] ?? c}
+                        </th>
+                      ))}
+                      <th className="w-6" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((row, ri) => (
+                      <tr key={ri} className="border-b border-gray-50 last:border-0">
+                        <td className="px-2 py-1 text-gray-300 text-center">{ri + 1}</td>
+                        {cols.map((c) => (
+                          <td key={c} className="px-1 py-1">
+                            <input
+                              value={row[c] != null ? String(row[c]) : ""}
+                              onChange={(e) => setUnitCell(key, ri, c, e.target.value)}
+                              className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 min-w-[5rem] w-full"
+                            />
+                          </td>
+                        ))}
+                        <td className="px-2 py-1 text-center">
+                          <button onClick={() => removeUnitRow(key, ri)} className="text-gray-300 hover:text-red-400 text-xs" title="Remove">✕</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button onClick={() => addUnitRow(key)} className="mt-1 text-xs text-blue-500 hover:text-blue-700">
+                + Add row
+              </button>
+            </div>
+          );
+        }
+
+        if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+          const obj = value as Record<string, unknown>;
+          return (
+            <div key={key}>
+              <p className="text-xs text-gray-500 mb-1.5 font-medium">{label}</p>
+              <div className="pl-3 border-l-2 border-gray-100 space-y-2">
+                {Object.entries(obj).map(([sk, sv]) => (
+                  <div key={sk} className="flex flex-col gap-0.5">
+                    <label className="text-xs text-gray-400">{FIELD_LABELS[sk] ?? sk}</label>
+                    <input
+                      value={sv != null ? String(sv) : ""}
+                      onChange={(e) => setField(key, { ...obj, [sk]: e.target.value })}
+                      className={inputCls}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        }
+
+        if (Array.isArray(value)) {
+          return (
+            <div key={key} className="flex flex-col gap-0.5">
+              <label className="text-xs text-gray-500 font-medium">{label}</label>
+              <input
+                value={(value as unknown[]).map(String).join(", ")}
+                onChange={(e) => setField(key, e.target.value.split(",").map((s) => s.trim()).filter(Boolean))}
+                className={inputCls}
+                placeholder="Separate values with commas"
+              />
+            </div>
+          );
+        }
+
+        const isNum = NUMERIC_FIELDS.has(key);
+        return (
+          <div key={key} className="flex flex-col gap-0.5">
+            <label className="text-xs text-gray-500 font-medium">{label}</label>
+            <input
+              type={isNum ? "number" : "text"}
+              value={value != null ? String(value) : ""}
+              onChange={(e) =>
+                setField(key, isNum ? (e.target.value === "" ? null : Number(e.target.value)) : e.target.value)
+              }
+              className={inputCls}
+            />
+          </div>
+        );
+      })}
+
+      <div className="flex items-center gap-2 pt-2 border-t border-gray-100">
+        <button
+          onClick={handleSave}
+          disabled={saving || saved}
+          className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          {saving ? "Saving…" : saved ? "✓ Saved" : "Save changes"}
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-xs text-gray-500 hover:text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-50"
+        >
+          Cancel
+        </button>
+        {error && <p className="text-xs text-red-500 flex-1">{error}</p>}
+      </div>
+    </div>
+  );
+}
+
 // ── ResultCard ────────────────────────────────────────────────────────────────
 
 function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: string }) {
   const [showRaw, setShowRaw] = useState(false);
-  const ed = r.extracted_data ?? {};
+  const [editing, setEditing] = useState(false);
+  const [localData, setLocalData] = useState<Record<string, unknown>>(r.extracted_data ?? {});
+  const ed = localData;
   const hasFields = Object.keys(ed).length > 0;
 
   return (
@@ -221,17 +410,32 @@ function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: s
                 <span className="text-xs text-gray-300">·</span>
                 <span className="text-xs text-gray-400 font-mono">processed-documents</span>
               </div>
-              {hasFields && (
-                <button
-                  onClick={() => setShowRaw((v) => !v)}
-                  className="text-xs text-gray-400 hover:text-gray-600"
-                >
-                  {showRaw ? "Fields" : "Raw JSON"}
-                </button>
+              {hasFields && !editing && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { setEditing(true); setShowRaw(false); }}
+                    className="text-xs text-blue-500 hover:text-blue-700 font-medium"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setShowRaw((v) => !v)}
+                    className="text-xs text-gray-400 hover:text-gray-600"
+                  >
+                    {showRaw ? "Fields" : "Raw JSON"}
+                  </button>
+                </div>
               )}
             </div>
 
-            {hasFields ? (
+            {editing && r.index_id ? (
+              <EditForm
+                data={ed}
+                docId={r.index_id}
+                onSave={(updated) => { setLocalData(updated); setEditing(false); }}
+                onCancel={() => setEditing(false)}
+              />
+            ) : hasFields ? (
               showRaw ? (
                 <pre className="text-xs text-gray-600 bg-gray-50 rounded-lg p-3 overflow-x-auto max-h-56 whitespace-pre-wrap break-words">
                   {JSON.stringify(ed, null, 2)}
