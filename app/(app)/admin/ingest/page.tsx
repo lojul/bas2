@@ -195,20 +195,17 @@ type ConfirmInfo = {
   triage?: TriageResult;
   existing?: CheckResult;
   oneDrive?: OneDriveCheckResult;
-  // primary button behaviour
   primaryLabel: string;
-  primaryUpload: boolean;   // true = upload to OneDrive first, then process
-  suggestedFolder?: string; // pre-filled destination folder (editable by user)
-  // optional second action (e.g. "Process directly")
   secondaryLabel?: string;
-  secondaryUpload: boolean;
+  offerOneDriveSave: boolean; // show OneDrive save prompt after processing
 };
 
 type BotMsg = { role: "bot"; text: string; sub?: string; confirm?: ConfirmInfo };
 type UserMsg = { role: "user"; text: string; fileName?: string };
 type ResultsMsg = { role: "results"; results: IngestResult[]; uploadedFolder?: string };
 type ResultItemMsg = { role: "result-item"; result: IngestResult; uploadedFolder?: string };
-type Message = BotMsg | UserMsg | ResultsMsg | ResultItemMsg;
+type SaveMsg = { role: "save"; file: File };
+type Message = BotMsg | UserMsg | ResultsMsg | ResultItemMsg | SaveMsg;
 
 const GREETING: Message = {
   role: "bot",
@@ -332,18 +329,62 @@ function ConfirmBlock({
 }: {
   info: ConfirmInfo;
   busy: boolean;
-  onPrimary: (info: ConfirmInfo, folder: string) => void;
+  onPrimary: (info: ConfirmInfo) => void;
   onSecondary: (info: ConfirmInfo) => void;
   onCancel: () => void;
 }) {
-  const [folder, setFolder] = useState(info.suggestedFolder ?? "");
+  return (
+    <div className="mt-3 flex flex-wrap gap-2">
+      <button
+        onClick={() => onPrimary(info)}
+        disabled={busy}
+        className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+      >
+        {info.primaryLabel}
+      </button>
+      {info.secondaryLabel && (
+        <button
+          onClick={() => onSecondary(info)}
+          disabled={busy}
+          className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+        >
+          {info.secondaryLabel}
+        </button>
+      )}
+      <button
+        onClick={onCancel}
+        disabled={busy}
+        className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+// ── Save to OneDrive block ────────────────────────────────────────────────────
+
+function SaveBlock({
+  file,
+  defaultFolder,
+  busy,
+  onSave,
+  onSkip,
+}: {
+  file: File;
+  defaultFolder: string;
+  busy: boolean;
+  onSave: (file: File, folder: string) => void;
+  onSkip: () => void;
+}) {
+  const [folder, setFolder] = useState(defaultFolder);
   const [showBrowser, setShowBrowser] = useState(false);
 
   return (
-    <div className="mt-3 space-y-2">
-      {info.primaryUpload && (
+    <div className="flex justify-start">
+      <div className="max-w-sm bg-white border border-gray-200 text-gray-700 text-sm px-4 py-3 rounded-2xl rounded-bl-sm space-y-2">
+        <p>Save <span className="font-medium">{file.name}</span> to OneDrive?</p>
         <div className="space-y-1.5">
-          <p className="text-xs text-gray-400">OneDrive destination:</p>
           <div className="flex gap-1.5">
             <input
               type="text"
@@ -364,38 +405,26 @@ function ConfirmBlock({
             </button>
           </div>
           {showBrowser && (
-            <FolderBrowser
-              selected={folder}
-              onSelect={(path) => setFolder(path)}
-            />
+            <FolderBrowser selected={folder} onSelect={(path) => setFolder(path)} />
           )}
           <p className="text-xs text-gray-400">New folders will be created automatically.</p>
         </div>
-      )}
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => onPrimary(info, folder)}
-          disabled={busy || (info.primaryUpload && !folder.trim())}
-          className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-        >
-          {info.primaryLabel}
-        </button>
-        {info.secondaryLabel && (
+        <div className="flex gap-2 pt-1">
           <button
-            onClick={() => onSecondary(info)}
-            disabled={busy}
-            className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+            onClick={() => onSave(file, folder)}
+            disabled={busy || !folder.trim()}
+            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
           >
-            {info.secondaryLabel}
+            Save to OneDrive
           </button>
-        )}
-        <button
-          onClick={onCancel}
-          disabled={busy}
-          className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
-        >
-          Cancel
-        </button>
+          <button
+            onClick={onSkip}
+            disabled={busy}
+            className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
+          >
+            Skip
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -432,9 +461,9 @@ export default function IngestPage() {
     });
   }
 
-  // ── Core process (no upload) ────────────────────────────────────────────────
+  // ── Process file ───────────────────────────────────────────────────────────
 
-  async function runProcess(file: File) {
+  async function runProcess(file: File, offerOneDriveSave = false) {
     setBusy(true);
     push({ role: "bot", text: `Processing ${file.name}…` });
     try {
@@ -450,6 +479,9 @@ export default function IngestPage() {
             : `Done — ${ok}/${total} succeeded.`,
         });
         push({ role: "results", results: data.results });
+        if (offerOneDriveSave && ok > 0) {
+          push({ role: "save", file });
+        }
       }
     } catch (e: unknown) {
       updateLastBot({ text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
@@ -458,42 +490,29 @@ export default function IngestPage() {
     }
   }
 
-  // ── Upload to OneDrive /In, then process ────────────────────────────────────
+  // ── OneDrive save (post-processing) ────────────────────────────────────────
 
-  async function runUploadAndProcess(file: File, inboxFolder: string) {
+  async function handleSave(file: File, folder: string) {
+    setMessages((prev) => prev.filter((m) => m.role !== "save"));
     setBusy(true);
-    let uploadedFolder: string | undefined;
-    push({ role: "bot", text: `Uploading ${file.name} to ${inboxFolder}…` });
+    push({ role: "bot", text: `Saving ${file.name} to ${folder}…` });
     try {
-      const result = await uploadFiles([file], inboxFolder);
+      const result = await uploadFiles([file], folder);
       const uploaded = result.results[0];
-      if (uploaded?.ok) {
-        uploadedFolder = result.folder;
-        updateLastBot({ text: `Uploaded to ${result.folder}. Processing…` });
-      } else {
-        updateLastBot({ text: `Upload failed (${uploaded?.error ?? "unknown"}). Processing directly…` });
-      }
-    } catch (e: unknown) {
       updateLastBot({
-        text: `Upload error: ${e instanceof Error ? e.message : "Unknown"}. Processing directly…`,
+        text: uploaded?.ok
+          ? `Saved to ${result.folder}/${file.name}`
+          : `Save failed: ${uploaded?.error ?? "Unknown error"}`,
       });
-    }
-    // Process regardless — file content is still in memory
-    try {
-      const data = await processIngest(file);
-      const ok = data.results.filter((r) => r.status === "success").length;
-      const total = data.results.length;
-      push({
-        role: "bot",
-        text: ok === total
-          ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
-          : `Done — ${ok}/${total} succeeded.`,
-      });
-      push({ role: "results", results: data.results, uploadedFolder });
     } catch (e: unknown) {
-      push({ role: "bot", text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
+      updateLastBot({ text: `Save error: ${e instanceof Error ? e.message : "Unknown"}` });
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
+  }
+
+  function handleSkip() {
+    setMessages((prev) => prev.filter((m) => m.role !== "save"));
   }
 
   // ── Interactive pre-check ───────────────────────────────────────────────────
@@ -516,8 +535,7 @@ export default function IngestPage() {
             file,
             existing: check,
             primaryLabel: "Process again",
-            primaryUpload: false,
-            secondaryUpload: false,
+            offerOneDriveSave: false,
           },
         });
         setBusy(false);
@@ -537,8 +555,7 @@ export default function IngestPage() {
               file,
               oneDrive: od,
               primaryLabel: "Process now",
-              primaryUpload: false,
-              secondaryUpload: false,
+              offerOneDriveSave: false,
             },
           });
           setBusy(false);
@@ -548,14 +565,12 @@ export default function IngestPage() {
         if (od.in_processed) {
           updateLastBot({
             text: `Found in OneDrive at ${od.processed_folder}/${file.name} — previously processed via the timer pipeline.`,
-            sub: `Re-upload to OneDrive and process again?`,
+            sub: "Process again?",
             confirm: {
               file,
               oneDrive: od,
-              primaryLabel: "Re-upload & Process",
-              primaryUpload: true,
-              suggestedFolder: od.inbox_folder ?? "/Document Processor/In",
-              secondaryUpload: false,
+              primaryLabel: "Process again",
+              offerOneDriveSave: false,
             },
           });
           setBusy(false);
@@ -578,38 +593,17 @@ export default function IngestPage() {
       const typeLabel = TYPE_LABELS[triage.detected_type] ?? triage.detected_type ?? "Unknown";
       const pct = triage.confidence > 0 ? ` (${Math.round(triage.confidence * 100)}% confidence)` : "";
       const fields = TYPE_FIELDS[triage.detected_type] ?? TYPE_FIELDS.unknown;
-      const inboxFolder = od.inbox_folder ?? "/Document Processor/In";
-
-      if (od.drive_configured) {
-        // Offer both upload+process and process-only
-        updateLastBot({
-          text: `Looks like a ${typeLabel}${pct}. Choose a OneDrive folder to upload to, then process:`,
-          sub: `Will extract: ${fields} → saved to Azure AI Search (processed-documents)`,
-          confirm: {
-            file,
-            triage,
-            oneDrive: od,
-            primaryLabel: "Upload & Process",
-            primaryUpload: true,
-            suggestedFolder: inboxFolder,
-            secondaryLabel: "Process directly (no OneDrive)",
-            secondaryUpload: false,
-          },
-        });
-      } else {
-        // OneDrive not configured — just offer direct process
-        updateLastBot({
-          text: `Looks like a ${typeLabel}${pct}. Ready to process?`,
-          sub: `Will extract: ${fields} → saved to Azure AI Search (processed-documents)`,
-          confirm: {
-            file,
-            triage,
-            primaryLabel: "Yes, process it",
-            primaryUpload: false,
-            secondaryUpload: false,
-          },
-        });
-      }
+      updateLastBot({
+        text: `Looks like a ${typeLabel}${pct}. Ready to process?`,
+        sub: `Will extract: ${fields} → saved to Azure AI Search (processed-documents)`,
+        confirm: {
+          file,
+          triage,
+          oneDrive: od,
+          primaryLabel: "Process it",
+          offerOneDriveSave: od.drive_configured,
+        },
+      });
     } catch (e: unknown) {
       updateLastBot({ text: `Error: ${e instanceof Error ? e.message : "Check failed"}` });
     }
@@ -617,18 +611,14 @@ export default function IngestPage() {
     setBusy(false);
   }
 
-  function handlePrimary(info: ConfirmInfo, folder: string) {
+  function handlePrimary(info: ConfirmInfo) {
     updateLastBot({ confirm: undefined });
-    if (info.primaryUpload) {
-      runUploadAndProcess(info.file, folder || info.oneDrive?.inbox_folder || "/Document Processor/In");
-    } else {
-      runProcess(info.file);
-    }
+    runProcess(info.file, info.offerOneDriveSave);
   }
 
   function handleSecondary(info: ConfirmInfo) {
     updateLastBot({ confirm: undefined });
-    runProcess(info.file);
+    runProcess(info.file, false);
   }
 
   function handleCancel() {
@@ -710,6 +700,18 @@ export default function IngestPage() {
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
         {messages.map((msg, i) => {
+          if (msg.role === "save") {
+            return (
+              <SaveBlock
+                key={i}
+                file={msg.file}
+                defaultFolder={"/Document Processor/In"}
+                busy={busy}
+                onSave={handleSave}
+                onSkip={handleSkip}
+              />
+            );
+          }
           if (msg.role === "results") {
             return (
               <div key={i} className="space-y-2">
@@ -759,6 +761,7 @@ export default function IngestPage() {
                     onCancel={handleCancel}
                   />
                 )}
+
               </div>
             </div>
           );
