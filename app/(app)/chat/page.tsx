@@ -132,7 +132,7 @@ export default function ChatPage() {
       <header className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-gray-700">Chat / 搜尋助手</span>
-          <span className="text-xs text-gray-400">Llama 3.3 70B</span>
+          <span className="text-xs text-gray-400">Powered by Llama 3.3 70B</span>
         </div>
         <div className="flex items-center gap-2">
           {allSources.length > 0 && (

@@ -137,7 +137,10 @@ export default function SearchPage() {
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <header className="px-6 py-3 bg-white border-b border-gray-200 shrink-0">
-        <p className="text-sm font-medium text-gray-700">Keyword Search</p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm font-medium text-gray-700">Keyword Search</p>
+          <span className="text-xs text-gray-400">Powered by Azure AI Search</span>
+        </div>
         <p className="text-xs text-gray-400">Keyword search across all indexed documents</p>
       </header>
 
