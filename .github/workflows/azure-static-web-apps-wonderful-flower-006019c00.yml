@@ -28,9 +28,10 @@ jobs:
           action: "upload"
           app_location: "/"
           api_location: ""
-          output_location: ".next"
+          output_location: "out"
         env:
-          NEXT_PUBLIC_API_URL: https://c21net-bas-api-prop-intel-core-ea-prod.azurewebsites.net
+          NEXT_PUBLIC_PIPELINE_API_URL: https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net
+          NEXT_PUBLIC_CHAT_API_URL: https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

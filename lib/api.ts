@@ -1,4 +1,5 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+const PIPELINE_API_URL = process.env.NEXT_PUBLIC_PIPELINE_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8001";
+const CHAT_API_URL = process.env.NEXT_PUBLIC_CHAT_API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8002";
 
 function getToken(): string | null {
   if (typeof window === "undefined") return null;
@@ -18,9 +19,9 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
-async function apiFetch(path: string, init?: RequestInit) {
+async function apiFetch(path: string, init?: RequestInit, baseUrl = PIPELINE_API_URL) {
   const token = getToken();
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -36,10 +37,14 @@ async function apiFetch(path: string, init?: RequestInit) {
   return res;
 }
 
+function chatFetch(path: string, init?: RequestInit) {
+  return apiFetch(path, init, CHAT_API_URL);
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 export async function login(username: string, password: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/auth/login`, {
+  const res = await fetch(`${PIPELINE_API_URL}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password }),
@@ -68,7 +73,7 @@ export interface ChatMessage {
 }
 
 export async function sendMessage(question: string, threadId: string) {
-  const res = await apiFetch("/api/chat", {
+  const res = await chatFetch("/api/chat", {
     method: "POST",
     body: JSON.stringify({ question, thread_id: threadId }),
   });
@@ -77,7 +82,7 @@ export async function sendMessage(question: string, threadId: string) {
 }
 
 export async function clearConversation(threadId: string) {
-  await apiFetch(`/api/chat/conversations/${threadId}`, { method: "DELETE" });
+  await chatFetch(`/api/chat/conversations/${threadId}`, { method: "DELETE" });
 }
 
 export function streamMessage(
@@ -89,7 +94,7 @@ export function streamMessage(
 ): () => void {
   const token = getToken();
   const params = new URLSearchParams({ question, thread_id: threadId });
-  const url = `${API_URL}/api/chat/stream?${params}`;
+  const url = `${CHAT_API_URL}/api/chat/stream?${params}`;
 
   const controller = new AbortController();
 
@@ -143,7 +148,7 @@ export async function generateReport(
   reportType = "rent",
 ): Promise<Blob> {
   const token = getToken();
-  const res = await fetch(`${API_URL}/api/chat/report`, {
+  const res = await fetch(`${CHAT_API_URL}/api/chat/report`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -171,7 +176,7 @@ export async function generateReport(
 // ── Search ────────────────────────────────────────────────────────────────────
 
 export async function search(query: string, topK = 20) {
-  const res = await apiFetch("/api/search", {
+  const res = await chatFetch("/api/search", {
     method: "POST",
     body: JSON.stringify({ query, top_k: topK, search_type: "keyword" }),
   });
@@ -206,6 +211,8 @@ export interface DocumentRecord {
   extracted_data: Record<string, unknown> | null;
   image_urls: string[];
   chunk_count: number;
+  needs_review?: boolean;
+  extraction_path?: string;
 }
 
 export interface HistoryRecord {
@@ -221,21 +228,27 @@ export interface HistoryRecord {
 }
 
 export async function getAdminHistory(months = 3, top = 500): Promise<{ runs: HistoryRecord[]; total: number }> {
-  const res = await apiFetch(`/api/admin/history?months=${months}&top=${top}`);
+  const res = await apiFetch(`/api/monitoring/history?months=${months}&top=${top}`);
   if (!res.ok) throw new Error("Failed to fetch history");
   return res.json();
 }
 
 export async function getAdminRuns(hours = 72): Promise<{ runs: RunRecord[]; token_stats: TokenStats }> {
-  const res = await apiFetch(`/api/admin/runs?hours=${hours}`);
+  const res = await apiFetch(`/api/monitoring/runs?hours=${hours}`);
   if (!res.ok) throw new Error("Failed to fetch runs");
   return res.json();
 }
 
-export async function updateDocument(docId: string, extractedData: Record<string, unknown>): Promise<void> {
-  const res = await apiFetch(`/api/admin/documents/${encodeURIComponent(docId)}`, {
+export async function updateDocument(
+  docId: string,
+  extractedData: Record<string, unknown>,
+  needsReview?: boolean,
+): Promise<void> {
+  const body: Record<string, unknown> = { extracted_data: extractedData };
+  if (needsReview !== undefined) body.needs_review = needsReview;
+  const res = await apiFetch(`/api/documents/${encodeURIComponent(docId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ extracted_data: extractedData }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
@@ -243,30 +256,39 @@ export async function updateDocument(docId: string, extractedData: Record<string
   }
 }
 
-export async function getAdminDocuments(topK = 1000): Promise<{
+export async function getAdminDocuments(topK = 1000, needsReview = false): Promise<{
   total_chunks: number;
   total_files: number;
   by_type: Record<string, number>;
   files: DocumentRecord[];
 }> {
-  const res = await apiFetch(`/api/admin/documents?top_k=${topK}`);
+  const params = new URLSearchParams({ top_k: String(topK), needs_review: String(needsReview) });
+  const res = await apiFetch(`/api/documents?${params}`);
   if (!res.ok) throw new Error("Failed to fetch documents");
   return res.json();
 }
 
 export interface AdminConfig {
   inbox_folder: string;
+  processed_folder: string;
   move_when_done: boolean;
+  timer_enabled: boolean;
+  ms_client_id: string;
+  ms_tenant_id: string;
+  ms_client_secret_configured: boolean;
+  ms_drive_id: string;
 }
 
 export async function getAdminConfig(): Promise<AdminConfig> {
-  const res = await apiFetch("/api/admin/config");
+  const res = await apiFetch("/api/config");
   if (!res.ok) throw new Error("Failed to fetch config");
   return res.json();
 }
 
-export async function updateAdminConfig(cfg: Partial<AdminConfig>): Promise<AdminConfig> {
-  const res = await apiFetch("/api/admin/config", {
+export async function updateAdminConfig(
+  cfg: Partial<AdminConfig & { ms_client_secret: string }>,
+): Promise<AdminConfig> {
+  const res = await apiFetch("/api/config", {
     method: "PUT",
     body: JSON.stringify(cfg),
   });
@@ -286,97 +308,31 @@ export interface IngestResult {
   index_id?: string;
 }
 
-export async function processIngest(
-  file?: File,
-  folderPath?: string,
-): Promise<{ results: IngestResult[]; message?: string }> {
+export async function processIngest(file: File): Promise<{ results: IngestResult[] }> {
   const token = localStorage.getItem("token");
   const form = new FormData();
-  if (file) form.append("file", file);
-  if (folderPath) form.append("folder_path", folderPath);
-
+  form.append("file", file);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90_000);
-
+  const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
-    const res = await fetch(`${API_URL}/api/admin/process`, {
+    const res = await fetch(`${PIPELINE_API_URL}/api/pipeline/process`, {
       method: "POST",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: form,
       signal: controller.signal,
     });
-    if (res.status === 401) {
-      clearToken();
-      window.location.href = "/login";
-      throw new Error("Unauthorized");
-    }
+    if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
     if (!res.ok) {
       const detail = await res.json().catch(() => ({}));
       throw new Error((detail as { detail?: string }).detail ?? "Processing failed");
     }
     return res.json();
   } catch (e: unknown) {
-    if (e instanceof Error && e.name === "AbortError") throw new Error("Processing took longer than expected. Large or complex documents may take more time — please try again.");
+    if (e instanceof Error && e.name === "AbortError") throw new Error("Processing took too long — try again.");
     throw e;
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function streamIngest(
-  folderPath: string,
-  onFound: (count: number, files: string[]) => void,
-  onFileDone: (result: IngestResult) => void,
-  onDone: (ok: number, total: number, message?: string) => void,
-  onError: (err: string) => void,
-): () => void {
-  const token = getToken();
-  const controller = new AbortController();
-
-  (async () => {
-    try {
-      const form = new FormData();
-      form.append("folder_path", folderPath);
-      const res = await fetch(`${API_URL}/api/admin/process/stream`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: form,
-        signal: controller.signal,
-      });
-      if (res.status === 401) { clearToken(); window.location.href = "/login"; return; }
-      if (!res.ok || !res.body) { onError(`Server error (${res.status})`); return; }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const raw = line.slice(6).trim();
-          if (!raw) continue;
-          try {
-            const ev = JSON.parse(raw);
-            if (ev.error) { onError(ev.error); return; }
-            if (ev.event === "found") onFound(ev.count, ev.files ?? []);
-            else if (ev.event === "file_done") onFileDone(ev.result);
-            else if (ev.event === "done") {
-              if (Array.isArray(ev.results) && ev.results.length === 0) onDone(0, 0, ev.message);
-              else onDone(ev.ok ?? 0, ev.total ?? 0);
-            }
-          } catch { /* ignore parse errors */ }
-        }
-      }
-    } catch (e: unknown) {
-      if (e instanceof Error && e.name !== "AbortError") onError(e.message);
-    }
-  })();
-
-  return () => controller.abort();
 }
 
 export interface TriageResult {
@@ -392,7 +348,7 @@ export async function triageFile(file: File): Promise<TriageResult> {
   const token = localStorage.getItem("token");
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_URL}/api/admin/triage`, {
+  const res = await fetch(`${PIPELINE_API_URL}/api/pipeline/triage`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
@@ -414,10 +370,26 @@ export interface OneDriveCheckResult {
   processed_folder?: string;
 }
 
+export interface DriveRecord {
+  id: string;
+  name: string;
+  type: string;
+  is_default: boolean;
+}
+
+export async function listOneDrives(): Promise<{ drives: DriveRecord[] }> {
+  const res = await apiFetch("/api/pipeline/onedrive-drives");
+  if (!res.ok) return { drives: [] };
+  return res.json();
+}
+
 export async function listOneDriveFolders(
   path = "/",
+  driveId?: string,
 ): Promise<{ folders: Array<{ name: string; path: string }>; path: string }> {
-  const res = await apiFetch(`/api/admin/onedrive-folders?path=${encodeURIComponent(path)}`);
+  const params = new URLSearchParams({ path });
+  if (driveId) params.set("drive_id", driveId);
+  const res = await apiFetch(`/api/pipeline/onedrive-folders?${params}`);
   if (!res.ok) return { folders: [], path };
   return res.json();
 }
@@ -425,7 +397,7 @@ export async function listOneDriveFolders(
 export async function checkOneDrive(fileName: string): Promise<OneDriveCheckResult> {
   const token = getToken();
   const res = await fetch(
-    `${API_URL}/api/admin/onedrive-check?file_name=${encodeURIComponent(fileName)}`,
+    `${PIPELINE_API_URL}/api/pipeline/onedrive-check?file_name=${encodeURIComponent(fileName)}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
   if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
@@ -443,7 +415,7 @@ export interface CheckResult {
 export async function checkFile(fileName: string): Promise<CheckResult> {
   const token = getToken();
   const res = await fetch(
-    `${API_URL}/api/admin/check?file_name=${encodeURIComponent(fileName)}`,
+    `${PIPELINE_API_URL}/api/pipeline/check?file_name=${encodeURIComponent(fileName)}`,
     { headers: token ? { Authorization: `Bearer ${token}` } : {} },
   );
   if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
@@ -451,15 +423,37 @@ export async function checkFile(fileName: string): Promise<CheckResult> {
   return res.json();
 }
 
+// ── Billing ───────────────────────────────────────────────────────────────────
+
+export async function getCredits(): Promise<{ username: string; balance: number }> {
+  const res = await apiFetch("/api/billing/credits");
+  if (!res.ok) throw new Error("Failed to fetch credits");
+  return res.json();
+}
+
+export async function createCheckout(pkg: "starter" | "pro" | "max"): Promise<{ url: string }> {
+  const res = await apiFetch("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ package: pkg }),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error((detail as { detail?: string }).detail ?? "Checkout failed");
+  }
+  return res.json();
+}
+
 export async function uploadFiles(
   files: File[],
   folderPath?: string,
+  driveId?: string,
 ): Promise<{ results: Array<{ name: string; ok: boolean; error?: string; web_url?: string }>; folder: string }> {
   const token = localStorage.getItem("token");
   const form = new FormData();
   for (const f of files) form.append("files", f);
   if (folderPath) form.append("folder_path", folderPath);
-  const res = await fetch(`${API_URL}/api/admin/upload`, {
+  if (driveId) form.append("drive_id", driveId);
+  const res = await fetch(`${PIPELINE_API_URL}/api/pipeline/upload`, {
     method: "POST",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
