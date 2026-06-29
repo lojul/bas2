@@ -321,7 +321,7 @@ export async function processIngest(
     form.append("ocr_complete", "true");
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  const timeout = setTimeout(() => controller.abort(), 300_000);
   try {
     const res = await fetch(`${PIPELINE_API_URL}/api/pipeline/process`, {
       method: "POST",
@@ -334,7 +334,31 @@ export async function processIngest(
       const detail = await res.json().catch(() => ({}));
       throw new Error((detail as { detail?: string }).detail ?? "Processing failed");
     }
-    return res.json();
+    // Process endpoint returns SSE to survive Azure's 60s idle proxy timeout.
+    // We read the stream and return the first "data: {...}" event we receive.
+    if (!res.body) throw new Error("No response body");
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+        return JSON.parse(raw) as { results: IngestResult[] };
+      }
+    }
+    // Flush any remaining buffer after stream closes
+    if (buffer.startsWith("data: ")) {
+      const raw = buffer.slice(6).trim();
+      if (raw) return JSON.parse(raw) as { results: IngestResult[] };
+    }
+    throw new Error("No result received from processing stream");
   } catch (e: unknown) {
     if (e instanceof Error && e.name === "AbortError") throw new Error("Processing took too long — try again.");
     throw e;

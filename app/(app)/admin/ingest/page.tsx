@@ -34,11 +34,24 @@ const TYPE_FIELDS: Record<string, string> = {
 };
 
 const FIELD_LABELS: Record<string, string> = {
+  // Property core
   building_name: "Building Name", address: "Address", district: "District",
-  size_sqft: "Size (sqft)", rent_monthly: "Rent (HK$/mo)", floor_unit: "Floor / Unit",
-  contact: "Contact", name: "Name", company: "Company", phone: "Phone", email: "Email",
+  property_type: "Property Type", transaction_type: "Type",
+  // Financials
+  sell_price: "Asking Price (HK$)", rent_monthly: "Current Income (HK$/mo)",
+  return_rate: "Gross Yield", ownership_pct: "Ownership",
+  // Size
+  size_sqft: "Size (sqft)", floor_unit: "Floor / Unit",
+  // Contact
+  contact_name: "Contact", contact_phone: "Phone", contact_email: "Email",
+  // Other listing fields
+  notes: "Notes", floor_units: "Floors / Units",
+  // Contact card
+  name: "Name", company: "Company", phone: "Phone", email: "Email",
+  // News
   title: "Title", date: "Date", source: "Source", summary: "Summary", topics: "Topics",
-  project_name: "Project Name", developer: "Developer", property_type: "Property Type",
+  // Pitching deck
+  project_name: "Project Name", developer: "Developer",
   project_summary: "Project Summary", available_units: "Available Units",
   location: "Location", key_features: "Key Features", design_team: "Design Team",
   units: "Units", total_gfa: "Total GFA", floors: "Floors",
@@ -46,16 +59,34 @@ const FIELD_LABELS: Record<string, string> = {
   asking_price: "Asking Price (HK$)", rental_income: "Monthly Rental Income (HK$)",
 };
 
+// Fields to hide from the properties table (metadata, not user-facing)
+const PROPERTY_HIDDEN_KEYS = new Set(["overall_confidence", "field_confidence", "_error"]);
+
+// Column order for the properties[] sub-table
+const PROPERTY_KEY_ORDER = [
+  "building_name", "address", "district", "property_type", "transaction_type",
+  "sell_price", "rent_monthly", "return_rate", "ownership_pct",
+  "notes", "contact_name", "contact_phone", "floor_units",
+];
+
 // ── Field renderers ────────────────────────────────────────────────────────────
 
-const UNIT_KEY_ORDER = ["floor", "floor_unit", "unit", "size", "size_sqft", "rent", "rent_monthly", "price", "unit_type", "facing", "features", "notes"];
+const UNIT_KEY_ORDER = ["floor", "floor_unit", "unit", "size", "size_sqft", "sell_price", "rent_monthly", "price", "unit_type", "facing", "features", "notes"];
 
-function ObjectArrayField({ items }: { items: Record<string, unknown>[] }) {
+function ObjectArrayField({ items, keyOrder = UNIT_KEY_ORDER, hiddenKeys }: {
+  items: Record<string, unknown>[];
+  keyOrder?: string[];
+  hiddenKeys?: Set<string>;
+}) {
   const allKeys = Array.from(
-    new Set(items.flatMap((item) => Object.keys(item).filter((k) => item[k] !== null && item[k] !== undefined && item[k] !== "")))
+    new Set(items.flatMap((item) =>
+      Object.keys(item).filter((k) =>
+        !hiddenKeys?.has(k) && item[k] !== null && item[k] !== undefined && item[k] !== ""
+      )
+    ))
   ).sort((a, b) => {
-    const ai = UNIT_KEY_ORDER.indexOf(a);
-    const bi = UNIT_KEY_ORDER.indexOf(b);
+    const ai = keyOrder.indexOf(a);
+    const bi = keyOrder.indexOf(b);
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
@@ -82,9 +113,22 @@ function ObjectArrayField({ items }: { items: Record<string, unknown>[] }) {
                 <td className="px-2 py-1 text-gray-300">{i + 1}</td>
                 {allKeys.map((k) => {
                   const v = item[k];
-                  const str = v === null || v === undefined || v === "" ? "" : typeof v === "object" ? JSON.stringify(v) : String(v);
+                  let str = "";
+                  if (v !== null && v !== undefined && v !== "") {
+                    if (typeof v === "object") {
+                      str = Array.isArray(v) ? `[${(v as unknown[]).length} items]` : JSON.stringify(v);
+                    } else if (k === "return_rate" && typeof v === "number") {
+                      str = `${(v * 100).toFixed(2)}%`;
+                    } else if (k === "ownership_pct" && typeof v === "number") {
+                      str = `${(v * 100).toFixed(0)}%`;
+                    } else if ((k === "sell_price" || k === "rent_monthly") && typeof v === "number") {
+                      str = `HK$${Number(v).toLocaleString("en-HK")}`;
+                    } else {
+                      str = String(v);
+                    }
+                  }
                   return (
-                    <td key={k} className="px-2 py-1 text-gray-700 whitespace-nowrap max-w-[12rem] truncate" title={str}>
+                    <td key={k} className="px-2 py-1 text-gray-700 whitespace-nowrap max-w-[14rem] truncate" title={str}>
                       {str || <span className="text-gray-300">—</span>}
                     </td>
                   );
@@ -106,7 +150,14 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
   if (Array.isArray(value)) {
     if (value.length === 0) return null;
     if (typeof value[0] === "object" && value[0] !== null) {
-      display = <ObjectArrayField items={value as Record<string, unknown>[]} />;
+      const isProperties = label === "properties";
+      display = (
+        <ObjectArrayField
+          items={value as Record<string, unknown>[]}
+          keyOrder={isProperties ? PROPERTY_KEY_ORDER : UNIT_KEY_ORDER}
+          hiddenKeys={isProperties ? PROPERTY_HIDDEN_KEYS : undefined}
+        />
+      );
     } else {
       display = <span>{(value as unknown[]).map(String).join(", ")}</span>;
     }
