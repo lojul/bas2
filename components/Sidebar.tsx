@@ -10,14 +10,14 @@ interface NavItem {
 }
 
 const mainNav: NavItem[] = [
-  { href: "/chat", label: "Chat" },
-  { href: "/search", label: "Keyword Search" },
+  { href: "/chat",         label: "Chat" },
+  { href: "/search",       label: "Keyword Search" },
+  { href: "/admin/ingest", label: "Ingest" },
 ];
 
 const adminNav: NavItem[] = [
-  { href: "/admin/ingest", label: "Ingest" },
-  { href: "/admin/process", label: "Processing" },
-  { href: "/admin/vector", label: "Vector DB" },
+  { href: "/admin/process",  label: "Processing" },
+  { href: "/admin/vector",   label: "Vector DB" },
   { href: "/admin/settings", label: "Settings" },
 ];
 
@@ -84,6 +84,19 @@ export function Sidebar({ onClose }: { onClose?: () => void }) {
         {adminNav.map((item) => (
           <NavLink key={item.href} pathname={pathname} onClose={onClose} {...item} />
         ))}
+        <a
+          href="https://smith.langchain.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onClose}
+          className="flex items-center justify-between text-sm px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
+        >
+          <span>Logs (LangSmith)</span>
+          <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
       </nav>
 
       <div className="p-3 border-t border-gray-100">
