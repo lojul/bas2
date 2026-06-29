@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  checkFile, checkOneDrive, listOneDriveFolders, processIngest, streamIngest, triageFile, updateDocument, uploadFiles,
+  checkFile, checkOneDrive, getAdminConfig, listOneDrives, listOneDriveFolders, processIngest, triageFile, updateDocument, uploadFiles,
 } from "@/lib/api";
-import type { CheckResult, IngestResult, OneDriveCheckResult, TriageResult } from "@/lib/api";
+import type { CheckResult, DriveRecord, IngestResult, OneDriveCheckResult, TriageResult } from "@/lib/api";
 
 const TYPE_LABELS: Record<string, string> = {
   listing: "Single Listing",
@@ -43,11 +43,12 @@ const FIELD_LABELS: Record<string, string> = {
   location: "Location", key_features: "Key Features", design_team: "Design Team",
   units: "Units", total_gfa: "Total GFA", floors: "Floors",
   leasing_agent: "Leasing Agent", website: "Website",
+  asking_price: "Asking Price (HK$)", rental_income: "Monthly Rental Income (HK$)",
 };
 
 // ── Field renderers ────────────────────────────────────────────────────────────
 
-const UNIT_KEY_ORDER = ["floor_unit", "size_sqft", "rent_monthly", "unit_type", "facing", "features", "notes"];
+const UNIT_KEY_ORDER = ["floor", "floor_unit", "unit", "size", "size_sqft", "rent", "rent_monthly", "price", "unit_type", "facing", "features", "notes"];
 
 function ObjectArrayField({ items }: { items: Record<string, unknown>[] }) {
   const allKeys = Array.from(
@@ -129,7 +130,8 @@ function FieldRow({ label, value }: { label: string; value: unknown }) {
       </div>
     );
   } else {
-    display = <span>{String(value)}</span>;
+    const str = typeof value === "number" ? value.toLocaleString("en-HK") : String(value);
+    display = <span>{str}</span>;
   }
 
   const isTable = Array.isArray(value) && value.length > 0 && typeof (value as unknown[])[0] === "object" && (value as unknown[])[0] !== null;
@@ -354,7 +356,7 @@ function EditForm({
 
 // ── ResultCard ────────────────────────────────────────────────────────────────
 
-function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: string }) {
+function ResultCard({ r }: { r: IngestResult }) {
   const [showRaw, setShowRaw] = useState(false);
   const [editing, setEditing] = useState(false);
   const [localData, setLocalData] = useState<Record<string, unknown>>(r.extracted_data ?? {});
@@ -363,7 +365,6 @@ function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: s
 
   return (
     <div className="mt-2 bg-white border border-gray-200 rounded-xl overflow-hidden text-sm">
-      {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 flex-wrap">
         {r.status === "success" ? (
           <span className="text-green-600 font-medium text-base leading-none">✓</span>
@@ -389,20 +390,6 @@ function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: s
         </div>
       ) : (
         <div className="border-t border-gray-100">
-          {/* OneDrive section — only if uploaded */}
-          {uploadedFolder && (
-            <div className="px-4 py-2.5 border-b border-gray-50 bg-gray-50/50">
-              <p className="text-xs font-medium text-gray-500 mb-1">OneDrive</p>
-              <p className="text-xs text-gray-700 font-mono">
-                {uploadedFolder}/{r.file_name}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                Will be moved to /Processed when the timer runs (every 5 min)
-              </p>
-            </div>
-          )}
-
-          {/* Azure AI Search section */}
           <div className="px-4 py-2.5">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-1.5">
@@ -427,7 +414,6 @@ function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: s
                 </div>
               )}
             </div>
-
             {editing && r.index_id ? (
               <EditForm
                 data={ed}
@@ -453,7 +439,221 @@ function ResultCard({ r, uploadedFolder }: { r: IngestResult; uploadedFolder?: s
   );
 }
 
-// ── Message types ─────────────────────────────────────────────────────────────
+// ── Folder browser ────────────────────────────────────────────────────────────
+
+function FolderBrowser({
+  selected,
+  onSelect,
+  onDriveChange,
+}: {
+  selected: string;
+  onSelect: (path: string) => void;
+  onDriveChange?: (driveId: string | undefined) => void;
+}) {
+  const [drives, setDrives] = useState<DriveRecord[]>([]);
+  const [activeDriveId, setActiveDriveId] = useState<string | undefined>(undefined);
+  const [browsePath, setBrowsePath] = useState(() => selected.trim() || "/");
+  const [folders, setFolders] = useState<Array<{ name: string; path: string }>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    listOneDrives().then((data) => {
+      setDrives(data.drives);
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+    listOneDriveFolders(browsePath, activeDriveId)
+      .then((data) => { if (!cancelled) { setFolders(data.folders); setLoading(false); } })
+      .catch(() => { if (!cancelled) { setError("Could not load folders"); setLoading(false); } });
+    return () => { cancelled = true; };
+  }, [browsePath, activeDriveId]);
+
+  function goTo(path: string) {
+    setBrowsePath(path);
+  }
+
+  function switchDrive(driveId: string | undefined) {
+    setActiveDriveId(driveId);
+    setBrowsePath("/");
+    onDriveChange?.(driveId);
+  }
+
+  const activeDrive = drives.find((d) => d.id === activeDriveId) ?? drives.find((d) => d.is_default);
+  const parts = browsePath === "/" ? [] : browsePath.split("/").filter(Boolean);
+
+  return (
+    <div className="border border-gray-200 rounded-lg overflow-hidden text-xs">
+      {/* Drive selector — only shown when multiple drives are available */}
+      {drives.length > 1 && (
+        <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100">
+          <select
+            value={activeDriveId ?? ""}
+            onChange={(e) => switchDrive(e.target.value || undefined)}
+            className="w-full text-xs bg-transparent border-none outline-none text-gray-700 cursor-pointer"
+          >
+            {drives.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}{d.is_default ? " (default)" : ""}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex-wrap">
+        <button onClick={() => goTo("/")} className="text-blue-600 hover:underline">
+          {activeDrive?.name ?? "OneDrive"}
+        </button>
+        {parts.map((part, i) => {
+          const path = "/" + parts.slice(0, i + 1).join("/");
+          return (
+            <span key={i} className="flex items-center gap-1">
+              <span className="text-gray-300">/</span>
+              <button onClick={() => goTo(path)} className="text-blue-600 hover:underline">{part}</button>
+            </span>
+          );
+        })}
+      </div>
+
+      {/* Folder list */}
+      <div className="max-h-40 overflow-y-auto bg-white divide-y divide-gray-50">
+        {loading && <p className="px-3 py-3 text-gray-400">Loading…</p>}
+        {!loading && error && <p className="px-3 py-3 text-red-500">{error}</p>}
+        {!loading && !error && folders.length === 0 && (
+          <p className="px-3 py-3 text-gray-400 italic">No subfolders here</p>
+        )}
+        {folders.map((f) => (
+          <button
+            key={f.path}
+            onClick={() => goTo(f.path)}
+            className="w-full text-left flex items-center gap-2 px-3 py-2 hover:bg-gray-50 text-gray-700"
+          >
+            <span className="text-gray-400">📁</span>
+            <span className="flex-1">{f.name}</span>
+            <span className="text-gray-400">›</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Confirm footer */}
+      <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border-t border-gray-100">
+        <span className="text-gray-500 flex-1 break-all leading-snug">
+          {browsePath === "/" ? "/ (root)" : browsePath}
+        </span>
+        <button
+          onClick={() => onSelect(browsePath)}
+          className="shrink-0 px-3 py-1 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          OK
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Post-processing OneDrive save prompt ──────────────────────────────────────
+
+function SavePromptBlock({ file, onDismiss }: { file: File; onDismiss: () => void }) {
+  const [defaultFolder, setDefaultFolder] = useState("/Document Processor/Processed");
+  const [folder, setFolder] = useState<string | null>(null);
+  const [driveId, setDriveId] = useState<string | undefined>(undefined);
+  const [showBrowser, setShowBrowser] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    getAdminConfig().then((cfg) => {
+      const f = cfg.processed_folder || "/Document Processor/Processed";
+      setDefaultFolder(f);
+      setFolder(f);
+    }).catch(() => {
+      setFolder("/Document Processor/Processed");
+    });
+  }, []);
+
+  async function handleSave() {
+    const dest = folder ?? defaultFolder;
+    setSaving(true);
+    setError("");
+    try {
+      await uploadFiles([file], dest, driveId);
+      setSaved(dest);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (saved) {
+    return (
+      <div className="bg-white border border-gray-200 text-gray-700 text-sm px-4 py-2.5 rounded-2xl rounded-bl-sm max-w-sm">
+        <p className="text-xs text-green-600">
+          ✓ Saved to <span className="font-mono">{saved}/{file.name}</span>
+        </p>
+      </div>
+    );
+  }
+
+  if (folder === null) {
+    return (
+      <div className="bg-white border border-gray-200 text-gray-500 text-xs px-4 py-2.5 rounded-2xl rounded-bl-sm">
+        Loading…
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 text-gray-700 text-sm px-4 py-2.5 rounded-2xl rounded-bl-sm w-96 max-w-full">
+      <p className="font-medium mb-2">Save to OneDrive?</p>
+      <div className="mb-2">
+        <p className="text-xs text-gray-400 mb-1">Destination folder</p>
+        <p className="text-xs font-mono text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 break-all leading-relaxed">
+          {folder}
+        </p>
+      </div>
+      <button
+        onClick={() => setShowBrowser((v) => !v)}
+        className="text-xs text-blue-600 hover:text-blue-800 mb-3"
+      >
+        {showBrowser ? "▲ Hide folder browser" : "▼ Change directory"}
+      </button>
+      {showBrowser && (
+        <div className="mb-3">
+          <FolderBrowser
+            selected={folder}
+            onSelect={(f) => { setFolder(f); setShowBrowser(false); }}
+            onDriveChange={setDriveId}
+          />
+        </div>
+      )}
+      {error && <p className="text-xs text-red-500 mb-2">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
+        >
+          {saving ? "Saving…" : "Save to OneDrive"}
+        </button>
+        <button
+          onClick={onDismiss}
+          disabled={saving}
+          className="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg disabled:opacity-40 transition-colors"
+        >
+          Skip
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Confirm block ─────────────────────────────────────────────────────────────
 
 type ConfirmInfo = {
   file: File;
@@ -462,128 +662,7 @@ type ConfirmInfo = {
   oneDrive?: OneDriveCheckResult;
   primaryLabel: string;
   secondaryLabel?: string;
-  offerOneDriveSave: boolean; // show OneDrive save prompt after processing
 };
-
-type BotMsg = { role: "bot"; text: string; sub?: string; confirm?: ConfirmInfo };
-type UserMsg = { role: "user"; text: string; fileName?: string };
-type ResultsMsg = { role: "results"; results: IngestResult[]; uploadedFolder?: string };
-type ResultItemMsg = { role: "result-item"; result: IngestResult; uploadedFolder?: string };
-type SaveMsg = { role: "save"; file: File };
-type Message = BotMsg | UserMsg | ResultsMsg | ResultItemMsg | SaveMsg;
-
-const GREETING: Message = {
-  role: "bot",
-  text: "Please upload a PDF (or Word / PowerPoint / image) file and I'll process it for you.",
-};
-
-function isUrl(s: string) {
-  return /^https?:\/\//i.test(s.trim());
-}
-
-function formatDate(iso?: string): string {
-  if (!iso) return "previously";
-  try {
-    return new Date(iso).toLocaleDateString("en-HK", { day: "numeric", month: "short", year: "numeric" });
-  } catch {
-    return "previously";
-  }
-}
-
-function extractHighlights(data?: Record<string, unknown>): string[] {
-  if (!data) return [];
-  const h: string[] = [];
-  if (data.building_name) h.push(String(data.building_name));
-  if (data.address) h.push(String(data.address));
-  if (data.district) h.push(String(data.district));
-  if (data.project_name) h.push(String(data.project_name));
-  return h;
-}
-
-// ── Folder browser ────────────────────────────────────────────────────────────
-
-function FolderBrowser({ selected, onSelect }: { selected: string; onSelect: (path: string) => void }) {
-  const [browsePath, setBrowsePath] = useState(() => {
-    // Start at parent of current selection so user can see it as a clickable item
-    const p = selected.trim();
-    if (!p || p === "/") return "/";
-    const parts = p.split("/").filter(Boolean);
-    return parts.length > 1 ? "/" + parts.slice(0, -1).join("/") : "/";
-  });
-  const [folders, setFolders] = useState<Array<{ name: string; path: string }>>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    listOneDriveFolders(browsePath)
-      .then((data) => { if (!cancelled) { setFolders(data.folders); setLoading(false); } })
-      .catch(() => { if (!cancelled) { setError("Could not load folders"); setLoading(false); } });
-    return () => { cancelled = true; };
-  }, [browsePath]);
-
-  function navigate(path: string) {
-    setBrowsePath(path);
-    onSelect(path);
-  }
-
-  const parts = browsePath === "/" ? [] : browsePath.split("/").filter(Boolean);
-
-  return (
-    <div className="border border-gray-200 rounded-lg overflow-hidden text-xs">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 px-3 py-1.5 bg-gray-50 border-b border-gray-100 flex-wrap">
-        <button onClick={() => navigate("/")} className="text-blue-600 hover:underline">OneDrive</button>
-        {parts.map((part, i) => {
-          const path = "/" + parts.slice(0, i + 1).join("/");
-          return (
-            <span key={i} className="flex items-center gap-1">
-              <span className="text-gray-300">/</span>
-              <button onClick={() => navigate(path)} className="text-blue-600 hover:underline">{part}</button>
-            </span>
-          );
-        })}
-      </div>
-
-      {/* Folder list */}
-      <div className="max-h-36 overflow-y-auto bg-white divide-y divide-gray-50">
-        {/* "Use this folder" row for current level */}
-        <button
-          onClick={() => onSelect(browsePath === "/" ? "/" : browsePath)}
-          className={`w-full text-left flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 ${
-            selected === browsePath ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-500"
-          }`}
-        >
-          <span>·</span>
-          <span className="italic">Use this folder ({browsePath === "/" ? "root" : browsePath.split("/").pop()})</span>
-        </button>
-
-        {loading && <p className="px-3 py-2 text-gray-400">Loading…</p>}
-        {!loading && error && <p className="px-3 py-2 text-red-500">{error}</p>}
-        {!loading && !error && folders.length === 0 && (
-          <p className="px-3 py-2 text-gray-400 italic">No subfolders here</p>
-        )}
-        {folders.map((f) => (
-          <button
-            key={f.path}
-            onClick={() => navigate(f.path)}
-            className={`w-full text-left flex items-center gap-2 px-3 py-1.5 hover:bg-blue-50 ${
-              selected === f.path ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-700"
-            }`}
-          >
-            <span className="text-gray-400">📁</span>
-            {f.name}
-            <span className="ml-auto text-gray-300">›</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Confirm block ─────────────────────────────────────────────────────────────
 
 function ConfirmBlock({
   info,
@@ -627,72 +706,36 @@ function ConfirmBlock({
   );
 }
 
-// ── Save to OneDrive block ────────────────────────────────────────────────────
+// ── Message types ─────────────────────────────────────────────────────────────
 
-function SaveBlock({
-  file,
-  defaultFolder,
-  busy,
-  onSave,
-  onSkip,
-}: {
-  file: File;
-  defaultFolder: string;
-  busy: boolean;
-  onSave: (file: File, folder: string) => void;
-  onSkip: () => void;
-}) {
-  const [folder, setFolder] = useState(defaultFolder);
-  const [showBrowser, setShowBrowser] = useState(false);
+type BotMsg      = { role: "bot"; text: string; sub?: string; confirm?: ConfirmInfo };
+type UserMsg     = { role: "user"; text: string; fileName?: string };
+type ResultsMsg  = { role: "results"; results: IngestResult[] };
+type SavePromptMsg = { role: "save-prompt"; file: File };
+type Message = BotMsg | UserMsg | ResultsMsg | SavePromptMsg;
 
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-sm bg-white border border-gray-200 text-gray-700 text-sm px-4 py-3 rounded-2xl rounded-bl-sm space-y-2">
-        <p>Save <span className="font-medium">{file.name}</span> to OneDrive?</p>
-        <div className="space-y-1.5">
-          <div className="flex gap-1.5">
-            <input
-              type="text"
-              value={folder}
-              onChange={(e) => { setFolder(e.target.value); setShowBrowser(false); }}
-              placeholder="/Document Processor/In"
-              className="flex-1 text-xs font-mono border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-300 bg-white text-gray-800"
-            />
-            <button
-              onClick={() => setShowBrowser((v) => !v)}
-              className={`shrink-0 text-xs px-2.5 py-1.5 border rounded-lg transition-colors ${
-                showBrowser
-                  ? "bg-blue-50 border-blue-300 text-blue-700"
-                  : "border-gray-200 text-gray-500 hover:bg-gray-50"
-              }`}
-            >
-              Browse
-            </button>
-          </div>
-          {showBrowser && (
-            <FolderBrowser selected={folder} onSelect={(path) => setFolder(path)} />
-          )}
-          <p className="text-xs text-gray-400">New folders will be created automatically.</p>
-        </div>
-        <div className="flex gap-2 pt-1">
-          <button
-            onClick={() => onSave(file, folder)}
-            disabled={busy || !folder.trim()}
-            className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 transition-colors"
-          >
-            Save to OneDrive
-          </button>
-          <button
-            onClick={onSkip}
-            disabled={busy}
-            className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-500 rounded-lg hover:bg-gray-200 disabled:opacity-40 transition-colors"
-          >
-            Skip
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+const GREETING: Message = {
+  role: "bot",
+  text: "Please upload a PDF (or Word / PowerPoint / image) file and I'll process it for you.",
+};
+
+function formatDate(iso?: string): string {
+  if (!iso) return "previously";
+  try {
+    return new Date(iso).toLocaleDateString("en-HK", { day: "numeric", month: "short", year: "numeric" });
+  } catch {
+    return "previously";
+  }
+}
+
+function extractHighlights(data?: Record<string, unknown>): string[] {
+  if (!data) return [];
+  const h: string[] = [];
+  if (data.building_name) h.push(String(data.building_name));
+  if (data.address) h.push(String(data.address));
+  if (data.district) h.push(String(data.district));
+  if (data.project_name) h.push(String(data.project_name));
+  return h;
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
@@ -700,9 +743,7 @@ function SaveBlock({
 export default function IngestPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const cancelRef = useRef<(() => void) | null>(null);
   const [messages, setMessages] = useState<Message[]>([GREETING]);
-  const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -728,13 +769,13 @@ export default function IngestPage() {
 
   // ── Process file ───────────────────────────────────────────────────────────
 
-  async function runProcess(file: File, offerOneDriveSave = false) {
+  async function runProcess(file: File, triage?: TriageResult) {
     setBusy(true);
     push({ role: "bot", text: `Processing ${file.name}…` });
     try {
-      const data = await processIngest(file);
+      const data = await processIngest(file, triage);
       if (!data.results.length) {
-        updateLastBot({ text: "No supported files found." });
+        updateLastBot({ text: "No results returned." });
       } else {
         const ok = data.results.filter((r) => r.status === "success").length;
         const total = data.results.length;
@@ -744,40 +785,13 @@ export default function IngestPage() {
             : `Done — ${ok}/${total} succeeded.`,
         });
         push({ role: "results", results: data.results });
-        if (offerOneDriveSave && ok > 0) {
-          push({ role: "save", file });
-        }
+        if (ok > 0) push({ role: "save-prompt", file });
       }
     } catch (e: unknown) {
       updateLastBot({ text: `Error: ${e instanceof Error ? e.message : "Processing failed"}` });
     } finally {
       setBusy(false);
     }
-  }
-
-  // ── OneDrive save (post-processing) ────────────────────────────────────────
-
-  async function handleSave(file: File, folder: string) {
-    setMessages((prev) => prev.filter((m) => m.role !== "save"));
-    setBusy(true);
-    push({ role: "bot", text: `Saving ${file.name} to ${folder}…` });
-    try {
-      const result = await uploadFiles([file], folder);
-      const uploaded = result.results[0];
-      updateLastBot({
-        text: uploaded?.ok
-          ? `Saved to ${result.folder}/${file.name}`
-          : `Save failed: ${uploaded?.error ?? "Unknown error"}`,
-      });
-    } catch (e: unknown) {
-      updateLastBot({ text: `Save error: ${e instanceof Error ? e.message : "Unknown"}` });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function handleSkip() {
-    setMessages((prev) => prev.filter((m) => m.role !== "save"));
   }
 
   // ── Interactive pre-check ───────────────────────────────────────────────────
@@ -800,7 +814,6 @@ export default function IngestPage() {
             file,
             existing: check,
             primaryLabel: "Process again",
-            offerOneDriveSave: false,
           },
         });
         setBusy(false);
@@ -814,14 +827,8 @@ export default function IngestPage() {
       if (od.drive_configured) {
         if (od.in_inbox) {
           updateLastBot({
-            text: `Found in OneDrive at ${od.inbox_folder}/${file.name}`,
-            sub: "Already queued — auto-processes every 5 min. Process it now instead?",
-            confirm: {
-              file,
-              oneDrive: od,
-              primaryLabel: "Process now",
-              offerOneDriveSave: false,
-            },
+            text: `Already in OneDrive inbox (${od.inbox_folder}/${file.name}).`,
+            sub: "The timer will pick it up and process it automatically.",
           });
           setBusy(false);
           return;
@@ -829,13 +836,12 @@ export default function IngestPage() {
 
         if (od.in_processed) {
           updateLastBot({
-            text: `Found in OneDrive at ${od.processed_folder}/${file.name} — previously processed via the timer pipeline.`,
+            text: `Found in OneDrive at ${od.processed_folder}/${file.name} — previously processed.`,
             sub: "Process again?",
             confirm: {
               file,
               oneDrive: od,
               primaryLabel: "Process again",
-              offerOneDriveSave: false,
             },
           });
           setBusy(false);
@@ -866,7 +872,6 @@ export default function IngestPage() {
           triage,
           oneDrive: od,
           primaryLabel: "Process it",
-          offerOneDriveSave: od.drive_configured,
         },
       });
     } catch (e: unknown) {
@@ -877,55 +882,17 @@ export default function IngestPage() {
   }
 
   function handlePrimary(info: ConfirmInfo) {
-    updateLastBot({ confirm: undefined });
-    runProcess(info.file, info.offerOneDriveSave);
+    updateLastBot({ confirm: undefined, sub: undefined });
+    runProcess(info.file, info.triage);
   }
 
   function handleSecondary(info: ConfirmInfo) {
-    updateLastBot({ confirm: undefined });
-    runProcess(info.file, false);
+    updateLastBot({ confirm: undefined, sub: undefined });
+    runProcess(info.file, info.triage);
   }
 
   function handleCancel() {
     updateLastBot({ text: "Cancelled.", confirm: undefined, sub: undefined });
-  }
-
-  // ── Folder stream flow (unchanged) ─────────────────────────────────────────
-
-  function runFolder(folderPath: string) {
-    setBusy(true);
-    push({ role: "bot", text: `Scanning ${folderPath}…` });
-    // Derive processed folder: /Document Processor/In → /Document Processor/Processed
-    const processedFolder = folderPath.replace(/\/In\s*$/, "/Processed");
-
-    cancelRef.current = streamIngest(
-      folderPath,
-      (count, files) => {
-        updateLastBot({ text: `Found ${count} file${count !== 1 ? "s" : ""}`, sub: files.join(", ") });
-      },
-      (result) => {
-        push({ role: "result-item", result, uploadedFolder: processedFolder });
-      },
-      (ok, total, message) => {
-        if (message) {
-          push({ role: "bot", text: message });
-        } else {
-          push({
-            role: "bot",
-            text: ok === total
-              ? `Done — ${total} file${total !== 1 ? "s" : ""} indexed.`
-              : `Done — ${ok}/${total} succeeded.`,
-          });
-        }
-        setBusy(false);
-        cancelRef.current = null;
-      },
-      (err) => {
-        push({ role: "bot", text: `Error: ${err}` });
-        setBusy(false);
-        cancelRef.current = null;
-      },
-    );
   }
 
   // ── Input handlers ──────────────────────────────────────────────────────────
@@ -938,57 +905,34 @@ export default function IngestPage() {
     prepareFile(file);
   }
 
-  function handleSend() {
-    const path = input.trim();
-    if (!path || busy) return;
-    setInput("");
-    push({ role: "user", text: path });
-    if (isUrl(path)) {
-      push({
-        role: "bot",
-        text: "That looks like a URL — please enter a folder path instead.",
-        sub: "Example: /Document Processor/In",
-      });
-      return;
-    }
-    runFolder(path);
-  }
-
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex flex-col h-full bg-gray-50">
       <header className="px-6 py-3 bg-white border-b border-gray-200 shrink-0">
         <p className="text-sm font-medium text-gray-700">Ingest</p>
-        <p className="text-xs text-gray-400">Upload a file or enter a OneDrive folder path</p>
+        <p className="text-xs text-gray-400">Upload a file — it will be saved to OneDrive for automatic processing</p>
       </header>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
         {messages.map((msg, i) => {
-          if (msg.role === "save") {
-            return (
-              <SaveBlock
-                key={i}
-                file={msg.file}
-                defaultFolder={"/Document Processor/In"}
-                busy={busy}
-                onSave={handleSave}
-                onSkip={handleSkip}
-              />
-            );
-          }
           if (msg.role === "results") {
             return (
               <div key={i} className="space-y-2">
-                {msg.results.map((r, j) => (
-                  <ResultCard key={j} r={r} uploadedFolder={msg.uploadedFolder} />
-                ))}
+                {msg.results.map((r, j) => <ResultCard key={j} r={r} />)}
               </div>
             );
           }
-          if (msg.role === "result-item") return (
-            <ResultCard key={i} r={msg.result} uploadedFolder={msg.uploadedFolder} />
-          );
+          if (msg.role === "save-prompt") {
+            return (
+              <div key={i} className="flex justify-start">
+                <SavePromptBlock
+                  file={msg.file}
+                  onDismiss={() => setMessages((prev) => prev.filter((_, idx) => idx !== i))}
+                />
+              </div>
+            );
+          }
           if (msg.role === "user") {
             return (
               <div key={i} className="flex justify-end">
@@ -1009,7 +953,7 @@ export default function IngestPage() {
           const hasConfirm = !!msg.confirm && isLast;
           return (
             <div key={i} className="flex justify-start">
-              <div className="max-w-sm bg-white border border-gray-200 text-gray-700 text-sm px-4 py-2.5 rounded-2xl rounded-bl-sm">
+              <div className="bg-white border border-gray-200 text-gray-700 text-sm px-4 py-2.5 rounded-2xl rounded-bl-sm max-w-sm">
                 <span>{msg.text}</span>
                 {busy && isLast && !hasConfirm && (
                   <span className="ml-1 inline-block w-1 h-3 bg-gray-400 animate-pulse rounded-sm align-middle" />
@@ -1026,14 +970,13 @@ export default function IngestPage() {
                     onCancel={handleCancel}
                   />
                 )}
-
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Input bar — file upload only */}
+      {/* Input bar */}
       <div className="shrink-0 bg-white border-t border-gray-200 px-4 py-4">
         <div className="flex items-center justify-center max-w-2xl mx-auto">
           <input

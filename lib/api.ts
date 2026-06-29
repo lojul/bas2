@@ -308,10 +308,18 @@ export interface IngestResult {
   index_id?: string;
 }
 
-export async function processIngest(file: File): Promise<{ results: IngestResult[] }> {
+export async function processIngest(
+  file: File,
+  triage?: Pick<TriageResult, "ocr_text" | "ocr_pages" | "ocr_complete">,
+): Promise<{ results: IngestResult[] }> {
   const token = localStorage.getItem("token");
   const form = new FormData();
   form.append("file", file);
+  if (triage?.ocr_complete && triage.ocr_text) {
+    form.append("ocr_text", triage.ocr_text);
+    form.append("ocr_pages", String(triage.ocr_pages ?? 1));
+    form.append("ocr_complete", "true");
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 120_000);
   try {
@@ -342,6 +350,9 @@ export interface TriageResult {
   format: string;
   confidence: number;
   reason: string | null;
+  ocr_text?: string;
+  ocr_pages?: number;
+  ocr_complete?: boolean;
 }
 
 export async function triageFile(file: File): Promise<TriageResult> {
