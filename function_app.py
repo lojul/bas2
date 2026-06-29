@@ -1,8 +1,7 @@
 """Azure Functions entry point for Document Processor.
 
-Two triggers:
-- Timer: Runs every 5 minutes automatically
-- HTTP: Manual trigger via URL or dashboard button
+One trigger:
+- Timer: Runs every 5 minutes automatically, processes files from OneDrive /In
 """
 
 import os
@@ -22,7 +21,6 @@ from langsmith import traceable
 
 from src.graph import process_file
 from src.nodes.onedrive import list_onedrive_files, move_to_processed, get_access_token
-from src.nodes.chatbot import search_documents, keyword_search
 from src.state import ProcessingStatus
 import httpx
 
@@ -35,6 +33,7 @@ _CONFIG_BLOB = "config/settings.json"
 _CONFIG_DEFAULTS = {
     "inbox_folder": "/Document Processor/In",
     "move_when_done": False,
+    "timer_enabled": True,
 }
 
 
@@ -170,167 +169,25 @@ def timer_trigger(timer: func.TimerRequest) -> None:
     """Timer trigger - runs every 5 minutes.
 
     Checks OneDrive /In folder and processes any new files.
+    Skips if timer_enabled is set to false in blob config.
     """
+    cfg = _load_blob_config()
+    if not cfg.get("timer_enabled", True):
+        logging.info("Timer trigger disabled via Settings — skipping.")
+        return
+
     logging.info("Timer trigger started")
 
     if timer.past_due:
         logging.info("Timer is past due, running anyway")
 
     try:
-        move = os.environ.get("MOVE_WHEN_DONE", "true").lower() != "false"
-        result = run_processor(move_when_done=move)
+        result = run_processor(move_when_done=cfg.get("move_when_done", False))
         logging.info(f"Timer trigger completed: {result['message']}")
     except Exception as e:
         logging.error(f"Timer trigger failed: {e}")
         raise
 
-
-@app.route(route="process", methods=["POST", "GET"], auth_level=func.AuthLevel.ANONYMOUS)
-def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
-    """HTTP trigger - manual processing on demand.
-
-    Call this URL to trigger immediate processing.
-    Supports both GET (browser) and POST (API).
-    """
-    logging.info("HTTP trigger started")
-
-    try:
-        # Check if move_when_done is specified (disabled for testing)
-        move_when_done = req.params.get("move", "false").lower() == "true"
-
-        result = run_processor(move_when_done=move_when_done)
-
-        return func.HttpResponse(
-            json.dumps(result, indent=2),
-            status_code=200,
-            mimetype="application/json",
-            headers={
-                "Access-Control-Allow-Origin": "*",  # Allow dashboard to call
-                "Access-Control-Allow-Methods": "GET, POST"
-            }
-        )
-    except Exception as e:
-        logging.error(f"HTTP trigger failed: {e}")
-        return func.HttpResponse(
-            json.dumps({"status": "error", "message": str(e)}),
-            status_code=500,
-            mimetype="application/json"
-        )
-
-
-def _check_api_key(req: func.HttpRequest) -> bool:
-    """Validate X-API-Key header against SEARCH_API_KEY env var."""
-    expected = os.environ.get("SEARCH_API_KEY")
-    if not expected:
-        return False  # Deny if key not configured
-    return req.headers.get("X-API-Key") == expected
-
-
-@app.route(route="search", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
-def search_endpoint(req: func.HttpRequest) -> func.HttpResponse:
-    """Search endpoint for external chatbots.
-
-    Authentication:
-        Header: X-API-Key: <your key>
-
-    Request body:
-        {
-            "query": "中環寫字樓出租",
-            "top_k": 5,                     // optional, default 5
-            "search_type": "hybrid"         // optional: "hybrid" | "keyword" | "vector"
-        }
-
-    Response:
-        {
-            "query": "...",
-            "search_type": "hybrid",
-            "total": 5,
-            "results": [
-                {
-                    "file_name": "abc.pdf",
-                    "document_type": "listing",
-                    "score": 0.87,
-                    "extracted_data": { ... },
-                    "content_preview": "...",
-                    "source_index": "processed-documents"
-                }
-            ]
-        }
-    """
-    if not _check_api_key(req):
-        return func.HttpResponse(
-            json.dumps({"error": "Unauthorized"}),
-            status_code=401,
-            mimetype="application/json",
-        )
-
-    try:
-        body = req.get_json()
-    except Exception:
-        return func.HttpResponse(
-            json.dumps({"error": "Invalid JSON body"}),
-            status_code=400,
-            mimetype="application/json",
-        )
-
-    query = (body or {}).get("query", "").strip()
-    if not query:
-        return func.HttpResponse(
-            json.dumps({"error": "query is required"}),
-            status_code=400,
-            mimetype="application/json",
-        )
-
-    top_k = int((body or {}).get("top_k", 5))
-    search_type = (body or {}).get("search_type", "hybrid")
-
-    try:
-        if search_type == "keyword":
-            raw = keyword_search(query=query, top_k=top_k)
-            results = [
-                {
-                    "file_name": d.get("file_name", ""),
-                    "document_type": d.get("document_type", ""),
-                    "score": d.get("score", 0),
-                    "extracted_data": d.get("extracted_data", {}),
-                    "content_preview": d.get("content", "")[:300],
-                    "source_index": d.get("index", ""),
-                }
-                for d in raw
-            ]
-        else:
-            # "hybrid" (default) or "vector"
-            use_hybrid = search_type != "vector"
-            raw = search_documents(query=query, top_k=top_k, hybrid=use_hybrid)
-            results = [
-                {
-                    "file_name": d.get("file_name", ""),
-                    "document_type": d.get("document_type", ""),
-                    "score": d.get("reranker_score") or d.get("score", 0),
-                    "extracted_data": d.get("extracted_data", {}),
-                    "content_preview": d.get("content", "")[:300],
-                    "source_index": d.get("index", ""),
-                }
-                for d in raw
-            ]
-
-        return func.HttpResponse(
-            json.dumps(
-                {"query": query, "search_type": search_type, "total": len(results), "results": results},
-                ensure_ascii=False,
-            ),
-            status_code=200,
-            mimetype="application/json",
-            headers={"Access-Control-Allow-Origin": "*"},
-        )
-
-    except Exception as e:
-        logging.error(f"Search endpoint failed: {e}")
-        return func.HttpResponse(
-            json.dumps({"error": str(e)}),
-            status_code=500,
-            mimetype="application/json",
-        )
 
 
 @app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)

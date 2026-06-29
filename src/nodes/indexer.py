@@ -48,6 +48,13 @@ INDEX_SCHEMA = {
         {"name": "extracted_data", "type": "Edm.String", "searchable": True},
         {"name": "image_urls", "type": "Collection(Edm.String)", "searchable": False, "filterable": False},
         {"name": "processed_at", "type": "Edm.DateTimeOffset", "searchable": False, "filterable": True, "sortable": True},
+        # Sale listing fields — populated for sale/mixed transaction types
+        {"name": "sell_price", "type": "Edm.Int64", "searchable": False, "filterable": True, "sortable": True},
+        {"name": "return_rate", "type": "Edm.Double", "searchable": False, "filterable": True, "sortable": True},
+        {"name": "transaction_type", "type": "Edm.String", "searchable": False, "filterable": True, "facetable": True},
+        # Pipeline metadata
+        {"name": "extraction_path", "type": "Edm.String", "searchable": False, "filterable": True, "facetable": True},
+        {"name": "needs_review", "type": "Edm.Boolean", "searchable": False, "filterable": True},
     ],
     "vectorSearch": {
         "profiles": [
@@ -129,22 +136,19 @@ def index_document(state: DocumentState) -> DocumentState:
 
         # Generate document ID from file name
         doc_id = hashlib.md5(state.file_name.encode()).hexdigest()
+        state.index_id = doc_id
 
-        # Check if document already exists and get existing data
+        # Check if document already exists (for image_urls fallback only)
         existing_data = get_existing_document(doc_id)
-        existing_extracted = {}
-        if existing_data:
-            try:
-                existing_extracted = json.loads(existing_data.get("extracted_data", "{}"))
-            except json.JSONDecodeError:
-                existing_extracted = {}
 
-        # Merge new extracted data with existing
-        new_extracted = state.extracted.raw if state.extracted else {}
-        merged_extracted = merge_extracted_data(existing_extracted, new_extracted)
+        # Always use the fresh extraction — never carry over stale fields from previous runs
+        merged_extracted = state.extracted.raw if state.extracted else {}
 
         # Limit content size once (used for both storage and embedding)
         content = state.ocr.text[:MAX_CONTENT_LENGTH]
+
+        # Append sale/return data to content so BM25 can find it
+        content = _enrich_content(content, merged_extracted)
 
         # Get embeddings for content
         embedding = get_embedding(content)
@@ -153,6 +157,11 @@ def index_document(state: DocumentState) -> DocumentState:
         image_urls = state.ocr.image_urls if state.ocr else []
         if not image_urls and existing_data:
             image_urls = existing_data.get("image_urls", [])
+
+        # Pull top-level sale fields for filterable index columns
+        sell_price = _extract_int(merged_extracted, "sell_price")
+        return_rate = _extract_float(merged_extracted, "return_rate")
+        transaction_type = merged_extracted.get("transaction_type") or _infer_transaction_type(merged_extracted)
 
         # Prepare document for indexing
         doc = {
@@ -164,7 +173,15 @@ def index_document(state: DocumentState) -> DocumentState:
             "extracted_data": json.dumps(merged_extracted, ensure_ascii=False),
             "image_urls": image_urls,
             "processed_at": datetime.now(timezone.utc).isoformat(),
+            # Sale / pipeline metadata
+            "sell_price": sell_price,
+            "return_rate": return_rate,
+            "transaction_type": transaction_type,
+            "extraction_path": state.extraction_path.value if state.extraction_path else "structured",
+            "needs_review": getattr(state, "needs_review", False),
         }
+        # Drop None-valued optional fields to avoid Azure Search type errors
+        doc = {k: v for k, v in doc.items() if v is not None or k in ("id", "file_name", "needs_review")}
 
         # Upload to index
         upload_document(doc)
@@ -379,3 +396,76 @@ def upload_document(doc: dict) -> None:
     client = get_http_client()
     response = client.post(url, headers=headers, json=body)
     response.raise_for_status()
+
+
+# =============================================================================
+# Helpers for new schema fields
+# =============================================================================
+
+def _extract_int(data: dict, key: str) -> int | None:
+    """Pull an integer from extracted data, searching top level and properties[]."""
+    v = data.get(key)
+    if v is not None:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            pass
+    for p in data.get("properties", []):
+        v = p.get(key)
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def _extract_float(data: dict, key: str) -> float | None:
+    """Pull a float from extracted data, searching top level and properties[]."""
+    v = data.get(key)
+    if v is not None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
+    for p in data.get("properties", []):
+        v = p.get(key)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                pass
+    return None
+
+
+def _infer_transaction_type(data: dict) -> str | None:
+    """Infer transaction_type from extracted fields when not explicitly set."""
+    has_sell = _extract_int(data, "sell_price") is not None
+    has_rent = _extract_int(data, "rent_monthly") is not None
+    if has_sell and has_rent:
+        return "both"
+    if has_sell:
+        return "sale"
+    if has_rent:
+        return "lease"
+    return None
+
+
+def _enrich_content(content: str, extracted: dict) -> str:
+    """Append key sale/return fields to content string for BM25 searchability."""
+    parts: list[str] = [content]
+
+    sell_price = _extract_int(extracted, "sell_price")
+    if sell_price:
+        parts.append(f"售價 HKD {sell_price:,}")
+
+    return_rate = _extract_float(extracted, "return_rate")
+    if return_rate:
+        parts.append(f"回報率 {return_rate * 100:.1f}%")
+
+    for p in extracted.get("properties", []):
+        name = p.get("building_name") or p.get("address")
+        if name:
+            parts.append(name)
+
+    return " ".join(parts)[:MAX_CONTENT_LENGTH]

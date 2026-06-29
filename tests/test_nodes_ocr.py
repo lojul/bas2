@@ -55,7 +55,7 @@ class TestRunOCR:
         assert result.status == ProcessingStatus.OCR_COMPLETE
         assert result.ocr.text == "This is extracted text from the document."
         assert result.ocr.pages == 2
-        assert result.ocr.confidence == 0.95
+        assert result.ocr.confidence == 0.97
         assert result.error_message == ""
 
     @patch.dict(os.environ, {
@@ -86,7 +86,7 @@ class TestRunOCR:
         result = run_ocr(state)
 
         assert result.status == ProcessingStatus.ERROR
-        assert "no blob url" in result.error_message.lower()
+        assert "no file bytes or blob url" in result.error_message.lower()
 
     @patch.dict(os.environ, {
         "AZURE_DOC_INTEL_KEY": "test-key",

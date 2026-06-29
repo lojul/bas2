@@ -4,7 +4,7 @@ Examines document content to identify:
 - Available sections and fields
 - Document structure (headings, tables, lists)
 - Key data points present
-- Recommended extraction approach
+- Recommended extraction path (structured / conversational / visual)
 """
 
 import os
@@ -13,7 +13,7 @@ import httpx
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
 
-from src.state import DocumentState, DocumentType, ProcessingStatus
+from src.state import DocumentState, DocumentType, ExtractionPath, ProcessingStatus
 from src.utils.json_parser import parse_json_response
 
 
@@ -91,8 +91,12 @@ def analyze_document(state: DocumentState) -> DocumentState:
     table_count = len(state.ocr.tables) if state.ocr and state.ocr.tables else 0
 
     if not text:
-        # No text to analyze, skip
         return state
+
+    # Determine extraction path (fast, no LLM) — uses document_type as primary signal
+    state.extraction_path = determine_extraction_path(
+        text, state.file_name, table_count, page_count, state.document_type
+    )
 
     try:
         # Sample text from different parts of document
@@ -178,6 +182,60 @@ def call_analysis_llm(text: str, page_count: int, text_length: int, table_count:
 
     content = data["choices"][0]["message"]["content"]
     return parse_json_response(content)
+
+
+def determine_extraction_path(
+    text: str,
+    file_name: str,
+    table_count: int,
+    page_count: int,
+    document_type=None,
+) -> ExtractionPath:
+    """Choose the best extraction path from document type + text signals.
+
+    document_type is the PRIMARY signal (set by the classifier).
+    Text signals are used only for listing / listing_list to decide
+    whether the document is a table-structured form (STRUCTURED) or
+    free-text prose with multiple entities (CONVERSATIONAL).
+
+    Type → path mapping:
+      pitching_deck  → STRUCTURED (always — multi-section but prompt handles it)
+      news           → STRUCTURED (always — single article)
+      contact        → STRUCTURED (always — single card)
+      listing        → STRUCTURED (single property, even if free-text)
+      listing_list   → STRUCTURED if has tables; CONVERSATIONAL if free-text prose
+      unknown        → STRUCTURED (fallback)
+    """
+    from src.state import DocumentType
+
+    # Types that never need conversational extraction
+    if document_type in (DocumentType.PITCHING_DECK, DocumentType.NEWS, DocumentType.CONTACT,
+                         DocumentType.LISTING, DocumentType.UNKNOWN):
+        return ExtractionPath.STRUCTURED
+
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+
+    # listing_list: only go conversational when there are NO tables
+    # (tables → structured extractor handles the row-by-row parsing perfectly)
+    if document_type == DocumentType.LISTING_LIST and table_count == 0:
+        # Additional signals that confirm it's genuinely free-text multi-property
+        price_points = len(re.findall(r"\$[\d,]+(億|萬)", text))
+        price_emoji = len(re.findall(r"💰|💵", text))
+        address_hits = len(re.findall(
+            r"\d+[A-Za-z]?\s*[-–]?\s*\d*[A-Za-z]?\s+"
+            r"(?:Nathan Road|彌敦道|道|街|路|Avenue|Street|Road)",
+            text,
+        ))
+        is_free_text = (
+            ext == "docx"
+            or price_emoji >= 2
+            or price_points >= 2
+            or address_hits >= 2
+        )
+        if is_free_text:
+            return ExtractionPath.CONVERSATIONAL
+
+    return ExtractionPath.STRUCTURED
 
 
 def quick_structure_scan(text: str) -> dict:

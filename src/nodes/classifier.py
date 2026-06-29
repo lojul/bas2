@@ -1,4 +1,4 @@
-"""Document classifier using OpenRouter AI."""
+"""Document classifier — Azure OpenAI (primary) with OpenRouter fallback."""
 
 import os
 import re
@@ -29,17 +29,17 @@ Classify as ONE of:
    - Mixed-use developments with retail + office + residential components
    - High-quality renders, maps, transformation visuals
 
-2. **listing_list** - Multi-property listing document:
-   - Contains MULTIPLE numbered property entries (1), 2), 3)... or 1. 2. 3...)
-   - Table format with repeated rows for DIFFERENT properties
-   - Multiple 樓盤編號 (property IDs) in the document
-   - Keywords: 旺舖出租精選, 物業列表, 精選推介
-   - Columns like 地址, 面積, 租金 for EACH property
-   - More than 3 distinct properties listed
+2. **listing_list** - Multi-unit listing document (rent OR sale):
+   - Contains MULTIPLE units/floors in ONE building, OR multiple different properties
+   - Table format with repeated rows: floor, unit, size, rent/price columns
+   - Keywords (rent): 旺舖出租精選, 物業列表, 招租, 月租, 租金
+   - Keywords (sale): 售價, 賣價, For Sale, sale price, price per sq.ft
+   - Examples: floor-by-floor unit table, building availability schedule
+   - More than 2 distinct units or floors listed in a table
 
-3. **listing** - Single property for rent/sale:
-   - ONE specific property only (may have multiple floors/units in SAME building)
-   - Has asking rent or sale price for ONE property
+3. **listing** - Single unit/property for rent or sale:
+   - ONE specific unit only (single floor, single suite)
+   - Has asking rent or sale price for ONE unit
    - Agent contact info
    - Keywords: 招租, 出售, For Lease, For Sale, Subject to Contract
    - Leasing proposal, sales brochure, tenancy terms (simple format)
@@ -87,6 +87,9 @@ def auto_detect_listing_list(text: str, table_count: int) -> bool:
     property_id_count = len(re.findall(r'樓盤編號', text))
     vacant_count = len(re.findall(r'vacant|已吉|現吉', text_lower))
     rent_amounts = len(re.findall(r'\d{2,3},\d{3}', text))  # Rent amounts like 25,000
+    # Sale prices in HK$ millions (e.g. 12,000,000 or 1,200,000)
+    sale_prices = len(re.findall(r'\d{1,2},\d{3},\d{3}', text))
+    sale_keywords = len(re.findall(r'售價|賣價|for sale|sale price|price per s', text_lower))
 
     # Multiple property indicators suggest listing_list
     if property_id_count >= 3:
@@ -94,6 +97,11 @@ def auto_detect_listing_list(text: str, table_count: int) -> bool:
     if vacant_count >= 3:
         return True
     if table_count >= 2 and rent_amounts >= 5:
+        return True
+    # Sale listing: table with multiple sale prices
+    if table_count >= 1 and sale_prices >= 3:
+        return True
+    if table_count >= 1 and sale_keywords >= 2 and sale_prices >= 1:
         return True
 
     return False
@@ -183,7 +191,7 @@ def classify_document(state: DocumentState) -> DocumentState:
     text_sample = text_start + ("\n...\n" + text_end if text_end else "")
 
     try:
-        result = call_openrouter(text_sample, page_count, len(text), table_count)
+        result = call_llm(text_sample, page_count, len(text), table_count)
 
         # Parse result
         doc_type = result.get("type", "unknown").lower()
@@ -202,6 +210,11 @@ def classify_document(state: DocumentState) -> DocumentState:
         if doc_type != "contact" and auto_detect_contact(text, len(text), page_count):
             doc_type = "contact"
             confidence = 0.85
+
+        # Fallback: if LLM returns "unknown" but has tables, likely a listing_list
+        if doc_type == "unknown" and table_count >= 1:
+            doc_type = "listing_list"
+            confidence = 0.60
 
         # Map to DocumentType enum
         type_map = {
@@ -234,6 +247,55 @@ def classify_document(state: DocumentState) -> DocumentState:
         state.set_error(f"Classification error: {str(e)}")
 
     return state
+
+
+def call_llm(text: str, page_count: int = 1, text_length: int = 0, table_count: int = 0) -> dict:
+    """Always use OpenRouter (Qwen) for classification.
+    Azure OpenAI gpt-5-mini is a reasoning model — too slow and has API restrictions.
+    Azure OpenAI is reserved for embeddings only.
+    """
+    return call_openrouter(text, page_count, text_length, table_count)
+
+
+@traceable(name="classifier_azure_openai", run_type="llm")
+def call_azure_openai(text: str, page_count: int = 1, text_length: int = 0, table_count: int = 0) -> dict:
+    """Call Azure OpenAI gpt-4o for classification."""
+    from openai import AzureOpenAI
+
+    endpoint = os.environ["AZURE_OPENAI_ENDPOINT"]
+    api_key = os.environ["AZURE_OPENAI_KEY"]
+    deployment = os.environ.get("AZURE_OPENAI_CHAT_DEPLOYMENT", "gpt-4o")
+
+    client = AzureOpenAI(
+        azure_endpoint=endpoint,
+        api_key=api_key,
+        api_version="2025-01-01-preview",
+    )
+
+    prompt = CLASSIFY_PROMPT.format(
+        text=text,
+        page_count=page_count,
+        text_length=text_length,
+        table_count=table_count,
+    )
+
+    response = client.chat.completions.create(
+        model=deployment,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=150,
+    )
+
+    run_tree = get_current_run_tree()
+    if run_tree and response.usage:
+        run_tree.extra = run_tree.extra or {}
+        run_tree.extra["usage_metadata"] = {
+            "input_tokens": response.usage.prompt_tokens,
+            "output_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
+        }
+
+    content = response.choices[0].message.content
+    return parse_json_response(content)
 
 
 @traceable(name="classifier_openrouter", run_type="llm")

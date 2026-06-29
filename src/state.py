@@ -17,6 +17,20 @@ class DocumentType(str, Enum):
     UNKNOWN = "unknown"
 
 
+class ExtractionPath(str, Enum):
+    """Extraction strategy chosen for this document.
+
+    STRUCTURED   – standard single-pass LLM extraction (tables, forms, standard PDFs)
+    CONVERSATIONAL – two-pass LangChain extraction for free-text / WhatsApp-style docs
+                     with multiple properties, emoji separators, no tables
+    VISUAL       – multimodal extraction for image-heavy pitching decks (future)
+    """
+
+    STRUCTURED = "structured"
+    CONVERSATIONAL = "conversational"
+    VISUAL = "visual"
+
+
 class ProcessingStatus(str, Enum):
     """Status of document processing."""
 
@@ -53,6 +67,11 @@ class ExtractedData:
 
     raw: dict[str, Any] = field(default_factory=dict)
     document_type: DocumentType = DocumentType.UNKNOWN
+    # Per-field confidence scores from the LLM (0.0–1.0).
+    # Only populated by the conversational extractor.
+    field_confidence: dict[str, float] = field(default_factory=dict)
+    # Overall extraction confidence for this document.
+    overall_confidence: float = 1.0
 
 
 @dataclass
@@ -65,7 +84,8 @@ class DocumentState:
     # Input
     file_path: str = ""
     file_name: str = ""
-    source: str = "onedrive"  # onedrive, local, etc.
+    source: str = "onedrive"  # onedrive, dashboard, etc.
+    file_bytes: bytes | None = field(default=None, repr=False)  # set for direct uploads; cleared after OCR
 
     # Processing state
     status: ProcessingStatus = ProcessingStatus.PENDING
@@ -84,8 +104,14 @@ class DocumentState:
     # Analysis (pre-extraction structure analysis)
     analysis: dict[str, Any] = field(default_factory=dict)
 
+    # Extraction path chosen by the analyzer
+    extraction_path: ExtractionPath = ExtractionPath.STRUCTURED
+
     # Extraction
     extracted: ExtractedData = field(default_factory=ExtractedData)
+
+    # Review flag — set by review_gate when confidence is low
+    needs_review: bool = False
 
     # Indexing
     index_id: str = ""

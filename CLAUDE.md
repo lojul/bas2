@@ -3,8 +3,9 @@
 ## Project Overview
 LangGraph + LangSmith document processor. Users drop PDFs in OneDrive `/In`, processed results appear in `/Processed`.
 
-- **Dashboard (production):** Next.js app on Vercel (see Next.js Dashboard section)
+- **Dashboard (production):** Next.js app on Azure Static Web Apps (see Next.js Dashboard section)
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
+- **Document pipeline:** Azure Function App timer trigger (see Azure Functions section)
 
 ## Product Design Philosophy
 
@@ -107,7 +108,7 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] Multi-Index Search (chatbot searches multiple Azure AI Search indexes)
 - [x] Dashboard Upload (upload PDFs directly to OneDrive /In via dashboard)
 - [x] Search REST API (external chatbots can query our search via `/api/search`)
-- [x] Next.js Dashboard (replaced Streamlit as primary UI; deployed on Vercel)
+- [x] Next.js Dashboard (replaced Streamlit as primary UI; deployed on Azure Static Web Apps)
 - [x] FastAPI Backend (Azure App Service; JWT auth + bcrypt + rate limiting)
 - [x] Chat "Generate Report PDF" button (Next.js → FastAPI → fpdf2)
 - [x] Permanent Processing History (Azure Table Storage — survives LangSmith 14-day expiry)
@@ -246,8 +247,10 @@ Entry point: `generate_report_from_sources(sources, district, district_en, repor
 ## Next.js Dashboard (Primary UI)
 
 - **Local:** `cd nextjs-dashboard && npm run dev` → http://localhost:3000
-- **Production:** https://c21-property-intelligence.vercel.app/ (Vercel)
-- **GitHub:** https://github.com/lojul/c21-document-processor (same repo, `nextjs-dashboard/` subdirectory)
+- **Production:** https://wonderful-flower-006019c00.7.azurestaticapps.net/ (Azure Static Web Apps — free tier)
+- **GitHub:** https://github.com/lojul/property-intelligence-dashboard (separate repo, `main` branch)
+- **Deploy:** Push to `main` → GitHub Actions auto-builds and deploys (workflow: `.github/workflows/azure-static-web-apps-wonderful-flower-006019c00.yml`)
+- **Build env vars:** `NEXT_PUBLIC_API_URL` set in the workflow file (build-time, not runtime)
 - **Auth:** JWT login via `POST /api/auth/login`; token stored in `localStorage`, sent as `Bearer` on every API call
 
 ### Routes
@@ -269,55 +272,105 @@ Entry point: `generate_report_from_sources(sources, district, district_en, repor
 
 ### Deploy
 ```bash
-cd nextjs-dashboard && npx vercel --prod --yes
+cd nextjs-dashboard
+npm run build   # outputs ./out (static export)
+SWA_TOKEN=$(az staticwebapp secrets list \
+  --name c21net-bas-web-prop-intel-dashboard-ea-prod \
+  --resource-group c21net-bas-document-processor-ea-prod \
+  --query "properties.apiKey" -o tsv)
+npx @azure/static-web-apps-cli deploy ./out \
+  --deployment-token "$SWA_TOKEN" --env production
 ```
-GitHub auto-deploy is configured but use the CLI to force when needed.
 
-### Environment Variables (Vercel)
+### Environment Variables
+Set at build time in `nextjs-dashboard/.env.local` (not committed):
 ```
-NEXT_PUBLIC_API_URL=https://<azure-app-service-url>
+NEXT_PUBLIC_PIPELINE_API_URL=https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net
+NEXT_PUBLIC_CHAT_API_URL=https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net
 ```
 
 ---
 
-## FastAPI Backend
+## FastAPI Backend (Split into Two Services)
 
-- **Local:** `cd langgraph && uvicorn api.main:app --reload`
-- **Production:** `https://property-intelligence-api.azurewebsites.net` (Azure App Service Linux, Python 3.11)
-- **Deploy dir:** `/private/tmp/api_deploy_dir/` — always sync here before deploying
+The monolithic API is split into two named App Services:
 
-### Deploy Workflow
+| Service | Entrypoint | URL | Routes |
+|---------|-----------|-----|--------|
+| `c21net-bas-api-doc-pipeline-ea-prod` | `api/doc_pipeline_main.py` | `https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net` | pipeline, admin, billing, monitoring |
+| `c21net-bas-api-prop-chat-ea-prod` | `api/prop_chat_main.py` | `https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net` | chat, search |
+
+- **Old service (pending delete):** `c21net-bas-api-prop-intel-core-ea-prod` — retire after verifying new services
+- **Resource group:** `c21net-bas-document-processor-ea-prod` | **Subscription:** `c21net-business-automation-stack`
+- **App Service Plan:** `c21net-bas-asp-ea-prod` (B1, Linux, Python 3.12)
+- **Deploy dir:** `/private/tmp/api_deploy_dir/` — staged files live here; do NOT clean between deploys
+
+### Deploy Workflow (Kudu Bearer Token — only working method on az CLI 2.84.0)
+
+`az webapp deploy --type zip` and `az webapp deployment source config-zip` both drop the connection. Use the Kudu REST API directly:
+
 ```bash
-# 1. Sync source files to deploy dir
+# 1. Sync source files to deploy dir (--delete removes stale files)
 cd "/Users/kincheonglau/Active Projects/document processor/langgraph"
 rsync -a --delete src/ /private/tmp/api_deploy_dir/src/
 rsync -a --delete api/ /private/tmp/api_deploy_dir/api/
 cp requirements-api.txt /private/tmp/api_deploy_dir/requirements.txt
 
-# 2. Zip (clear pycache first)
+# 2. Clean pycache and zip — IMPORTANT: separate rm and zip, do NOT chain with &&
 cd /private/tmp/api_deploy_dir
-find . -name "__pycache__" -exec rm -rf {} + 2>/dev/null
-zip -r /private/tmp/api_deploy.zip . -x "*.DS_Store"
+find . -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+rm -f /private/tmp/api-deploy.zip
+zip -r /private/tmp/api-deploy.zip . -x "*.DS_Store"
 
-# 3. Deploy via Kudu REST API (most reliable — az webapp deploy drops connection)
-KUDU_USER='$property-api-c21'
-KUDU_PASS='<publishing-password>'  # az webapp deployment list-publishing-credentials
-curl -X POST \
-  "https://property-api-c21.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
-  -u "$KUDU_USER:$KUDU_PASS" \
+# 3. Verify new entrypoints are in the zip before deploying
+unzip -l /private/tmp/api-deploy.zip | grep -E "doc_pipeline|prop_chat|requirements.txt"
+
+# 4. Get bearer token
+TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+
+# 5. Deploy to Pipeline API
+# IMPORTANT: --http1.1 is required. Without it, HTTP/2 framing causes connection drop (HTTP 000).
+curl --http1.1 -X POST \
+  "https://c21net-bas-api-doc-pipeline-ea-prod.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/octet-stream" \
-  --data-binary @/private/tmp/api_deploy.zip
+  --data-binary @/private/tmp/api-deploy.zip
+# Expect HTTP 202 (accepted).
 
-# 4. Poll until status 4 (success)
-curl -s -u "$KUDU_USER:$KUDU_PASS" \
-  "https://property-api-c21.scm.azurewebsites.net/api/deployments/latest"
+# 6. Deploy to Chat API (same zip — both services run from same codebase)
+curl --http1.1 -X POST \
+  "https://c21net-bas-api-prop-chat-ea-prod.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/octet-stream" \
+  --data-binary @/private/tmp/api-deploy.zip
+
+# 7. Poll deploy status (~5 min for Oryx build)
+TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+for svc in c21net-bas-api-doc-pipeline-ea-prod c21net-bas-api-prop-chat-ea-prod; do
+  echo "=== $svc ===" && \
+  curl -s "https://${svc}.scm.azurewebsites.net/api/deployments" \
+    -H "Authorization: Bearer $TOKEN" | python3 -c "
+import json,sys
+deps=json.load(sys.stdin)
+for d in deps[:1]:
+    print(d['id'][:16],'status:',d['status'],'complete:',d['complete'],d.get('status_text',''))
+"
+done
+
+# 8. Verify health endpoints
+curl https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net/api/health
+curl https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net/api/health
 ```
 
 **Deploy notes:**
-- `az webapp deploy` drops connection mid-upload — use Kudu curl instead
-- `az webapp deployment source config-zip --build-remote true` flag not available in this CLI version
-- Kudu async deploy: status 1 = building, status 4 = success
-- `requirements-api.txt` is the canonical dep list for the API; `requirements.txt` is for Azure Functions only
+- Oryx build takes ~5 min; site starts ~2 min after build
+- `requirements-api.txt` is the canonical dep list; it must be copied as `requirements.txt` at zip root — Oryx ignores all other names
+- Do NOT use `az webapp deploy --type zip` or `az webapp deployment source config-zip` — both fail with connection drop on az CLI 2.84.0
+- **MUST add `--http1.1` to curl zipdeploy** — HTTP/2 causes connection close (returns HTTP 000); `--http1.1` forces HTTP/1.1 and gets HTTP 202 correctly
+- Both App Services share the same zip — the startup command determines which entrypoint runs
+- Token expires after ~1 hour; refresh with `az account get-access-token` if deploy takes long
+- **ZIP PITFALL:** Always run `rm -f /private/tmp/api-deploy.zip` as a SEPARATE command (not chained with `&&` after a command that might fail). `zip -r` in update mode silently reuses old content if the file already exists.
+- **`SCM_DO_BUILD_DURING_DEPLOYMENT=true` REQUIRED** — If set to false, Kudu extracts the zip but Oryx does NOT install packages. The app crashes with "No module named uvicorn". This must be `true` on both services or every deploy wipes the virtualenv.
 
 ### API Routes
 | Method | Path | Auth | Purpose |
@@ -378,64 +431,29 @@ Any imports here cause `fitz` (PyMuPDF) to be loaded at startup → Azure App Se
 
 ## Azure Functions
 
-**File:** `function_app.py`
+**File:** `function_app.py` | Timer-only worker (HTTP triggers removed — moved to FastAPI)
 
-| Trigger | Schedule/Path | Purpose |
-|---------|--------------|---------|
+| Trigger | Schedule | Purpose |
+|---------|----------|---------|
 | Timer | every 5 min | Process 7 files per batch from OneDrive /In |
-| HTTP POST | `/api/process` | Manual trigger |
-| HTTP POST | `/api/search` | External search API (auth: `X-API-Key` header) |
+| HTTP GET | `/api/health` | Health check (anonymous) |
 
-**Production:** `doc-processor-c21.azurewebsites.net` | Resource group: `blob-storage-hk-rg` | Region: East Asia
+**Production:** `c21net-bas-func-doc-pipeline-ea-prod.azurewebsites.net`
+**Resource group:** `c21net-bas-document-processor-ea-prod` | **Subscription:** `c21net-business-automation-stack`
 
 ```bash
-# Deploy
-func azure functionapp publish doc-processor-c21 --python
+# Deploy (set subscription first — func CLI doesn't support --subscription)
+az account set --subscription "c21net-business-automation-stack"
+cd langgraph
+func azure functionapp publish c21net-bas-func-doc-pipeline-ea-prod --python
 
 # Disable timer
-az functionapp config appsettings set --name doc-processor-c21 \
-  --resource-group blob-storage-hk-rg \
+az functionapp config appsettings set --name c21net-bas-func-doc-pipeline-ea-prod \
+  --resource-group c21net-bas-document-processor-ea-prod \
+  --subscription "c21net-business-automation-stack" \
   --settings "AzureWebJobs.timer_trigger.Disabled=true"
 ```
 
-### Search REST API (`/api/search`)
-```json
-POST https://doc-processor-c21.azurewebsites.net/api/search
-X-API-Key: <SEARCH_API_KEY>
-
-{ "query": "中環寫字樓出租", "top_k": 5, "search_type": "hybrid" }
-```
-`search_type`: `hybrid` (default), `keyword`, `vector`
-
----
-
-## LlamaParse Integration
-
-**Status: Implemented** — `src/nodes/ocr.py`
-
-LlamaParse runs as the **primary text extractor** for all PDFs; Azure Document Intelligence is the **fallback** and still runs for tables, figures, and page count (LlamaParse doesn't return those).
-
-### How it works
-```
-PDF bytes ──┬── LlamaParse API ──► clean markdown text  (preferred)
-            │
-            └── Azure Doc Intelligence ──► tables + figures + page count
-                                                    │
-                                          final_text = llamaparse_text OR azure_text
-                                          confidence = 0.98 if llamaparse, else 0.95
-```
-
-### Setup
-Add to `.env` and Azure App Service settings:
-```
-LLAMA_CLOUD_API_KEY=llx-...
-```
-If the key is missing, pipeline silently uses Azure text only — no code changes needed to disable.
-
-### Package
-Uses `llama-parse` pip package. The package shows a deprecation warning but the underlying API and functionality remain fully operational.
-
-Free tier: 10,000 credits/month. Monitor at https://cloud.llamaindex.ai/usage
 
 ## Ingest & Triage
 
@@ -499,6 +517,106 @@ If `AZURE_TABLE_SAS` is not set, all logging silently skips — never crashes th
 
 ---
 
+## Known Issues & Fixes Backlog
+
+### 🔴 1. `processed-documents` Index is Empty
+**Problem:** 0 docs in `processed-documents` on new search service (`c21net-bas-aisearch-ea-prod`). Chatbot and Search tab only find docs from `c21net-intelligence-v2` (771 docs). ~124 old docs were never reprocessed after migration.
+
+**Fix:** Drop the old 124 docs back into OneDrive `/Document Processor/In` — timer will pick them up and reindex into `processed-documents`.
+
+---
+
+### 🟡 2. Double OCR on Manual Upload
+**Problem:** When using the Ingest tab, Azure Document Intelligence is called twice for the same file:
+- `POST /api/pipeline/triage` → DI on first 2 pages
+- `POST /api/pipeline/process` → DI on ALL pages again
+
+Two DI transactions per manual upload — unnecessary cost.
+
+**Fix:** In `api/routes/pipeline.py`, pass the triage OCR result (text + page_count) as part of the process request body, and skip the DI call in `process_file()` if OCR text is already provided. Store triage result in browser state between triage and process steps.
+
+**Files to change:**
+- `api/routes/pipeline.py` → `process_file()` — accept optional pre-computed OCR text
+- `app/(app)/admin/ingest/page.tsx` → pass triage OCR result when calling `processIngest()`
+- `lib/api.ts` → update `processIngest()` signature
+
+---
+
+### 🟡 3. `MOVE_WHEN_DONE=false` on Timer
+**Problem:** After the timer processes a file from OneDrive `/In`, it stays there. Nothing moves it to `/Processed`. Risk of reprocessing on next timer run.
+
+**Verify first:** Check that `function_app.py` skips files already indexed in Azure AI Search before reprocessing. If skip logic exists and works → low risk, leave as-is. If not → reprocessing will happen every 5 min.
+
+**Fix (option A):** Set `MOVE_WHEN_DONE=true` in Function App env vars:
+```bash
+az functionapp config appsettings set \
+  --name c21net-bas-func-doc-pipeline-ea-prod \
+  --resource-group c21net-bas-document-processor-ea-prod \
+  --subscription "c21net-business-automation-stack" \
+  --settings "MOVE_WHEN_DONE=true"
+```
+**Fix (option B):** Confirm skip-if-indexed logic in `function_app.py` and keep as-is.
+
+---
+
+### 🟡 4. `blobhk04472` Still on Old Subscription
+**Problem:** All blob storage (PDFs, images) and Table Storage (ProcessingHistory) live on old subscription (`Azure subscription 1` / `blob-storage-hk-rg`). Split billing — if old subscription lapses, everything breaks.
+
+**Fix:** Full storage migration:
+1. Create new storage account in `c21net-bas-document-processor-ea-prod`
+2. Copy `property-pdf` blob container contents (azcopy)
+3. Copy `ProcessingHistory` table (azcopy or script)
+4. Copy `document-images` blob container
+5. Generate new SAS tokens
+6. Update env vars on both Function App and API:
+   - `AZURE_BLOB_ACCOUNT`
+   - `AZURE_BLOB_WRITE_SAS`
+   - `AZURE_TABLE_SAS`
+   - `AZURE_BLOB_CONTAINER`
+   - `AZURE_BLOB_IMAGES_CONTAINER`
+
+---
+
+### 🟢 5. Function App and API Share B1 Plan
+**Problem:** `c21net-bas-asp-ea-prod` (B1, 1 core, 1.75GB RAM) runs both the Function App and the API. Heavy batch processing (7 PDFs) while users are on chatbot → both slow down.
+
+**Fix:** Upgrade plan to B2, or move Function App to a Consumption plan (pay-per-execution, scales independently):
+```bash
+# Option A: upgrade shared plan to B2
+az appservice plan update \
+  --name c21net-bas-asp-ea-prod \
+  --resource-group c21net-bas-document-processor-ea-prod \
+  --subscription "c21net-business-automation-stack" \
+  --sku B2
+```
+**Note:** Only needed if performance becomes an issue. Fine for current traffic.
+
+---
+
+### 🟢 6. No Error Boundaries in Next.js
+**Problem:** If an API call throws an unhandled error, the whole page crashes with a blank screen. No fallback UI shown to the user.
+
+**Fix:** Add `error.tsx` files next to each `page.tsx` in the App Router — Next.js automatically uses these as error boundaries:
+- `app/(app)/chat/error.tsx`
+- `app/(app)/admin/ingest/error.tsx`
+- `app/(app)/admin/process/error.tsx`
+- `app/(app)/admin/vector/error.tsx`
+
+```tsx
+// error.tsx pattern
+"use client";
+export default function Error({ error, reset }: { error: Error; reset: () => void }) {
+  return (
+    <div className="p-6 text-red-500">
+      <p>Something went wrong: {error.message}</p>
+      <button onClick={reset}>Try again</button>
+    </div>
+  );
+}
+```
+
+---
+
 ## Planned: Manual Data Editor
 
 **Status:** Not implemented | **Location:** Admin → Vector Database tab → Edit button per document
@@ -548,7 +666,7 @@ Key findings acted on:
 
 | Service | Cost |
 |---------|------|
-| Vercel (Next.js) | Free (hobby) |
+| Azure Static Web Apps (Next.js) | Free tier |
 | Azure App Service (FastAPI) | ~$15-20/mo (B1) |
 | Azure AI Search | ~$70/mo |
 | Azure OpenAI | ~$5-20/mo |
@@ -557,3 +675,57 @@ Key findings acted on:
 | Tavily (Web Search) | Free (1k/mo) |
 | LangSmith | Free tier |
 | **Total** | **~$95-120/mo** |
+
+---
+
+## Planned: Extraction Memory (AI Self-Improvement)
+
+**Status:** Not implemented
+
+The system should learn from past successful extractions and improve over time, rather than processing every document cold.
+
+### Phase 1 — Few-shot Extraction Memory
+**File:** `src/nodes/extractor.py`
+
+Before calling gpt-5-mini to extract, retrieve the 2 most similar previously-extracted documents from Azure AI Search and inject them into the prompt as examples.
+
+```
+extract_data(state)
+  1. Embed current document text
+     → Azure OpenAI text-embedding-3-small
+  2. Search processed-documents for top 2 similar docs
+     → filter: same document_type, extracted_data not empty
+  3. Inject as few-shot examples into extraction prompt
+  4. Call gpt-5-mini with enriched prompt
+```
+
+**Changes:**
+- `src/nodes/extractor.py` — add `fetch_examples()` before `call_llm()`
+- `src/nodes/extractor.py` — inject examples into PROMPTS templates
+
+### Phase 2 — Correction Learning (Human-in-the-loop)
+**Depends on:** Manual Data Editor being built first
+
+When an admin corrects extracted data via the Manual Editor, mark that document as a gold standard example — weight it higher in Phase 1 retrieval.
+
+**Changes:**
+- `src/nodes/indexer.py` — add `is_example` (bool) and `example_weight` (int) fields to index schema
+- `api/routes/admin.py` — `PATCH /documents/{id}` already exists; add `is_example` flag support
+- `app/(app)/admin/ingest/page.tsx` — "Mark as example" button after successful processing
+
+### Phase 3 — Self-Improving Prompts
+**File:** New background task or admin endpoint
+
+Periodically analyse failed/weak extractions (many null fields, low confidence) and suggest prompt improvements for human review.
+
+**Changes:**
+- New script or `GET /api/admin/prompt-suggestions` endpoint
+- Queries Azure Table Storage for runs with high null-field rate
+- Sends patterns to gpt-5-mini → returns suggested prompt edits
+- Admin reviews and applies to `PROMPTS` dict in `src/nodes/extractor.py`
+
+### Data Already Available (No Migration Needed)
+- Past extracted data → `processed-documents` index, `extracted_data` field
+- Vector embeddings → `content_vector` field (1536 dims, already indexed)
+- Run history → Azure Table Storage `ProcessingHistory`
+- Manual corrections → Manual Data Editor (once built)

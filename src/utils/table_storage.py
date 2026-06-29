@@ -70,20 +70,24 @@ def log_unsupported(file_name: str, ext: str) -> None:
     )
 
 
-def list_runs(months: int = 3, top: int = 500) -> list[dict]:
-    """Return recent runs from ProcessingHistory, newest first."""
+def list_runs(months: int = 3, top: int = 500, hours: int | None = None) -> list[dict]:
+    """Return recent runs from ProcessingHistory, newest first.
+
+    Args:
+        months: How many calendar months back to query (partition key filter)
+        top: Maximum rows to return
+        hours: If set, further filter to only runs within the last N hours
+    """
     try:
         client = _client()
         if client is None:
             return []
 
         now = datetime.now(timezone.utc)
-        # Build partition key filters for the last N months
+        # Build partition key filters — cover enough months for the hours window too
+        months_needed = months if hours is None else max(months, 1)
         partitions = set()
-        for i in range(months + 1):
-            m = now.month - i
-        y = now.year
-        for i in range(months + 1):
+        for i in range(months_needed + 1):
             m = now.month - i
             yr = now.year
             while m <= 0:
@@ -116,6 +120,13 @@ def list_runs(months: int = 3, top: int = 500) -> list[dict]:
 
         # Sort newest first
         runs.sort(key=lambda r: r["processed_at"], reverse=True)
+
+        # Apply hours filter if requested
+        if hours is not None:
+            from datetime import timedelta
+            cutoff = (now - timedelta(hours=hours)).isoformat()
+            runs = [r for r in runs if r["processed_at"] >= cutoff]
+
         return runs[:top]
     except Exception as e:
         logger.error("Failed to read from Table Storage: %s", e)

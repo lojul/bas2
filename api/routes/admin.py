@@ -1,77 +1,51 @@
-"""Admin endpoints — LangSmith runs, Azure Search documents, OneDrive upload."""
+"""Admin routes — document index management and runtime config."""
 
 import json
 import os
-from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from api.auth import get_current_user
+from api.common import read_config, write_config
 
-router = APIRouter(prefix="/admin", tags=["admin"])
-
-# ── Blob config helpers ────────────────────────────────────────────────────────
-
-_CONFIG_BLOB = "config/settings.json"
-_DEFAULT_CONFIG = {
-    "inbox_folder": "/Document Processor/In",
-    "move_when_done": False,
-}
+router = APIRouter(tags=["admin"])
 
 
-def _blob_url() -> str | None:
-    account = os.environ.get("AZURE_BLOB_ACCOUNT")
-    container = os.environ.get("AZURE_BLOB_CONTAINER", "property-pdf")
-    sas = os.environ.get("AZURE_BLOB_WRITE_SAS", "")
-    if not account:
-        return None
-    return f"https://{account}.blob.core.windows.net/{container}/{_CONFIG_BLOB}?{sas}"
-
-
-def _read_config() -> dict:
-    url = _blob_url()
-    if not url:
-        return _DEFAULT_CONFIG.copy()
-    try:
-        with httpx.Client(timeout=5) as client:
-            r = client.get(url)
-            if r.status_code == 200:
-                data = r.json()
-                return {**_DEFAULT_CONFIG, **data}
-            if r.status_code == 404:
-                return _DEFAULT_CONFIG.copy()
-    except Exception:
-        pass
-    return _DEFAULT_CONFIG.copy()
-
-
-def _write_config(cfg: dict) -> None:
-    url = _blob_url()
-    if not url:
-        raise RuntimeError("Blob storage not configured")
-    with httpx.Client(timeout=10) as client:
-        r = client.put(
-            url,
-            content=json.dumps(cfg, ensure_ascii=False).encode(),
-            headers={"x-ms-blob-type": "BlockBlob", "Content-Type": "application/json"},
-        )
-        r.raise_for_status()
-
-
-# ── Config endpoints ───────────────────────────────────────────────────────────
+# ── Config ─────────────────────────────────────────────────────────────────────
 
 class ConfigBody(BaseModel):
     inbox_folder: str | None = None
+    processed_folder: str | None = None
     move_when_done: bool | None = None
+    timer_enabled: bool | None = None
+    ms_client_id: str | None = None
+    ms_tenant_id: str | None = None
+    ms_client_secret: str | None = None
+    ms_drive_id: str | None = None
+
+
+def _config_response(cfg: dict) -> dict:
+    return {
+        "inbox_folder": cfg.get("inbox_folder", ""),
+        "processed_folder": cfg.get("processed_folder", "/Document Processor/Processed"),
+        "move_when_done": cfg.get("move_when_done", False),
+        "timer_enabled": cfg.get("timer_enabled", True),
+        "ms_client_id": os.environ.get("MS_GRAPH_CLIENT_ID") or cfg.get("ms_client_id", ""),
+        "ms_tenant_id": os.environ.get("MS_GRAPH_TENANT_ID") or cfg.get("ms_tenant_id", ""),
+        "ms_client_secret_configured": bool(
+            os.environ.get("MS_GRAPH_CLIENT_SECRET") or cfg.get("ms_client_secret", "")
+        ),
+        "ms_drive_id": os.environ.get("MS_GRAPH_DRIVE_ID") or cfg.get("ms_drive_id", ""),
+    }
 
 
 @router.get("/config")
 def get_config(username: Annotated[str, Depends(get_current_user)] = None):
-    """Read runtime configuration from blob storage."""
-    return _read_config()
+    """Read runtime configuration."""
+    return _config_response(read_config())
 
 
 @router.put("/config")
@@ -79,162 +53,37 @@ def update_config(
     body: ConfigBody,
     username: Annotated[str, Depends(get_current_user)] = None,
 ):
-    """Update runtime configuration in blob storage."""
-    cfg = _read_config()
+    """Update runtime configuration."""
+    cfg = read_config()
     if body.inbox_folder is not None:
         cfg["inbox_folder"] = body.inbox_folder.strip()
+    if body.processed_folder is not None:
+        cfg["processed_folder"] = body.processed_folder.strip()
     if body.move_when_done is not None:
         cfg["move_when_done"] = body.move_when_done
+    if body.timer_enabled is not None:
+        cfg["timer_enabled"] = body.timer_enabled
+    if body.ms_client_id is not None:
+        cfg["ms_client_id"] = body.ms_client_id.strip()
+    if body.ms_tenant_id is not None:
+        cfg["ms_tenant_id"] = body.ms_tenant_id.strip()
+    if body.ms_client_secret is not None and body.ms_client_secret.strip():
+        cfg["ms_client_secret"] = body.ms_client_secret.strip()
+    if body.ms_drive_id is not None:
+        cfg["ms_drive_id"] = body.ms_drive_id.strip()
     try:
-        _write_config(cfg)
+        write_config(cfg)
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
-    return cfg
+    return _config_response(cfg)
 
 
-# ── LangSmith runs ─────────────────────────────────────────────────────────────
-
-def _parse_run(run: dict) -> dict[str, Any]:
-    inputs = run.get("inputs") or {}
-    outputs = run.get("outputs") or {}
-    file_name = inputs.get("file_name", "Unknown")
-    doc_type = "unknown"
-    run_status = "error" if run.get("error") else "success"
-    extracted_data: dict[str, Any] = {}
-    confidence = 0.0
-
-    output = outputs.get("output")
-    if output:
-        doc_type = output.get("document_type", "unknown") or "unknown"
-        confidence = output.get("classification_confidence", 0.0) or 0.0
-        extracted = output.get("extracted")
-        if extracted:
-            extracted_data = extracted.get("raw", {}) or {}
-        state_status = output.get("status")
-        if state_status and state_status.lower() == "error":
-            run_status = "error"
-        elif output.get("error_message"):
-            run_status = "error"
-
-    start_time = run.get("start_time")
-    end_time = run.get("end_time")
-    duration_ms = 0
-    if end_time and start_time:
-        duration_ms = int((end_time - start_time).total_seconds() * 1000)
-
-    processed_at = None
-    if start_time:
-        processed_at = start_time.isoformat() if hasattr(start_time, "isoformat") else str(start_time)
-
-    return {
-        "run_id": run.get("id", ""),
-        "file_name": file_name,
-        "document_type": doc_type,
-        "confidence": confidence,
-        "status": run_status,
-        "extracted_data": extracted_data,
-        "duration_ms": duration_ms,
-        "processed_at": processed_at,
-    }
-
-
-@router.get("/runs")
-def get_runs(
-    hours: int = Query(72, ge=1, le=720),
-    username: Annotated[str, Depends(get_current_user)] = None,
-):
-    """Get LangSmith processing runs and aggregate token stats."""
-    api_key = os.environ.get("LANGCHAIN_API_KEY")
-    project_name = os.environ.get("LANGCHAIN_PROJECT", "document-processor")
-
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="LangSmith not configured (LANGCHAIN_API_KEY missing)",
-        )
-
-    from langsmith import Client
-
-    client = Client(api_key=api_key)
-    start_time = datetime.now(timezone.utc) - timedelta(hours=hours)
-
-    runs_raw = list(
-        client.list_runs(
-            project_name=project_name,
-            filter='eq(name, "process_file")',
-            start_time=start_time,
-            limit=100,
-        )
-    )
-
-    serializable = [
-        {
-            "inputs": r.inputs,
-            "outputs": r.outputs,
-            "error": r.error,
-            "start_time": r.start_time,
-            "end_time": r.end_time,
-            "id": str(r.id),
-        }
-        for r in runs_raw
-        if r.outputs is not None or r.error is not None
-    ]
-
-    parsed = [_parse_run(r) for r in serializable]
-
-    # Token stats from LLM runs
-    llm_runs = list(
-        client.list_runs(
-            project_name=project_name,
-            filter='eq(run_type, "llm")',
-            start_time=start_time,
-            limit=100,
-        )
-    )
-    total_tokens = prompt_tokens = completion_tokens = 0
-    for r in llm_runs:
-        total = getattr(r, "total_tokens", 0) or 0
-        prompt = getattr(r, "prompt_tokens", 0) or 0
-        completion = getattr(r, "completion_tokens", 0) or 0
-        extra = getattr(r, "extra", {}) or {}
-        usage_meta = extra.get("usage_metadata", {})
-        if usage_meta:
-            total = total or usage_meta.get("total_tokens", 0)
-            prompt = prompt or usage_meta.get("input_tokens", 0)
-            completion = completion or usage_meta.get("output_tokens", 0)
-        total_tokens += total
-        prompt_tokens += prompt
-        completion_tokens += completion
-
-    return {
-        "runs": parsed,
-        "token_stats": {
-            "total": total_tokens,
-            "prompt": prompt_tokens,
-            "completion": completion_tokens,
-        },
-    }
-
-
-# ── Permanent history (Azure Table Storage) ───────────────────────────────────
-
-@router.get("/history")
-def get_history(
-    months: int = Query(3, ge=1, le=24),
-    top: int = Query(500, ge=1, le=2000),
-    username: Annotated[str, Depends(get_current_user)] = None,
-):
-    """Get permanent processing history from Azure Table Storage."""
-    from src.utils.table_storage import list_runs
-    runs = list_runs(months=months, top=top)
-    return {"runs": runs, "total": len(runs)}
-
-
-# ── Azure Search documents ─────────────────────────────────────────────────────
+# ── Documents ──────────────────────────────────────────────────────────────────
 
 @router.get("/documents")
 def get_documents(
     top_k: int = Query(1000, ge=1, le=1000),
+    needs_review: bool = Query(False),
     username: Annotated[str, Depends(get_current_user)] = None,
 ):
     """List indexed documents from Azure AI Search."""
@@ -243,10 +92,7 @@ def get_documents(
     api_key = os.environ.get("AZURE_SEARCH_API_KEY")
 
     if not all([endpoint, api_key]):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Azure Search not configured",
-        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Azure Search not configured")
 
     headers = {"api-key": api_key, "Content-Type": "application/json"}
 
@@ -256,12 +102,15 @@ def get_documents(
         total_chunks = int(count_resp.text) if count_resp.status_code == 200 else 0
 
         search_url = f"{endpoint}/indexes/{index}/docs/search?api-version=2024-07-01"
-        body = {
+        body: dict[str, Any] = {
             "search": "*",
             "top": top_k,
-            "select": "id,file_name,document_type,processed_at,extracted_data,image_urls",
+            "select": "id,file_name,document_type,processed_at,extracted_data,image_urls,needs_review,extraction_path",
             "orderby": "processed_at desc",
         }
+        if needs_review:
+            body["filter"] = "needs_review eq true"
+
         search_resp = client.post(search_url, headers=headers, json=body)
         if search_resp.status_code != 200:
             raise HTTPException(
@@ -290,6 +139,8 @@ def get_documents(
                 "processed_at": doc.get("processed_at"),
                 "extracted_data": extracted_raw,
                 "image_urls": doc.get("image_urls") or [],
+                "needs_review": doc.get("needs_review", False),
+                "extraction_path": doc.get("extraction_path", "structured"),
                 "chunk_count": 1,
             }
             by_type[dtype] = by_type.get(dtype, 0) + 1
@@ -308,131 +159,41 @@ def get_documents(
     }
 
 
-# ── Triage ─────────────────────────────────────────────────────────────────────
+class UpdateDocumentBody(BaseModel):
+    extracted_data: dict[str, Any]
+    needs_review: bool | None = None
 
-SUPPORTED_FORMATS = {"pdf", "jpg", "jpeg", "png", "docx", "pptx"}
 
-
-@router.post("/triage")
-async def triage_file(
-    file: UploadFile = File(...),
+@router.patch("/documents/{doc_id}")
+def update_document(
+    doc_id: str,
+    body: UpdateDocumentBody,
     username: Annotated[str, Depends(get_current_user)] = None,
 ):
-    """Analyse a file's type before processing — returns detected doc type and whether it can be processed."""
-    fname = file.filename or "unknown"
-    ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+    """Update extracted_data for a document in Azure AI Search."""
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    index = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
 
-    if ext not in SUPPORTED_FORMATS:
-        from src.utils.table_storage import log_unsupported
-        log_unsupported(fname, ext)
-        return {
-            "file_name": fname,
-            "can_process": False,
-            "detected_type": "unsupported",
-            "format": ext or "unknown",
-            "confidence": 0.0,
-            "reason": f".{ext} files are not yet supported" if ext else "Unknown file type",
-        }
+    if not all([endpoint, api_key]):
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Azure Search not configured")
 
-    content = await file.read()
-
-    # Quick Azure DI OCR — first 2 pages only for speed
-    try:
-        from azure.ai.documentintelligence import DocumentIntelligenceClient
-        from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
-        from azure.core.credentials import AzureKeyCredential
-
-        di_endpoint = os.environ.get("AZURE_DOC_INTEL_ENDPOINT", "")
-        di_key = os.environ.get("AZURE_DOC_INTEL_KEY", "")
-        if not di_endpoint or not di_key:
-            raise ValueError("Azure Document Intelligence not configured")
-
-        di_client = DocumentIntelligenceClient(
-            endpoint=di_endpoint,
-            credential=AzureKeyCredential(di_key),
-        )
-        req_kwargs: dict = {"bytes_source": content}
-        if ext == "pdf":
-            req_kwargs["pages"] = "1-2"
-
-        poller = di_client.begin_analyze_document("prebuilt-read", AnalyzeDocumentRequest(**req_kwargs))
-        di_result = poller.result()
-        text = di_result.content or ""
-        page_count = len(di_result.pages) if di_result.pages else 1
-
-    except Exception as e:
-        return {
-            "file_name": fname,
-            "can_process": True,
-            "detected_type": "unknown",
-            "format": ext,
-            "confidence": 0.0,
-            "reason": f"OCR unavailable: {str(e)[:80]}",
-        }
-
-    # Quick LLM classification on first 3000 chars
-    try:
-        from src.nodes.classifier import call_openrouter
-        clf = call_openrouter(text[:3000], page_count, len(text), 0)
-        doc_type = clf.get("type", "unknown")
-        confidence = float(clf.get("confidence", 0.5))
-    except Exception:
-        doc_type = "unknown"
-        confidence = 0.0
-
-    return {
-        "file_name": fname,
-        "can_process": True,
-        "detected_type": doc_type,
-        "format": ext,
-        "confidence": confidence,
-        "reason": None,
+    url = f"{endpoint}/indexes/{index}/docs/index?api-version=2024-07-01"
+    headers = {"api-key": api_key, "Content-Type": "application/json"}
+    merge_doc: dict[str, Any] = {
+        "@search.action": "merge",
+        "id": doc_id,
+        "extracted_data": json.dumps(body.extracted_data, ensure_ascii=False),
     }
+    if body.needs_review is not None:
+        merge_doc["needs_review"] = body.needs_review
 
-
-# ── OneDrive upload ────────────────────────────────────────────────────────────
-
-class UploadResult(BaseModel):
-    name: str
-    ok: bool
-    error: str | None = None
-    web_url: str | None = None
-
-
-@router.post("/upload")
-async def upload_files(
-    files: list[UploadFile] = File(...),
-    username: Annotated[str, Depends(get_current_user)] = None,
-):
-    """Upload files to OneDrive /In folder for processing."""
-    drive_id = os.environ.get("MS_GRAPH_DRIVE_ID")
-    inbox_folder = os.environ.get("MS_GRAPH_INBOX_FOLDER", "/Document Processor/In")
-
-    if not drive_id:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OneDrive not configured (MS_GRAPH_DRIVE_ID missing)",
-        )
-
-    from src.nodes.onedrive import upload_to_onedrive
-
-    results: list[dict] = []
-    for f in files:
-        fname = f.filename or "unknown"
-        ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
-        if ext not in SUPPORTED_FORMATS:
-            results.append({"name": fname, "ok": False, "error": f".{ext} not supported"})
-            continue
-        try:
-            content = await f.read()
-            meta = upload_to_onedrive(
-                drive_id=drive_id,
-                folder_path=inbox_folder,
-                file_name=fname,
-                file_content=content,
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(url, headers=headers, json={"value": [merge_doc]})
+        if resp.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Azure Search error {resp.status_code}: {resp.text[:200]}",
             )
-            results.append({"name": fname, "ok": True, "web_url": meta.get("web_url")})
-        except Exception as e:
-            results.append({"name": fname, "ok": False, "error": str(e)})
 
-    return {"results": results, "folder": inbox_folder}
+    return {"ok": True}

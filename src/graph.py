@@ -1,154 +1,203 @@
 """Main LangGraph workflow for document processing.
 
-Workflow: get_download_url → run_ocr → classify → analyze → extract → index
+Extraction paths (chosen by analyzer, no user input required):
+
+  __start__
+      │
+  get_download_url  (OneDrive → download URL)
+      │
+  run_ocr           (Azure Document Intelligence + LlamaParse + PyMuPDF images)
+      │
+  classify          (Qwen 2.5 — document type)
+      │
+  analyze           (regex signals → picks extraction_path, then LLM structure scan)
+      │
+  ┌───┴──────────────────────────┐
+  │                              │
+  extract_structured        extract_conversational
+  (single-pass LLM,         (two-pass LangChain:
+   tables + forms)           segment → per-entity)
+  │                              │
+  └───────────────┬──────────────┘
+                  │
+            review_gate       (sets needs_review flag if confidence < 0.75)
+                  │
+               index          (Azure AI Search + embeddings + smart merge)
+                  │
+              __end__
+
+Adding a new extraction path:
+  1. Add a value to ExtractionPath in state.py
+  2. Create src/nodes/extractors/<path>.py with a @traceable entry point
+  3. Add a node + edge below and update route_extraction()
 """
 
 import os
 import time
-from typing import TypedDict
+from typing import TypedDict, Literal
 
 from langsmith import traceable
 from langgraph.graph import END, START, StateGraph
 
-from src.state import DocumentState, ProcessingStatus
+from src.state import DocumentState, ExtractionPath, ProcessingStatus
 
 
 class GraphState(TypedDict):
     """TypedDict wrapper for LangGraph state."""
-
     state: DocumentState
 
 
 # =============================================================================
-# Node functions (no @traceable - the underlying functions already have it)
+# Node functions
 # =============================================================================
 
-
 def get_download_url_node(data: GraphState) -> GraphState:
-    """Get download URL from OneDrive for the document."""
-    from src.nodes.onedrive import get_download_url
-
     state = data["state"]
+    # Dashboard path: bytes already in state — skip OneDrive download
+    if state.file_bytes is not None:
+        state.update_status(ProcessingStatus.UPLOADED)
+        return {"state": state}
+    # OneDrive path: fetch download URL from item ID
+    from src.nodes.onedrive import get_download_url
     state.update_status(ProcessingStatus.DOWNLOADING)
-
     try:
         drive_id = os.environ.get("MS_GRAPH_DRIVE_ID", "")
-        item_id = state.file_path
-
-        download_url = get_download_url(drive_id, item_id)
-
+        download_url = get_download_url(drive_id, state.file_path)
         if not download_url:
-            return {"state": state.set_error(f"Could not get download URL for: {item_id}")}
-
+            return {"state": state.set_error(f"Could not get download URL for: {state.file_path}")}
         state.blob_url = download_url
         state.update_status(ProcessingStatus.UPLOADED)
-
     except Exception as e:
-        state.set_error(f"OneDrive error: {str(e)}")
-
+        state.set_error(f"OneDrive error: {e}")
     return {"state": state}
 
 
 def run_ocr_node(data: GraphState) -> GraphState:
-    """Run OCR on document using Azure Document Intelligence."""
     from src.nodes.ocr import run_ocr
-
-    state = data["state"]
-    updated_state = run_ocr(state)
-    return {"state": updated_state}
+    return {"state": run_ocr(data["state"])}
 
 
 def classify_node(data: GraphState) -> GraphState:
-    """Classify document type using AI."""
     from src.nodes.classifier import classify_document
-
-    state = data["state"]
-    updated_state = classify_document(state)
-    return {"state": updated_state}
+    return {"state": classify_document(data["state"])}
 
 
 def analyze_node(data: GraphState) -> GraphState:
-    """Pre-analyze document structure before extraction."""
+    """Analyze document structure and set state.extraction_path."""
     from src.nodes.analyzer import analyze_document
+    return {"state": analyze_document(data["state"])}
 
+
+def extract_structured_node(data: GraphState) -> GraphState:
+    """Standard single-pass extraction for tables, forms, standard PDFs."""
+    from src.nodes.extractors.structured import extract_structured
+    return {"state": extract_structured(data["state"])}
+
+
+def extract_conversational_node(data: GraphState) -> GraphState:
+    """Two-pass LangChain extraction for free-text multi-property documents."""
+    from src.nodes.extractors.conversational import extract_conversational
+    return {"state": extract_conversational(data["state"])}
+
+
+def review_gate_node(data: GraphState) -> GraphState:
+    """Set needs_review flag based on extraction confidence.
+
+    Does not change routing — all documents proceed to indexing.
+    The flag surfaces low-confidence documents in the dashboard review queue.
+    """
     state = data["state"]
-    updated_state = analyze_document(state)
-    return {"state": updated_state}
 
+    # Conversational path already sets needs_review in the extractor.
+    # For structured path, flag if there's no extracted data at all.
+    if state.extraction_path == ExtractionPath.STRUCTURED:
+        raw = state.extracted.raw if state.extracted else {}
+        has_data = raw and not raw.get("_extraction_failed") and not raw.get("_no_data")
+        state.needs_review = not has_data
 
-def extract_node(data: GraphState) -> GraphState:
-    """Extract structured data based on document type."""
-    from src.nodes.extractor import extract_data
-
-    state = data["state"]
-    updated_state = extract_data(state)
-    return {"state": updated_state}
+    return {"state": state}
 
 
 def index_node(data: GraphState) -> GraphState:
-    """Index document to Azure AI Search."""
     from src.nodes.indexer import index_document
+    return {"state": index_document(data["state"])}
 
-    state = data["state"]
-    updated_state = index_document(state)
-    return {"state": updated_state}
+
+# =============================================================================
+# Routing
+# =============================================================================
+
+def route_extraction(data: GraphState) -> Literal["extract_structured", "extract_conversational"]:
+    """Choose extraction path based on what the analyzer detected.
+
+    Add more return values here as new paths are built (e.g. "extract_visual").
+    """
+    path = data["state"].extraction_path
+    if path == ExtractionPath.CONVERSATIONAL:
+        return "extract_conversational"
+    # STRUCTURED and VISUAL (future) both use the structured extractor for now
+    return "extract_structured"
 
 
 # =============================================================================
 # Graph builder
 # =============================================================================
 
-
 def create_graph() -> StateGraph:
-    """Create the document processing graph.
-
-    start → get_download_url → run_ocr → classify → analyze → extract → index → end
-
-    The analyze step examines document structure before extraction to enable
-    adaptive extraction based on what information is actually present.
-    """
+    """Build the document processing graph with path-based routing."""
     graph = StateGraph(GraphState)
 
-    # Add nodes
+    # ── Nodes ─────────────────────────────────────────────────────────────────
     graph.add_node("get_download_url", get_download_url_node)
     graph.add_node("run_ocr", run_ocr_node)
     graph.add_node("classify", classify_node)
     graph.add_node("analyze", analyze_node)
-    graph.add_node("extract", extract_node)
+    graph.add_node("extract_structured", extract_structured_node)
+    graph.add_node("extract_conversational", extract_conversational_node)
+    graph.add_node("review_gate", review_gate_node)
     graph.add_node("index", index_node)
 
-    # Add edges
+    # ── Edges ─────────────────────────────────────────────────────────────────
     graph.add_edge(START, "get_download_url")
     graph.add_edge("get_download_url", "run_ocr")
     graph.add_edge("run_ocr", "classify")
     graph.add_edge("classify", "analyze")
-    graph.add_edge("analyze", "extract")
-    graph.add_edge("extract", "index")
+
+    # Conditional: analyzer decides which extractor to use
+    graph.add_conditional_edges(
+        "analyze",
+        route_extraction,
+        {
+            "extract_structured": "extract_structured",
+            "extract_conversational": "extract_conversational",
+        },
+    )
+
+    # Both extractors converge at review_gate
+    graph.add_edge("extract_structured", "review_gate")
+    graph.add_edge("extract_conversational", "review_gate")
+
+    graph.add_edge("review_gate", "index")
     graph.add_edge("index", END)
 
     return graph
 
 
 def compile_graph():
-    """Compile the graph for execution."""
     return create_graph().compile()
 
 
-# Compiled graph
+# Compiled graph (module-level singleton)
 app = compile_graph()
 
 
+# =============================================================================
+# Public entry point
+# =============================================================================
+
 @traceable(name="process_file", run_type="chain")
 def process_file(item_id: str, file_name: str) -> DocumentState:
-    """Process a single document from OneDrive.
-
-    Args:
-        item_id: OneDrive item ID
-        file_name: File name for display
-
-    Returns:
-        Final DocumentState after processing
-    """
+    """Process a single document from OneDrive through the full pipeline."""
     from src.utils.table_storage import log_run
 
     initial_state = DocumentState(
@@ -186,18 +235,61 @@ def process_file(item_id: str, file_name: str) -> DocumentState:
     return final
 
 
+@traceable(name="process_file_from_bytes", run_type="chain")
+def process_file_from_bytes(
+    file_bytes: bytes,
+    file_name: str,
+    source: str = "dashboard",
+    precomputed_ocr=None,  # OCRResult | None
+) -> DocumentState:
+    """Process a document from raw bytes through the full pipeline (dashboard / manual upload path).
+
+    Pass precomputed_ocr (an OCRResult) to skip the Azure DI call when triage already ran OCR
+    on the full file (non-PDFs, or single-page PDFs).
+    """
+    from src.utils.table_storage import log_run
+
+    initial_state = DocumentState(
+        file_path="",
+        file_name=file_name,
+        source=source,
+        status=ProcessingStatus.PENDING,
+        file_bytes=file_bytes,
+        ocr=precomputed_ocr,
+    )
+
+    start_ms = time.monotonic()
+    result = app.invoke({"state": initial_state})
+    duration_ms = int((time.monotonic() - start_ms) * 1000)
+
+    final: DocumentState = result["state"]
+    is_error = final.status == ProcessingStatus.ERROR
+
+    extracted = {}
+    if final.extracted:
+        try:
+            from dataclasses import asdict
+            extracted = asdict(final.extracted)
+        except Exception:
+            extracted = {}
+
+    log_run(
+        file_name=final.file_name,
+        document_type=final.document_type.value if final.document_type else "unknown",
+        status="error" if is_error else "success",
+        duration_ms=duration_ms,
+        extracted_data=extracted,
+        error_message=final.error_message if is_error else None,
+        index_id=final.index_id,
+    )
+
+    return final
+
+
 def print_graph() -> None:
-    """Print ASCII visualization of the graph."""
     compiled = create_graph().compile()
     print(compiled.get_graph().draw_ascii())
 
 
 if __name__ == "__main__":
-    print("Document Processor Graph:")
-    print()
-    print("  __start__ → get_download_url → run_ocr → classify → analyze → extract → index → __end__")
-    print()
-    print("New: analyze step pre-examines document structure for adaptive extraction")
-    print("New: index step checks for existing docs and merges data intelligently")
-    print()
-    print("Note: list_onedrive_files is handled by process_inbox.py")
+    print_graph()

@@ -8,7 +8,7 @@ from src.graph import (
     get_download_url_node,
     run_ocr_node,
     classify_node,
-    extract_node,
+    extract_structured_node as extract_node,
     index_node,
 )
 from src.state import DocumentState, ProcessingStatus
@@ -108,16 +108,18 @@ class TestGraphStructure:
         assert "get_download_url" in node_ids
         assert "run_ocr" in node_ids
         assert "classify" in node_ids
-        assert "extract" in node_ids
+        # Two extraction paths replace the single 'extract' node
+        assert "extract_structured" in node_ids
+        assert "extract_conversational" in node_ids
+        assert "review_gate" in node_ids
         assert "index" in node_ids
 
     def test_graph_flow_structure(self):
-        """Graph should flow: start → get_download_url → run_ocr → classify → extract → index → end."""
+        """Graph should route: analyze → extract_structured | extract_conversational → review_gate → index."""
         graph = create_graph()
         compiled = graph.compile()
         graph_dict = compiled.get_graph().to_json()
 
-        # Check edges
         edges = graph_dict.get("edges", [])
         edge_pairs = [(e.get("source"), e.get("target")) for e in edges]
 
@@ -125,6 +127,11 @@ class TestGraphStructure:
         assert ("get_download_url", "run_ocr") in edge_pairs
         assert ("run_ocr", "classify") in edge_pairs
         assert ("classify", "analyze") in edge_pairs
-        assert ("analyze", "extract") in edge_pairs
-        assert ("extract", "index") in edge_pairs
+        # Conditional routing from analyze
+        assert ("analyze", "extract_structured") in edge_pairs
+        assert ("analyze", "extract_conversational") in edge_pairs
+        # Both paths converge at review_gate then index
+        assert ("extract_structured", "review_gate") in edge_pairs
+        assert ("extract_conversational", "review_gate") in edge_pairs
+        assert ("review_gate", "index") in edge_pairs
         assert ("index", "__end__") in edge_pairs

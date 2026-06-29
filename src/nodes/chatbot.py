@@ -167,10 +167,6 @@ def rerank_documents(query: str, documents: list[dict], top_k: int = 5) -> list[
     if len(documents) <= top_k:
         return documents  # No need to rerank if we have fewer than top_k
 
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        return documents[:top_k]
-
     try:
         # Prepare document summaries for reranking
         doc_summaries = []
@@ -187,27 +183,9 @@ def rerank_documents(query: str, documents: list[dict], top_k: int = 5) -> list[
 
         documents_text = "\n".join(doc_summaries)
 
-        # Call LLM to score relevance
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        body = {
-            "model": "deepseek/deepseek-chat",
-            "messages": [
-                {"role": "user", "content": RERANK_PROMPT.format(query=query, documents=documents_text)}
-            ],
-            "max_tokens": 100,
-            "temperature": 0,
-        }
-
-        client = get_http_client()
-        response = client.post(url, headers=headers, json=body, timeout=15)
-        response.raise_for_status()
-
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        from src.utils.llm import chat_complete
+        rerank_messages = [{"role": "user", "content": RERANK_PROMPT.format(query=query, documents=documents_text)}]
+        content = chat_complete(rerank_messages, max_tokens=100, temperature=0, fallback_model="deepseek/deepseek-chat")
 
         # Parse scores from response
         import re
@@ -251,32 +229,10 @@ def generate_query_variations(query: str) -> list[str]:
     Returns:
         List of query variations (including original)
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        return [query]  # Fallback to original only
-
     try:
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-        body = {
-            "model": "deepseek/deepseek-chat",  # Fast and cheap
-            "messages": [
-                {"role": "user", "content": MULTI_QUERY_PROMPT.format(query=query)}
-            ],
-            "max_tokens": 200,
-            "temperature": 0.7,  # Some creativity for variations
-        }
-
-        client = get_http_client()
-        response = client.post(url, headers=headers, json=body, timeout=10)
-        response.raise_for_status()
-
-        data = response.json()
-        content = data["choices"][0]["message"]["content"]
+        from src.utils.llm import chat_complete
+        variation_messages = [{"role": "user", "content": MULTI_QUERY_PROMPT.format(query=query)}]
+        content = chat_complete(variation_messages, max_tokens=200, temperature=0.7, fallback_model="deepseek/deepseek-chat")
 
         # Parse JSON array
         import re
@@ -1214,88 +1170,62 @@ def _build_llm_messages(question: str, context: str, messages: list[dict]) -> li
 
 @traceable(name="generate_answer", run_type="llm", project_name=CHATBOT_PROJECT)
 def call_llm(question: str, context: str, messages: list[dict]) -> str:
-    """Call LLM to generate answer (non-streaming)."""
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not set")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://c21hk.com",
-        "X-Title": "C21 Property Intelligence",
-    }
-
-    body = {
-        "model": "meta-llama/llama-3.3-70b-instruct",
-        "messages": _build_llm_messages(question, context, messages),
-        "temperature": 0.5,
-        "max_tokens": 2000,
-    }
-
+    """Call LLM to generate answer (non-streaming). Prefers Azure OpenAI."""
+    from src.utils.llm import azure_openai_available, chat_complete
+    llm_messages = _build_llm_messages(question, context, messages)
     try:
+        if azure_openai_available():
+            return chat_complete(llm_messages, max_tokens=2000, temperature=0.5)
+        # Fallback: OpenRouter
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("No LLM configured")
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        body = {"model": "meta-llama/llama-3.3-70b-instruct", "messages": llm_messages, "temperature": 0.5, "max_tokens": 2000}
         client = get_http_client()
-        response = client.post(url, headers=headers, json=body, timeout=30)
+        response = client.post(url, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=body, timeout=30)
         response.raise_for_status()
-
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        return response.json()["choices"][0]["message"]["content"]
     except httpx.TimeoutException:
         return "Sorry, the response took too long. Please try again. 抱歉，回應超時，請重試。"
-    except httpx.HTTPStatusError as e:
-        return f"API error: {e.response.status_code}. Please try again."
     except Exception as e:
         return f"Error generating response: {str(e)}"
 
 
 def call_llm_stream(question: str, context: str, messages: list[dict]):
-    """Call LLM with streaming - yields text chunks.
+    """Call LLM with streaming - yields text chunks. Prefers Azure OpenAI.
 
     Note: Not using @traceable decorator here because it doesn't handle
     GeneratorExit well - logs it as error when user navigates away.
-    The retrieval steps are still traced for observability.
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not set")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "https://c21hk.com",
-        "X-Title": "C21 Property Intelligence",
-    }
-
-    body = {
-        "model": "meta-llama/llama-3.3-70b-instruct",
-        "messages": _build_llm_messages(question, context, messages),
-        "temperature": 0.5,
-        "max_tokens": 2000,
-        "stream": True,
-    }
-
-    # Use httpx streaming
+    from src.utils.llm import azure_openai_available, chat_complete_stream
+    llm_messages = _build_llm_messages(question, context, messages)
     try:
+        if azure_openai_available():
+            yield from chat_complete_stream(llm_messages, max_tokens=2000, temperature=0.5)
+            return
+        # Fallback: OpenRouter
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise ValueError("No LLM configured")
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        body = {"model": "meta-llama/llama-3.3-70b-instruct", "messages": llm_messages, "temperature": 0.5, "max_tokens": 2000, "stream": True}
         with httpx.Client(timeout=60) as client:
-            with client.stream("POST", url, headers=headers, json=body) as response:
+            with client.stream("POST", url, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}, json=body) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
                     if line.startswith("data: "):
-                        data = line[6:]  # Remove "data: " prefix
-                        if data == "[DONE]":
+                        raw = line[6:]
+                        if raw == "[DONE]":
                             break
                         try:
-                            chunk = json.loads(data)
-                            delta = chunk.get("choices", [{}])[0].get("delta", {})
-                            content = delta.get("content", "")
+                            chunk = json.loads(raw)
+                            content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
                             if content:
                                 yield content
                         except json.JSONDecodeError:
                             continue
     except GeneratorExit:
-        # Stream was closed by caller - this is normal, don't propagate
         return
 
 

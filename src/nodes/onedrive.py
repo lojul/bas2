@@ -83,7 +83,7 @@ def _list_files_recursive(
         path = folder_path.lstrip("/")
         url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{path}:/children"
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -153,7 +153,7 @@ def create_share_link(drive_id: str, item_id: str) -> str:
         "scope": "anonymous",  # Anyone with link can view
     }
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.post(url, headers=headers, json=body)
         response.raise_for_status()
         data = response.json()
@@ -190,7 +190,7 @@ def get_download_url(drive_id: str, item_id: str) -> str:
     url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/items/{item_id}"
     headers = {"Authorization": f"Bearer {token}"}
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -232,7 +232,7 @@ def move_to_processed(
         "@microsoft.graph.conflictBehavior": "replace"
     }
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.patch(url, headers=headers, json=body)
         response.raise_for_status()
         return response.json()
@@ -287,7 +287,7 @@ def list_sites() -> list[dict]:
     url = "https://graph.microsoft.com/v1.0/sites?search=*"
     headers = {"Authorization": f"Bearer {token}"}
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -318,7 +318,7 @@ def list_drives(site_id: str) -> list[dict]:
     url = f"https://graph.microsoft.com/v1.0/sites/{site_id}/drives"
     headers = {"Authorization": f"Bearer {token}"}
 
-    with httpx.Client() as client:
+    with httpx.Client(timeout=30) as client:
         response = client.get(url, headers=headers)
         response.raise_for_status()
         data = response.json()
@@ -361,6 +361,38 @@ def _get_access_token_standalone() -> str:
         raise Exception(f"Failed to get access token: {result.get('error_description', 'Unknown error')}")
 
     return result["access_token"]
+
+
+def ensure_folder_exists(drive_id: str, folder_path: str) -> None:
+    """Create a OneDrive folder path, creating intermediate folders as needed.
+
+    Skips levels that already exist (409 Conflict is treated as success).
+    """
+    token = _get_access_token_standalone()
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+    parts = [p for p in folder_path.strip("/").split("/") if p]
+    if not parts:
+        return
+
+    with httpx.Client(timeout=30) as client:
+        for i, part in enumerate(parts):
+            parent = "/".join(parts[:i])
+            if parent:
+                url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root:/{parent}:/children"
+            else:
+                url = f"https://graph.microsoft.com/v1.0/drives/{drive_id}/root/children"
+
+            resp = client.post(
+                url,
+                headers=headers,
+                json={"name": part, "folder": {}, "@microsoft.graph.conflictBehavior": "fail"},
+            )
+            # 201 = created, 409 = already exists — both are fine
+            if resp.status_code not in (201, 409):
+                resp.raise_for_status()
 
 
 @traceable(name="upload_to_onedrive")

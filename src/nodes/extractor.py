@@ -58,7 +58,20 @@ IMPORTANT RULES:
 - ONLY extract data that is EXPLICITLY stated in the text
 - If a field is NOT found in the text, use null (not empty string, not made-up data)
 - DO NOT invent or hallucinate any information
+- Documents may list RENT (月租/租金) OR SALE prices (售價/賣價) or both — extract whichever is present
 - If this text does NOT contain property listing information, return {{"_no_data": true}}
+
+UNIT EXTRACTION RULES (critical):
+- Extract EACH individual floor or unit as a SEPARATE entry in the units array
+- ONE table row = ONE unit entry
+- SKIP any "Total", "Sub-total", "合計", "總計", "全棟" or aggregate summary rows from units array
+- If there are 10 floors, there should be 10 entries in the units array
+- Rent and price values in units should be for INDIVIDUAL floors only, NOT building totals
+
+BUILDING SUMMARY RULES:
+- If the document shows a WHOLE BUILDING asking price (整幢售價, 全棟售價, asking price for whole building), put it in "asking_price"
+- If the document shows TOTAL current rental income (月租收入, total rent, 全棟月租), put it in "rental_income"
+- These are building-level numbers, NOT per-floor — keep them out of the units array
 
 DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
 """ + HK_DISTRICTS + """
@@ -66,14 +79,16 @@ DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
 TEXT:
 {text}
 
-Return JSON with building info and list of available units (max 10 units):
+Return JSON with building info, optional building summary, and list of individual floor/unit entries (max 20 units):
 {{
   "building_name": "name from text or null",
   "address": "address from text or null",
   "district": "Hong Kong district from text/address (use Chinese name like 沙田, 觀塘, 中環) or null",
   "contact_phone": "phone from text or null",
+  "asking_price": whole building sale price as number or null,
+  "rental_income": total current monthly rental income as number or null,
   "units": [
-    {{"floor": "from text", "unit": "from text", "size": number, "rent": number}}
+    {{"floor": "floor from text", "unit": "unit letter/number or null", "size": size in sqft as number or null, "rent": monthly rent as number or null, "price": sale price as number or null}}
   ]
 }}
 
@@ -259,7 +274,7 @@ def extract_data(state: DocumentState) -> DocumentState:
             # For other types, use first 16000 chars
             text_sample = full_text[:16000]
 
-        result = call_openrouter(prompt_template.format(text=text_sample))
+        result = call_llm(prompt_template.format(text=text_sample))
 
         state.extracted = ExtractedData(
             raw=result,
@@ -284,6 +299,26 @@ def extract_data(state: DocumentState) -> DocumentState:
         state.set_error(f"Extraction error: {str(e)}")
 
     return state
+
+
+def call_llm(prompt: str) -> dict:
+    """Always use OpenRouter (Qwen) for extraction.
+    Azure OpenAI gpt-5-mini is a reasoning model — too slow and has API restrictions.
+    Azure OpenAI is reserved for embeddings only.
+    """
+    return call_openrouter(prompt)
+
+
+@traceable(name="extractor_azure_openai", run_type="llm")
+def call_azure_openai(prompt: str) -> dict:
+    """Call Azure OpenAI gpt-5-mini for extraction."""
+    from src.utils.llm import chat_complete
+    from src.utils.json_parser import parse_json_response
+    content = chat_complete(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=4000,
+    )
+    return parse_json_response(content)
 
 
 @traceable(name="extractor_openrouter", run_type="llm")

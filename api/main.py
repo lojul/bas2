@@ -15,7 +15,10 @@ from fastapi.responses import RedirectResponse
 
 from api.auth import LoginRequest, TokenResponse, login_with_rate_limit
 from api.routes.admin import router as admin_router
+from api.routes.billing import router as billing_router
 from api.routes.chat import router as chat_router
+from api.routes.monitoring import router as monitoring_router
+from api.routes.pipeline import router as pipeline_router
 from api.routes.search import router as search_router
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -50,7 +53,10 @@ app.add_middleware(
 # ── Routers ───────────────────────────────────────────────────────────────────
 
 app.include_router(admin_router, prefix="/api")
+app.include_router(billing_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(pipeline_router, prefix="/api")
 app.include_router(search_router, prefix="/api")
 
 # ── Auth endpoints ────────────────────────────────────────────────────────────
