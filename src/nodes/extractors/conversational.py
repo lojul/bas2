@@ -17,6 +17,7 @@ Why single-pass?
 """
 
 import os
+import json
 import logging
 from typing import Any
 
@@ -97,7 +98,7 @@ EXTRACT_ALL_PROMPT = ChatPromptTemplate.from_messages([
      "油麻地/Yau Ma Tei 旺角/Mong Kok 深水埗/Sham Shui Po 九龍灣/Kowloon Bay "
      "觀塘/Kwun Tong 荃灣/Tsuen Wan 沙田/Sha Tin 將軍澳/Tseung Kwan O"),
     ("human",
-     """Extract ALL property listings from this {document_type} document.
+     """{examples}Extract ALL property listings from this {document_type} document.
 
 TEXT:
 ---
@@ -160,6 +161,80 @@ def _get_llm():
 
 
 # ---------------------------------------------------------------------------
+# Few-shot memory helpers
+# ---------------------------------------------------------------------------
+
+def _find_similar_documents(text: str, file_name: str, top_k: int = 2) -> list[dict]:
+    """Vector-search the index for similar already-processed documents."""
+    from src.nodes.indexer import get_embedding, get_http_client, PRIMARY_INDEX
+
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+    if not endpoint or not api_key:
+        return []
+
+    try:
+        embedding = get_embedding(text[:2000])
+        url = f"{endpoint}/indexes/{PRIMARY_INDEX}/docs/search?api-version=2024-07-01"
+        headers = {"Content-Type": "application/json", "api-key": api_key}
+        body = {
+            "vectorQueries": [{
+                "kind": "vector",
+                "vector": embedding,
+                "fields": "content_vector",
+                "k": top_k + 5,
+            }],
+            "select": "file_name,content,extracted_data",
+            "top": top_k + 5,
+        }
+        client = get_http_client()
+        response = client.post(url, headers=headers, json=body)
+        response.raise_for_status()
+
+        results = []
+        for doc in response.json().get("value", []):
+            if doc.get("file_name") == file_name:
+                continue
+            try:
+                extracted = json.loads(doc.get("extracted_data") or "{}")
+            except json.JSONDecodeError:
+                extracted = {}
+            # Only use docs with clean successful extractions
+            if extracted.get("_extraction_failed") or not extracted.get("properties"):
+                continue
+            results.append({
+                "file_name": doc.get("file_name", ""),
+                "content_snippet": (doc.get("content") or "")[:800],
+                "properties": extracted.get("properties", []),
+            })
+            if len(results) >= top_k:
+                break
+
+        return results
+    except Exception as e:
+        logger.warning("Few-shot search failed (non-fatal): %s", e)
+        return []
+
+
+def _format_examples(similar_docs: list[dict]) -> str:
+    """Format similar docs as few-shot examples to prepend to the prompt."""
+    if not similar_docs:
+        return ""
+    lines = [
+        "REFERENCE EXAMPLES — similar documents already extracted correctly. "
+        "Use these as a guide for format and field values:\n"
+    ]
+    for i, doc in enumerate(similar_docs, 1):
+        lines.append(f"Example {i} ({doc['file_name']}):")
+        lines.append(f"TEXT SNIPPET: {doc['content_snippet']}")
+        lines.append("CORRECT OUTPUT:")
+        lines.append(json.dumps({"properties": doc["properties"]}, ensure_ascii=False, indent=2))
+        lines.append("---\n")
+    lines.append("Now extract the NEW document below using the same approach.\n\n")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -184,10 +259,15 @@ def extract_conversational(state: DocumentState) -> DocumentState:
         llm = _get_llm()
         doc_type_str = state.document_type.value if state.document_type else "listing_list"
 
+        similar_docs = _find_similar_documents(text, state.file_name)
+        if similar_docs:
+            logger.info("Few-shot: injecting %d example(s) from index", len(similar_docs))
+
         chain = EXTRACT_ALL_PROMPT | llm.with_structured_output(MultiExtractionOutput, method="json_mode")
         result: MultiExtractionOutput = chain.invoke({
             "text": text[:10000],
             "document_type": doc_type_str,
+            "examples": _format_examples(similar_docs),
         })
 
         properties: list[dict[str, Any]] = []
