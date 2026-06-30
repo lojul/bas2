@@ -208,8 +208,16 @@ def determine_extraction_path(
     """
     from src.state import DocumentType
 
+    # Image-heavy pitching decks: route to vision extractor when OCR text is sparse
+    # (< 300 words means content is embedded in images, not searchable text)
+    if document_type == DocumentType.PITCHING_DECK:
+        word_count = len(text.split())
+        if word_count < 300:
+            return ExtractionPath.VISUAL
+        return ExtractionPath.STRUCTURED
+
     # Types that never need conversational extraction
-    if document_type in (DocumentType.PITCHING_DECK, DocumentType.NEWS, DocumentType.CONTACT,
+    if document_type in (DocumentType.NEWS, DocumentType.CONTACT,
                          DocumentType.LISTING, DocumentType.UNKNOWN):
         return ExtractionPath.STRUCTURED
 

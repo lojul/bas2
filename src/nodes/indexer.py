@@ -387,7 +387,7 @@ def upload_document(doc: dict) -> None:
     body = {
         "value": [
             {
-                "@search.action": "mergeOrUpload",
+                "@search.action": "upload",
                 **doc
             }
         ]

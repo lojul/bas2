@@ -12,13 +12,13 @@ Extraction paths (chosen by analyzer, no user input required):
       │
   analyze           (regex signals → picks extraction_path, then LLM structure scan)
       │
-  ┌───┴──────────────────────────┐
-  │                              │
-  extract_structured        extract_conversational
-  (single-pass LLM,         (two-pass LangChain:
-   tables + forms)           segment → per-entity)
-  │                              │
-  └───────────────┬──────────────┘
+  ┌───┴──────────────────────────┬──────────────────────┐
+  │                              │                      │
+  extract_structured        extract_conversational  extract_vision
+  (single-pass LLM,         (single-pass LangChain  (Qwen3-VL-32B,
+   tables + forms)           for free-text prose)    image-heavy PDFs)
+  │                              │                      │
+  └───────────────┬──────────────┴──────────────────────┘
                   │
             review_gate       (sets needs_review flag if confidence < 0.75)
                   │
@@ -100,6 +100,12 @@ def extract_conversational_node(data: GraphState) -> GraphState:
     return {"state": extract_conversational(data["state"])}
 
 
+def extract_vision_node(data: GraphState) -> GraphState:
+    """Multimodal extraction for image-heavy pitching decks."""
+    from src.nodes.extractors.vision import extract_vision
+    return {"state": extract_vision(data["state"])}
+
+
 def review_gate_node(data: GraphState) -> GraphState:
     """Set needs_review flag based on extraction confidence.
 
@@ -127,15 +133,13 @@ def index_node(data: GraphState) -> GraphState:
 # Routing
 # =============================================================================
 
-def route_extraction(data: GraphState) -> Literal["extract_structured", "extract_conversational"]:
-    """Choose extraction path based on what the analyzer detected.
-
-    Add more return values here as new paths are built (e.g. "extract_visual").
-    """
+def route_extraction(data: GraphState) -> Literal["extract_structured", "extract_conversational", "extract_vision"]:
+    """Choose extraction path based on what the analyzer detected."""
     path = data["state"].extraction_path
     if path == ExtractionPath.CONVERSATIONAL:
         return "extract_conversational"
-    # STRUCTURED and VISUAL (future) both use the structured extractor for now
+    if path == ExtractionPath.VISUAL:
+        return "extract_vision"
     return "extract_structured"
 
 
@@ -154,6 +158,7 @@ def create_graph() -> StateGraph:
     graph.add_node("analyze", analyze_node)
     graph.add_node("extract_structured", extract_structured_node)
     graph.add_node("extract_conversational", extract_conversational_node)
+    graph.add_node("extract_vision", extract_vision_node)
     graph.add_node("review_gate", review_gate_node)
     graph.add_node("index", index_node)
 
@@ -170,12 +175,14 @@ def create_graph() -> StateGraph:
         {
             "extract_structured": "extract_structured",
             "extract_conversational": "extract_conversational",
+            "extract_vision": "extract_vision",
         },
     )
 
-    # Both extractors converge at review_gate
+    # All extractors converge at review_gate
     graph.add_edge("extract_structured", "review_gate")
     graph.add_edge("extract_conversational", "review_gate")
+    graph.add_edge("extract_vision", "review_gate")
 
     graph.add_edge("review_gate", "index")
     graph.add_edge("index", END)
