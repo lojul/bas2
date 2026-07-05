@@ -69,6 +69,8 @@ def _state_to_result(state: Any) -> dict:
         "extracted_data": extracted,
         "error": state.error_message if state.status == ProcessingStatus.ERROR else None,
         "index_id": state.index_id,
+        "odoo_record_id": state.odoo_record_id or None,
+        "odoo_sync_status": state.odoo_sync_status or None,
     }
 
 
@@ -108,11 +110,12 @@ async def triage_file(
             raise ValueError("Azure Document Intelligence not configured")
 
         di_client = DocumentIntelligenceClient(endpoint=di_endpoint, credential=AzureKeyCredential(di_key))
-        req_kwargs: dict = {"bytes_source": content}
+        analyze_request = AnalyzeDocumentRequest(bytes_source=content)
+        # pages is a query param on begin_analyze_document, not a field on AnalyzeDocumentRequest
         if ext == "pdf":
-            req_kwargs["pages"] = "1-2"
-
-        poller = di_client.begin_analyze_document("prebuilt-read", AnalyzeDocumentRequest(**req_kwargs))
+            poller = di_client.begin_analyze_document("prebuilt-read", analyze_request, pages="1-2")
+        else:
+            poller = di_client.begin_analyze_document("prebuilt-read", analyze_request)
         di_result = poller.result()
         text = di_result.content or ""
         page_count = len(di_result.pages) if di_result.pages else 1
@@ -136,6 +139,25 @@ async def triage_file(
         doc_type = "unknown"
         confidence = 0.0
 
+    # Filename-based override: strong brochure/deck keywords always win over
+    # the LLM classifier. Filenames are reliable; classifier can misread sparse
+    # image-heavy PDFs as "listing" when the first 2 pages contain property specs.
+    word_count = len(text.split())
+    name_lower = fname.lower()
+    if any(kw in name_lower for kw in ("brochure", "deck", "pre-leasing", "preleasing", "prospectus", "marketing")):
+        doc_type = "pitching_deck"
+        confidence = max(confidence, 0.7)
+
+    # Predict which extraction path the pipeline will use (mirrors analyzer.py logic).
+    # Use 800 words as threshold — first 2 pages of a pure image brochure rarely
+    # yields that much text from DI even counting headers/footers.
+    if doc_type == "pitching_deck" and word_count < 800:
+        extraction_path = "vision"
+    elif doc_type == "listing_list":
+        extraction_path = "conversational"
+    else:
+        extraction_path = "structured"
+
     # ocr_complete = True when triage processed the full file (so process can skip DI)
     # PDFs are capped at pages 1-2 in triage; only single-page PDFs are fully covered.
     ocr_complete = (ext != "pdf") or (page_count == 1)
@@ -150,6 +172,7 @@ async def triage_file(
         "ocr_text": text,
         "ocr_pages": page_count,
         "ocr_complete": ocr_complete,
+        "extraction_path": extraction_path,
     }
 
 

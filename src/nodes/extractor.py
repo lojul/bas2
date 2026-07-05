@@ -47,31 +47,48 @@ Return a SINGLE JSON object (NOT an array):
   "floor": "floor from text or null",
   "unit": "unit from text or null",
   "contact_name": "agent name from text or null",
-  "contact_phone": "phone number from text or null"
+  "contact_phone": "phone number from text or null",
+  "listing_ref": "listing reference number (樓盤編號 / 編號 / ref no, e.g. #10978) or null",
+  "headline": "the ad's own title/headline if present (e.g. 中環旺舖推介) or null"
 }}
 
 Return ONLY the JSON object, no array, no explanation:""",
 
-    DocumentType.LISTING_LIST: """Extract property listing table data.
+    DocumentType.LISTING_LIST: """Extract ALL property listings from this document.
+
+The document is one of TWO formats — detect which and extract accordingly:
+FORMAT A — TABLE: one building with many floors/units in a table.
+FORMAT B — FLYER COLLECTION: multiple separate property advertisements (different buildings,
+different addresses), often one or two flyers per page. Each flyer has its own 物業地址,
+面積, 放租/放售 price.
 
 IMPORTANT RULES:
 - ONLY extract data that is EXPLICITLY stated in the text
 - If a field is NOT found in the text, use null (not empty string, not made-up data)
 - DO NOT invent or hallucinate any information
-- Documents may list RENT (月租/租金) OR SALE prices (售價/賣價) or both — extract whichever is present
+- Documents may list RENT (月租/租金/放租) OR SALE prices (售價/賣價/放售) or both
 - If this text does NOT contain property listing information, return {{"_no_data": true}}
 
 UNIT EXTRACTION RULES (critical):
-- Extract EACH individual floor or unit as a SEPARATE entry in the units array
-- ONE table row = ONE unit entry
-- SKIP any "Total", "Sub-total", "合計", "總計", "全棟" or aggregate summary rows from units array
-- If there are 10 floors, there should be 10 entries in the units array
-- Rent and price values in units should be for INDIVIDUAL floors only, NOT building totals
+- Extract EVERY individual property/floor/unit as a SEPARATE entry in the units array
+- FORMAT A: one table row = one unit entry; building fields go at top level
+- FORMAT B: one flyer/advertisement = one unit entry; put each property's OWN
+  building_name, address, and district INSIDE its unit entry (top-level building
+  fields stay null). Scan ALL pages — do not stop after the first property.
+- If a price was crossed out and replaced (e.g. HK$13,800 → HK$12,000), use the FINAL price
+- SKIP any "Total", "Sub-total", "合計", "總計", "全棟" or aggregate summary rows
+- COUNT the properties in the document; the units array must have the same number of entries
+- property_type per unit: 地舖 (G/F street shop), 商舖 (mall/arcade shop), 寫字樓 (office),
+  工廈 (industrial), 住宅 (residential) — infer from context like G/F, 商場, 舖
 
-BUILDING SUMMARY RULES:
-- If the document shows a WHOLE BUILDING asking price (整幢售價, 全棟售價, asking price for whole building), put it in "asking_price"
-- If the document shows TOTAL current rental income (月租收入, total rent, 全棟月租), put it in "rental_income"
-- These are building-level numbers, NOT per-floor — keep them out of the units array
+CONTACT EXTRACTION (do not skip):
+- Agent names and phones usually appear in page FOOTERS, e.g. "可致電 2753 9862 何小姐 或 9844 6661 譚小姐洽"
+- Extract them into top-level contact_name and contact_phone
+- Multiple agents: join with 、 e.g. contact_name "何小姐、譚小姐", contact_phone "2753 9862、9844 6661"
+
+BUILDING SUMMARY RULES (FORMAT A only):
+- Whole-building asking price (整幢售價, 全棟售價) → "asking_price"
+- Total current rental income (月租收入, 全棟月租) → "rental_income"
 
 DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
 """ + HK_DISTRICTS + """
@@ -79,16 +96,28 @@ DISTRICT DETECTION - Look for these Hong Kong districts in the address or text:
 TEXT:
 {text}
 
-Return JSON with building info, optional building summary, and list of individual floor/unit entries (max 20 units):
+Return JSON (max 20 units):
 {{
-  "building_name": "name from text or null",
-  "address": "address from text or null",
-  "district": "Hong Kong district from text/address (use Chinese name like 沙田, 觀塘, 中環) or null",
+  "building_name": "FORMAT A: building name; FORMAT B: null",
+  "address": "FORMAT A: address; FORMAT B: null",
+  "district": "FORMAT A: district (Chinese name like 沙田, 觀塘); FORMAT B: null",
   "contact_phone": "phone from text or null",
+  "contact_name": "agent name from text or null",
   "asking_price": whole building sale price as number or null,
-  "rental_income": total current monthly rental income as number or null,
+  "rental_income": total monthly rental income as number or null,
   "units": [
-    {{"floor": "floor from text", "unit": "unit letter/number or null", "size": size in sqft as number or null, "rent": monthly rent as number or null, "price": sale price as number or null}}
+    {{
+      "building_name": "FORMAT B: this property's building or null",
+      "address": "FORMAT B: this property's full address or null",
+      "district": "FORMAT B: this property's district or null",
+      "property_type": "地舖/商舖/寫字樓/工廈/住宅 or null",
+      "floor": "floor or null",
+      "unit": "unit/shop number or null",
+      "size": size in sqft as number or null,
+      "rent": monthly rent as number or null,
+      "price": sale price as number or null,
+      "features": "brief notes e.g. 全不包, 連閣樓, 前租客 or null"
+    }}
   ]
 }}
 
@@ -274,7 +303,21 @@ def extract_data(state: DocumentState) -> DocumentState:
             # For other types, use first 16000 chars
             text_sample = full_text[:16000]
 
-        result = call_llm(prompt_template.format(text=text_sample))
+        prompt = prompt_template.format(text=text_sample)
+
+        # Extraction memory (Phase 1): show the LLM how similar past documents
+        # were extracted — teaser ads, flyers etc. share formats, so one good
+        # past extraction teaches the pattern without any code change.
+        examples = fetch_examples(text_sample, doc_type)
+        if examples:
+            prompt = examples + "\n\n" + prompt
+
+        try:
+            result = call_llm(prompt)
+        except ValueError as parse_err:
+            # JSON parse failed — retry once with a stricter JSON-only instruction
+            retry_prompt = prompt + "\n\nCRITICAL: Your previous response could not be parsed as JSON. Return ONLY raw JSON — no markdown fences, no ```json, no explanation, no trailing text."
+            result = call_llm(retry_prompt)
 
         state.extracted = ExtractedData(
             raw=result,
@@ -283,12 +326,12 @@ def extract_data(state: DocumentState) -> DocumentState:
         state.update_status(ProcessingStatus.EXTRACTED)
 
     except ValueError as e:
-        # JSON parsing error - store error info but don't fail silently
+        # JSON parsing error on both attempts - store error info but don't fail silently
         state.extracted = ExtractedData(
             raw={"_extraction_failed": True, "_error": str(e)},
             document_type=doc_type
         )
-        state.set_error(f"Extraction parse error: {str(e)}")
+        state.set_error(f"Extraction parse error (after retry): {str(e)}")
 
     except httpx.HTTPStatusError as e:
         state.extracted = ExtractedData(raw={}, document_type=doc_type)
@@ -299,6 +342,56 @@ def extract_data(state: DocumentState) -> DocumentState:
         state.set_error(f"Extraction error: {str(e)}")
 
     return state
+
+
+def fetch_examples(text_sample: str, doc_type: DocumentType, top: int = 2) -> str:
+    """Extraction memory (Phase 1): retrieve up to `top` similar past extractions
+    of the same document type from Azure AI Search and format them as few-shot
+    examples. Fails open (returns "") on any error — extraction must never break
+    because the example lookup did.
+    """
+    import os
+
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT", "")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY", "")
+    index = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    if not endpoint or not api_key:
+        return ""
+
+    try:
+        with httpx.Client(timeout=8) as client:
+            resp = client.post(
+                f"{endpoint}/indexes/{index}/docs/search?api-version=2024-07-01",
+                headers={"api-key": api_key},
+                json={
+                    "search": text_sample[:800],
+                    "filter": f"document_type eq '{doc_type.value}'",
+                    "select": "file_name,extracted_data",
+                    "top": top,
+                },
+            )
+            if resp.status_code != 200:
+                return ""
+            docs = resp.json().get("value", [])
+    except Exception:
+        return ""
+
+    examples = []
+    for doc in docs:
+        data = (doc.get("extracted_data") or "").strip()
+        if not data or data in ("{}", "null") or "_extraction_failed" in data:
+            continue
+        examples.append(data[:1200])
+
+    if not examples:
+        return ""
+
+    blocks = "\n\n".join(f"Example {i + 1}:\n{e}" for i, e in enumerate(examples))
+    return (
+        "REFERENCE — here is how similar documents of this type were previously "
+        "extracted (follow the same field usage and formatting, but extract ONLY "
+        "from the TEXT below, never copy values from these examples):\n\n" + blocks
+    )
 
 
 def call_llm(prompt: str) -> dict:
@@ -331,29 +424,8 @@ def call_openrouter(prompt: str) -> dict:
     Returns:
         Extracted data dict
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not set")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
-    body = {
-        "model": "qwen/qwen-2.5-72b-instruct",  # Alibaba model - works in HK, excellent JSON output
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 4000,  # Increased for large listing tables
-        "temperature": 0,  # Zero temp for deterministic extraction
-    }
-
-    with httpx.Client(timeout=90) as client:  # Longer timeout for large document extraction
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
+    from src.utils.llm import openrouter_chat
+    data = openrouter_chat(prompt, max_tokens=4000, temperature=0.0)
 
     # Report token usage to LangSmith
     usage = data.get("usage", {})

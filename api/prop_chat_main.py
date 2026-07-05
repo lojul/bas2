@@ -8,6 +8,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from dotenv import load_dotenv
 load_dotenv()
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
@@ -16,12 +18,24 @@ from api.auth import LoginRequest, TokenResponse, login_with_rate_limit
 from api.routes.chat import router as chat_router
 from api.routes.search import router as search_router
 
+# ── Startup warmup ────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        from src.nodes.chatbot import chat  # noqa: F401
+        print("[startup] chatbot module loaded")
+    except Exception as e:
+        print(f"[startup] chatbot import warning: {e}")
+    yield
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title="Property Chat API",
     description="C21 Property Intelligence — RAG chatbot, hybrid search, PDF report generation",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
@@ -67,4 +81,4 @@ def root():
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "service": "prop-chat-api"}
+    return {"status": "ok", "service": "prop-chat-api", "deploy": os.environ.get("DEPLOY_TS", "unknown")}

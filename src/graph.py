@@ -22,9 +22,18 @@ Extraction paths (chosen by analyzer, no user input required):
                   │
             review_gate       (sets needs_review flag if confidence < 0.75)
                   │
-               index          (Azure AI Search + embeddings + smart merge)
+               index          (Azure AI Search + embeddings + smart merge — ALL types)
                   │
-              __end__
+        ┌─────────┼──────────────────┐
+        │         │                  │
+   odoo_sync  knowledge_sync      __end__
+   (listing/  (news →            (contact/
+    listing_    knowledge.article)  unknown)
+    list/
+    pitching_deck
+    → x_c21_listing)
+        │         │
+     __end__   __end__
 
 Adding a new extraction path:
   1. Add a value to ExtractionPath in state.py
@@ -39,7 +48,7 @@ from typing import TypedDict, Literal
 from langsmith import traceable
 from langgraph.graph import END, START, StateGraph
 
-from src.state import DocumentState, ExtractionPath, ProcessingStatus
+from src.state import DocumentState, DocumentType, ExtractionPath, ProcessingStatus
 
 
 class GraphState(TypedDict):
@@ -78,8 +87,13 @@ def run_ocr_node(data: GraphState) -> GraphState:
 
 
 def classify_node(data: GraphState) -> GraphState:
+    state = data["state"]
+    # Caller already knows the type (e.g. WhatsApp forwarded news image) — skip the LLM call
+    if state.document_type != DocumentType.UNKNOWN:
+        state.update_status(ProcessingStatus.CLASSIFIED)
+        return {"state": state}
     from src.nodes.classifier import classify_document
-    return {"state": classify_document(data["state"])}
+    return {"state": classify_document(state)}
 
 
 def analyze_node(data: GraphState) -> GraphState:
@@ -129,6 +143,16 @@ def index_node(data: GraphState) -> GraphState:
     return {"state": index_document(data["state"])}
 
 
+def odoo_sync_node(data: GraphState) -> GraphState:
+    from src.nodes.odoo_sync import odoo_sync
+    return {"state": odoo_sync(data["state"])}
+
+
+def knowledge_sync_node(data: GraphState) -> GraphState:
+    from src.nodes.knowledge_sync import knowledge_sync
+    return {"state": knowledge_sync(data["state"])}
+
+
 # =============================================================================
 # Routing
 # =============================================================================
@@ -141,6 +165,16 @@ def route_extraction(data: GraphState) -> Literal["extract_structured", "extract
     if path == ExtractionPath.VISUAL:
         return "extract_vision"
     return "extract_structured"
+
+
+def route_sync(data: GraphState) -> Literal["odoo_sync", "knowledge_sync", "end"]:
+    """Route to the Odoo sync target by document type after indexing."""
+    doc_type = data["state"].document_type
+    if doc_type == DocumentType.NEWS:
+        return "knowledge_sync"
+    if doc_type in (DocumentType.LISTING, DocumentType.LISTING_LIST, DocumentType.PITCHING_DECK):
+        return "odoo_sync"
+    return "end"
 
 
 # =============================================================================
@@ -161,6 +195,8 @@ def create_graph() -> StateGraph:
     graph.add_node("extract_vision", extract_vision_node)
     graph.add_node("review_gate", review_gate_node)
     graph.add_node("index", index_node)
+    graph.add_node("odoo_sync", odoo_sync_node)
+    graph.add_node("knowledge_sync", knowledge_sync_node)
 
     # ── Edges ─────────────────────────────────────────────────────────────────
     graph.add_edge(START, "get_download_url")
@@ -185,7 +221,20 @@ def create_graph() -> StateGraph:
     graph.add_edge("extract_vision", "review_gate")
 
     graph.add_edge("review_gate", "index")
-    graph.add_edge("index", END)
+
+    # Conditional: sync target depends on document type
+    graph.add_conditional_edges(
+        "index",
+        route_sync,
+        {
+            "odoo_sync": "odoo_sync",
+            "knowledge_sync": "knowledge_sync",
+            "end": END,
+        },
+    )
+
+    graph.add_edge("odoo_sync", END)
+    graph.add_edge("knowledge_sync", END)
 
     return graph
 
@@ -248,11 +297,14 @@ def process_file_from_bytes(
     file_name: str,
     source: str = "dashboard",
     precomputed_ocr=None,  # OCRResult | None
+    forced_type: DocumentType | None = None,
+    skip_duplicate_check: bool = False,
 ) -> DocumentState:
     """Process a document from raw bytes through the full pipeline (dashboard / manual upload path).
 
     Pass precomputed_ocr (an OCRResult) to skip the Azure DI call when triage already ran OCR
     on the full file (non-PDFs, or single-page PDFs).
+    Pass forced_type when the caller already knows the document type (skips classification).
     """
     from src.utils.table_storage import log_run
 
@@ -263,6 +315,8 @@ def process_file_from_bytes(
         status=ProcessingStatus.PENDING,
         file_bytes=file_bytes,
         ocr=precomputed_ocr,
+        document_type=forced_type or DocumentType.UNKNOWN,
+        skip_duplicate_check=skip_duplicate_check,
     )
 
     start_ms = time.monotonic()

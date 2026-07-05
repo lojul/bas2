@@ -136,7 +136,8 @@ def run_ocr(state: DocumentState) -> DocumentState:
 
     if state.file_bytes is not None:
         state.ocr = ocr_from_bytes(state.file_bytes, state.file_name)
-        state.file_bytes = None  # free memory — bytes no longer needed after OCR
+        # file_bytes intentionally kept — odoo_sync (last node) uploads them to
+        # Odoo Documents, then clears them.
     elif state.blob_url:
         state.ocr = ocr_from_url(state.blob_url, state.file_name)
     else:
@@ -157,6 +158,10 @@ def ocr_from_bytes(content: bytes, file_name: str = "") -> OCRResult:
     Returns:
         OCRResult with extracted text, tables, figures, and image URLs
     """
+    from src.utils.di_guard import check_di_budget, record_di_usage
+
+    check_di_budget()  # raises DailyLimitExceeded past the daily page ceiling
+
     config = get_config()
     ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
 
@@ -175,6 +180,7 @@ def ocr_from_bytes(content: bytes, file_name: str = "") -> OCRResult:
     tables = _extract_tables(result)
     figures = _extract_figures(result)
     page_count = len(result.pages) if result.pages else 0
+    record_di_usage(page_count)
     full_text = result.content if result.content else ""
 
     # Extract images from PDF
@@ -206,6 +212,10 @@ def ocr_from_url(blob_url: str, file_name: str = "") -> OCRResult:
     Returns:
         OCRResult with extracted text, tables, figures, and image URLs
     """
+    from src.utils.di_guard import check_di_budget, record_di_usage
+
+    check_di_budget()  # raises DailyLimitExceeded past the daily page ceiling
+
     config = get_config()
 
     client = DocumentIntelligenceClient(
@@ -236,11 +246,14 @@ def ocr_from_url(blob_url: str, file_name: str = "") -> OCRResult:
             doc_id = hashlib.md5(file_name.encode()).hexdigest()
             image_urls = upload_images_batch(images, doc_id)
 
+    page_count = len(result.pages) if result.pages else 0
+    record_di_usage(page_count)
+
     return OCRResult(
         text=result.content if result.content else "",
         tables=_extract_tables(result),
         figures=_extract_figures(result),
-        pages=len(result.pages) if result.pages else 0,
+        pages=page_count,
         confidence=0.97,
         image_urls=image_urls,
     )

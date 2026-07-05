@@ -55,6 +55,8 @@ INDEX_SCHEMA = {
         # Pipeline metadata
         {"name": "extraction_path", "type": "Edm.String", "searchable": False, "filterable": True, "facetable": True},
         {"name": "needs_review", "type": "Edm.Boolean", "searchable": False, "filterable": True},
+        {"name": "odoo_record_id", "type": "Edm.String", "searchable": False, "filterable": True},
+        {"name": "odoo_sync_status", "type": "Edm.String", "searchable": False, "filterable": True},
     ],
     "vectorSearch": {
         "profiles": [
@@ -138,8 +140,12 @@ def index_document(state: DocumentState) -> DocumentState:
         doc_id = hashlib.md5(state.file_name.encode()).hexdigest()
         state.index_id = doc_id
 
-        # Check if document already exists (for image_urls fallback only)
+        # Check if document already exists (for image_urls and odoo_record_id carry-over)
         existing_data = get_existing_document(doc_id)
+
+        # Carry over odoo_record_id so the odoo_sync node knows which Odoo record to update
+        if existing_data and existing_data.get("odoo_record_id"):
+            state.odoo_record_id = existing_data["odoo_record_id"]
 
         # Always use the fresh extraction — never carry over stale fields from previous runs
         merged_extracted = state.extracted.raw if state.extracted else {}
@@ -301,7 +307,7 @@ def merge_extracted_data(existing: dict, new: dict) -> dict:
 
 @traceable(name="ensure_index_exists", run_type="tool")
 def ensure_index_exists() -> None:
-    """Create index if it doesn't exist."""
+    """Create index if it doesn't exist. Never modifies an existing index schema."""
     endpoint = os.environ["AZURE_SEARCH_ENDPOINT"]
     api_key = os.environ["AZURE_SEARCH_API_KEY"]
     index_name = PRIMARY_INDEX
@@ -313,26 +319,19 @@ def ensure_index_exists() -> None:
     }
 
     client = get_http_client()
-
-    # Check if index exists
     response = client.get(url, headers=headers)
 
     if response.status_code == 404:
-        # Create index
         schema = INDEX_SCHEMA.copy()
         schema["name"] = index_name
-
         create_url = f"{endpoint}/indexes?api-version=2024-07-01"
         response = client.post(create_url, headers=headers, json=schema)
-
         if response.status_code >= 400:
             raise httpx.HTTPStatusError(
                 f"Failed to create index: {response.text}",
                 request=response.request,
                 response=response
             )
-
-        print(f"Created index: {index_name}")
 
 
 @traceable(name="get_embedding", run_type="embedding")

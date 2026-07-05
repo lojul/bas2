@@ -134,4 +134,5 @@ class TestGraphStructure:
         assert ("extract_structured", "review_gate") in edge_pairs
         assert ("extract_conversational", "review_gate") in edge_pairs
         assert ("review_gate", "index") in edge_pairs
-        assert ("index", "__end__") in edge_pairs
+        assert ("index", "odoo_sync") in edge_pairs
+        assert ("odoo_sync", "__end__") in edge_pairs

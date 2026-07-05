@@ -117,6 +117,11 @@ class DocumentState:
     index_id: str = ""
     chunks_indexed: int = 0
 
+    # Odoo sync (populated by odoo_sync / knowledge_sync nodes)
+    odoo_record_id: str = ""
+    odoo_sync_status: str = ""  # "synced", "pending", "skipped", "duplicate", "error"
+    skip_duplicate_check: bool = False  # user confirmed "process anyway" after a duplicate warning
+
     # Metadata
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)

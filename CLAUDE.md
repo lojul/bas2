@@ -32,7 +32,6 @@ langgraph/
 ├── src/
 │   ├── nodes/          # Processing nodes
 │   │   ├── chatbot.py  # RAG chatbot (production)
-│   │   ├── chatbot_v2.py  # LangChain refactored (ready for Phase 2)
 │   │   └── report_generator/  # PDF report generation
 │   ├── state.py        # DocumentState schema
 │   ├── graph.py        # Workflow graph
@@ -40,7 +39,12 @@ langgraph/
 │   └── utils/
 │       ├── json_parser.py     # Shared JSON parsing
 │       ├── blob_storage.py    # Azure Blob upload
-│       └── table_storage.py   # Azure Table Storage — permanent history log
+│       ├── table_storage.py   # Azure Table Storage — permanent history log
+│       ├── job_queue.py       # Durable pipeline job queue (enqueue + worker + notify)
+│       ├── file_cache.py      # Blob-backed pending-file cache (WhatsApp confirmations)
+│       ├── di_guard.py        # Document Intelligence daily cost guard
+│       ├── whatsapp_notify.py # WhatsApp send via n8n notify webhook
+│       └── session_storage.py # Assistant session persistence (Table Storage)
 ├── api/
 │   ├── main.py         # FastAPI app entry point
 │   ├── auth.py         # JWT auth + bcrypt + rate limiting
@@ -180,6 +184,16 @@ The chatbot searches ALL indexes in `AZURE_SEARCH_INDEXES`. Writing always goes 
 - Provider: OpenRouter — `qwen/qwen-2.5-72b-instruct`
 - Temperature: 0 (deterministic)
 - Anti-hallucination prompts: return null for missing fields
+- **LLM resilience (2026-07-05):** all pipeline LLM calls (classify/analyze/extract) go through
+  `openrouter_chat()` in `src/utils/llm.py` — Qwen, retry once after 2s, then fall back to
+  `deepseek/deepseek-chat`. Added after OpenRouter failed 3 ways in 2 days (502/504/400) and
+  single blips degraded runs to UNKNOWN. Do NOT add raw `httpx.post` OpenRouter calls in nodes.
+- **Extraction memory Phase 1 (2026-07-05):** `fetch_examples()` in extractor.py retrieves the
+  2 most similar past extractions (same document_type) from Azure AI Search and injects them as
+  few-shot examples before extracting. Fails open. Quality compounds as good extractions accumulate.
+- **Listing names (2026-07-05):** extractor captures `listing_ref` (樓盤編號) + `headline`;
+  `_build_listing_name()` in odoo_sync.py enriches short/generic names → "中環 商舖 #10978"
+  instead of "中環". Teaser ads (IG/WhatsApp promos) often carry no address.
 
 ### OpenRouter Models — Hong Kong
 
@@ -218,8 +232,11 @@ User Question → route_query → search (vector/web/hybrid) → build_context �
 - Memory: `MemorySaver` (session-scoped; use `PostgresSaver` for persistent)
 - Guardrail: ONLY Hong Kong commercial property questions
 
-### Chatbot v2 (Ready for Phase 2)
-`src/nodes/chatbot_v2.py` — LangChain-based refactor (580 lines vs 1,098). Switch when starting Phase 2 (tool-calling agent). Tests pass: 15 passed, 1 skipped.
+### Chatbot v2 — REMOVED (2026-07-05)
+`chatbot_v2.py` was deleted. It was a June refactor preparing for a tool-calling agent, but the
+WhatsApp assistant (`src/nodes/assistant.py`) already IS that agent, and v2 lacked multi-index
+search. If dashboard chat should become agentic, expose the existing assistant
+(`channel="dashboard"` is already supported) — do not rebuild a parallel chatbot.
 
 ---
 
@@ -300,12 +317,30 @@ The monolithic API is split into two named App Services:
 | `c21net-bas-api-doc-pipeline-ea-prod` | `api/doc_pipeline_main.py` | `https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net` | pipeline, admin, billing, monitoring |
 | `c21net-bas-api-prop-chat-ea-prod` | `api/prop_chat_main.py` | `https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net` | chat, search |
 
-- **Old service (pending delete):** `c21net-bas-api-prop-intel-core-ea-prod` — retire after verifying new services
 - **Resource group:** `c21net-bas-document-processor-ea-prod` | **Subscription:** `c21net-business-automation-stack`
+- Old monolith `c21net-bas-api-prop-intel-core-ea-prod` was deleted (verified gone 2026-07-05)
 - **App Service Plan:** `c21net-bas-asp-ea-prod` (B1, Linux, Python 3.12)
 - **Deploy dir:** `/private/tmp/api_deploy_dir/` — staged files live here; do NOT clean between deploys
 
-### Deploy Workflow (Kudu Bearer Token — only working method on az CLI 2.84.0)
+### Deploy Workflow — USE `./deploy.sh` (added 2026-07-04)
+
+```bash
+cd langgraph
+./deploy.sh          # doc-pipeline App Service
+./deploy.sh --chat   # + prop-chat App Service
+./deploy.sh --func   # + Function App
+./deploy.sh --all    # everything
+```
+
+The script does the full sequence with built-in guards: stage → zip (size + freshness checks) →
+zipdeploy → wait for the NEW deployment id (avoids race with the previous deploy) → copy source
+to wwwroot → restart → health poll. Do NOT hand-run the steps below anymore — manual deploys
+caused stale-zip incidents twice on 2026-07-04.
+
+**Function App:** `.funcignore` (excludes `.venv/`, `tests/`, etc.) is REQUIRED. Without it,
+`func publish` uploads ~918MB and silently deploys stale code.
+
+### Manual steps (reference only — what deploy.sh automates)
 
 `az webapp deploy --type zip` and `az webapp deployment source config-zip` both drop the connection. Use the Kudu REST API directly:
 
@@ -357,7 +392,23 @@ for d in deps[:1]:
 "
 done
 
-# 8. Verify health endpoints
+# 8. CRITICAL: Copy source files into wwwroot after Oryx build
+# Oryx extracts zip to /tmp/zipdeploy/extracted/ and only puts the virtualenv in output.tar.zst.
+# wwwroot keeps old source files unless explicitly overwritten. Must do this after every deploy.
+TOKEN=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+for svc in c21net-bas-api-doc-pipeline-ea-prod c21net-bas-api-prop-chat-ea-prod; do
+  echo "Copying source to $svc wwwroot..."
+  curl -s -X POST "https://${svc}.scm.azurewebsites.net/api/command" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '{"command": "python3 -c \"import subprocess; r1=subprocess.run([chr(115)+chr(104),chr(45)+chr(99),chr(99)+chr(112)+chr(32)+chr(45)+chr(114)+chr(102)+chr(32)+chr(47)+chr(116)+chr(109)+chr(112)+chr(47)+chr(122)+chr(105)+chr(112)+chr(100)+chr(101)+chr(112)+chr(108)+chr(111)+chr(121)+chr(47)+chr(101)+chr(120)+chr(116)+chr(114)+chr(97)+chr(99)+chr(116)+chr(101)+chr(100)+chr(47)+chr(115)+chr(114)+chr(99)+chr(32)+chr(47)+chr(104)+chr(111)+chr(109)+chr(101)+chr(47)+chr(115)+chr(105)+chr(116)+chr(101)+chr(47)+chr(119)+chr(119)+chr(119)+chr(114)+chr(111)+chr(111)+chr(116)+chr(47)], capture_output=True, text=True); r2=subprocess.run([chr(115)+chr(104),chr(45)+chr(99),chr(99)+chr(112)+chr(32)+chr(45)+chr(114)+chr(102)+chr(32)+chr(47)+chr(116)+chr(109)+chr(112)+chr(47)+chr(122)+chr(105)+chr(112)+chr(100)+chr(101)+chr(112)+chr(108)+chr(111)+chr(121)+chr(47)+chr(101)+chr(120)+chr(116)+chr(114)+chr(97)+chr(99)+chr(116)+chr(101)+chr(100)+chr(47)+chr(97)+chr(112)+chr(105)+chr(32)+chr(47)+chr(104)+chr(111)+chr(109)+chr(101)+chr(47)+chr(115)+chr(105)+chr(116)+chr(101)+chr(47)+chr(119)+chr(119)+chr(119)+chr(114)+chr(111)+chr(111)+chr(116)+chr(47)], capture_output=True, text=True); print(r1.returncode, r2.returncode)\"", "dir": "/"}'
+done
+
+# 9. Restart both services so Python picks up the new source files
+az webapp restart --name c21net-bas-api-doc-pipeline-ea-prod --resource-group c21net-bas-document-processor-ea-prod
+az webapp restart --name c21net-bas-api-prop-chat-ea-prod --resource-group c21net-bas-document-processor-ea-prod
+
+# 10. Verify health endpoints (wait ~30s after restart)
 curl https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net/api/health
 curl https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net/api/health
 ```
@@ -370,6 +421,7 @@ curl https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net/api/health
 - Both App Services share the same zip — the startup command determines which entrypoint runs
 - Token expires after ~1 hour; refresh with `az account get-access-token` if deploy takes long
 - **ZIP PITFALL:** Always run `rm -f /private/tmp/api-deploy.zip` as a SEPARATE command (not chained with `&&` after a command that might fail). `zip -r` in update mode silently reuses old content if the file already exists.
+- **SOURCE FILES PITFALL:** Oryx extracts the zip to `/tmp/zipdeploy/extracted/` (temp), NOT to wwwroot. Oryx only puts the built virtualenv into `output.tar.zst` in wwwroot. Source files in wwwroot are NEVER updated by the deploy — only the virtualenv is. After every deploy, you MUST manually copy `/tmp/zipdeploy/extracted/src/` and `/tmp/zipdeploy/extracted/api/` to wwwroot via the Kudu command API (step 8 above), then restart both services (step 9).
 - **`SCM_DO_BUILD_DURING_DEPLOYMENT=true` REQUIRED** — If set to false, Kudu extracts the zip but Oryx does NOT install packages. The app crashes with "No module named uvicorn". This must be `true` on both services or every deploy wipes the virtualenv.
 
 ### API Routes
@@ -431,11 +483,12 @@ Any imports here cause `fitz` (PyMuPDF) to be loaded at startup → Azure App Se
 
 ## Azure Functions
 
-**File:** `function_app.py` | Timer-only worker (HTTP triggers removed — moved to FastAPI)
+**File:** `function_app.py`
 
 | Trigger | Schedule | Purpose |
 |---------|----------|---------|
-| Timer | every 5 min | Process 7 files per batch from OneDrive /In |
+| Timer | every 5 min | Process 7 files per batch from OneDrive /In + poison-queue watchdog |
+| Queue | `pipeline-jobs` | Durable pipeline job worker (WhatsApp/dashboard dispatch) |
 | HTTP GET | `/api/health` | Health check (anonymous) |
 
 **Production:** `c21net-bas-func-doc-pipeline-ea-prod.azurewebsites.net`
@@ -454,6 +507,71 @@ az functionapp config appsettings set --name c21net-bas-func-doc-pipeline-ea-pro
   --settings "AzureWebJobs.timer_trigger.Disabled=true"
 ```
 
+
+## WhatsApp Assistant (added 2026-07-04)
+
+**Principle: channels are media only.** WhatsApp, dashboard, and OneDrive all feed the same
+pipeline codeline (`process_file_from_bytes` / `graph.py`). Never build channel-specific
+processing paths.
+
+### Flow
+```
+WhatsApp user → Twilio → n8n "WhatsApp Twilio Integration" (2KEkDoOvwKB7Y6Ml)
+  → n8n sends ⏳ ack, downloads media (Twilio Basic Auth)
+  → POST /api/assistant/message (X-Api-Key = ASSISTANT_API_KEY)
+  → assistant fast paths or ReAct agent (src/nodes/assistant.py)
+  → job enqueued to Storage Queue "pipeline-jobs"
+  → Function App pipeline_job_worker runs the full pipeline
+  → completion notification via n8n "WhatsApp Notify" webhook → Twilio → user
+```
+
+### Assistant fast paths (no LLM — instant reply, avoids OpenRouter 502/504 flakiness)
+- Greeting/menu words → instant menu
+- Image, no text → dup check → auto-dispatch (pipeline classifier decides news vs listing)
+- PDF/other, no text → ask 知識文章 or 物業盤源
+- File + listing trigger ("3"/"物業盤源"/"yes"...) in one message → dispatch immediately
+- File + text ≥60 chars → forwarded post: the TEXT becomes the document content
+  (`precomputed_ocr`, skips Azure DI), image kept for Odoo attachment
+- "yes" after news duplicate warning → force-dispatch (checked BEFORE listing triggers)
+- Anything else → ReAct agent (Qwen via OpenRouter) with tools: create_knowledge_article,
+  process_property_listing, check_listing_duplicate, search_properties, query_odoo_listings
+
+### Durable job queue
+- `src/utils/job_queue.py`: `enqueue_pipeline_job()` (App Service) + `run_pipeline_job()`
+  (Function App queue trigger). File bytes staged in blob container `pipeline-jobs`.
+- Survives App Service restarts; 5 retries then poison queue; timer alerts ADMIN_WHATSAPP
+  if poison queue is non-empty (`check_poison_queue`).
+- Thread fallback if queue unavailable. Completion formatting lives in job_queue.py
+  (NOT assistant.py — Function App must not import langchain).
+- Pending-file cache is blob-backed: `src/utils/file_cache.py`, container
+  `assistant-file-cache`, 30-min TTL — "3"/"yes" confirmations survive restarts.
+
+### Known limitations
+- **Twilio drops non-ASCII filenames** (Chinese → `?`). Backend sanitizes: strips `?`,
+  falls back to `document-{timestamp}` if <3 chars remain. Chinese filenames only survive
+  via dashboard uploads.
+- **Twilio trial: 50 messages/day** — resets midnight UTC (8am HK). Upgrade removes cap.
+- n8n passes `file_name_override` form field (UTF-8 text) because Node.js encodes binary
+  Content-Disposition headers as Latin-1.
+- **Forwarded posts sometimes arrive without caption text** (Twilio Body empty) — the image-OCR
+  path handles them; DI reads the flyer content directly.
+- **Job-blob cleanup gets 403** — AZURE_BLOB_WRITE_SAS lacks delete permission, so processed
+  job files linger in `pipeline-jobs` container. Harmless; fix by regenerating SAS with `d` perm.
+
+### DI cost guard (`src/utils/di_guard.py`)
+- Counts OCR pages in Table Storage (table `DiUsage`), checked BEFORE every DI call
+- Hard-stops past `DI_DAILY_PAGE_LIMIT` (default 200/day); WhatsApps `ADMIN_WHATSAPP` on trip
+- Fails open if Table Storage unavailable; covers this codeline only (not the separate ETL project)
+
+### Env vars added 2026-07-04
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `ASSISTANT_API_KEY` | both + n8n | Auth for /api/assistant/message + notify webhook |
+| `N8N_NOTIFY_WEBHOOK_URL` | both | n8n WhatsApp Notify webhook |
+| `PIPELINE_QUEUE_CONN` | App Service | Storage conn string for pipeline-jobs queue (same account as Function App AzureWebJobsStorage) |
+| `ADMIN_WHATSAPP` | both | Admin number for guard/poison alerts |
+| `DI_DAILY_PAGE_LIMIT` | both (optional) | OCR daily page ceiling, default 200 |
+| `AZURE_BLOB_READ_SAS`, `AZURE_TABLE_SAS`, `ODOO_API_KEY` | Function App | Were missing/stale — queue worker needs them |
 
 ## Ingest & Triage
 
@@ -678,30 +796,18 @@ Key findings acted on:
 
 ---
 
-## Planned: Extraction Memory (AI Self-Improvement)
+## Extraction Memory (AI Self-Improvement)
 
-**Status:** Not implemented
+**Status:** Phase 1 LIVE (2026-07-05) · Phases 2–3 planned
 
-The system should learn from past successful extractions and improve over time, rather than processing every document cold.
+The system learns from past successful extractions rather than processing every document cold.
 
-### Phase 1 — Few-shot Extraction Memory
-**File:** `src/nodes/extractor.py`
+### Phase 1 — Few-shot Extraction Memory ✅ IMPLEMENTED
+**File:** `src/nodes/extractor.py` — `fetch_examples(text_sample, doc_type)`
 
-Before calling gpt-5-mini to extract, retrieve the 2 most similar previously-extracted documents from Azure AI Search and inject them into the prompt as examples.
-
-```
-extract_data(state)
-  1. Embed current document text
-     → Azure OpenAI text-embedding-3-small
-  2. Search processed-documents for top 2 similar docs
-     → filter: same document_type, extracted_data not empty
-  3. Inject as few-shot examples into extraction prompt
-  4. Call gpt-5-mini with enriched prompt
-```
-
-**Changes:**
-- `src/nodes/extractor.py` — add `fetch_examples()` before `call_llm()`
-- `src/nodes/extractor.py` — inject examples into PROMPTS templates
+Before extraction, keyword-searches `processed-documents` for the top 2 past extractions of the
+same document_type and prepends them to the prompt as reference examples (with an instruction
+not to copy values). Fails open on any error. Skips docs with `_extraction_failed`.
 
 ### Phase 2 — Correction Learning (Human-in-the-loop)
 **Depends on:** Manual Data Editor being built first

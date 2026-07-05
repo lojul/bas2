@@ -1,7 +1,65 @@
 """Shared LLM helper — Azure OpenAI (primary) with OpenRouter fallback."""
 
+import logging
 import os
+import time
 from typing import Generator
+
+logger = logging.getLogger(__name__)
+
+
+def openrouter_chat(
+    prompt: str,
+    model: str = "qwen/qwen-2.5-72b-instruct",
+    fallback_model: str = "deepseek/deepseek-chat",
+    max_tokens: int = 1000,
+    temperature: float = 0.0,
+) -> dict:
+    """OpenRouter chat call hardened against provider flakiness.
+
+    OpenRouter intermittently returns 400/502/504 or empty responses when an
+    upstream provider hiccups (three separate incidents 2026-07-04/05 degraded
+    pipeline runs to UNKNOWN). Strategy: primary model, retry once after 2s,
+    then try the fallback model before giving up.
+
+    Returns the raw response JSON (callers read choices[0].message.content).
+    Raises the last error if all three attempts fail.
+    """
+    import httpx
+
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("OPENROUTER_API_KEY not set")
+
+    attempts = [(model, 0), (model, 2), (fallback_model, 2)]
+    last_err: Exception | None = None
+
+    for attempt_model, delay in attempts:
+        if delay:
+            time.sleep(delay)
+        try:
+            with httpx.Client(timeout=45) as client:
+                resp = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": attempt_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            content = (data.get("choices") or [{}])[0].get("message", {}).get("content")
+            if not content:
+                raise ValueError(f"Empty response from {attempt_model}")
+            return data
+        except Exception as e:
+            last_err = e
+            logger.warning("openrouter_chat: %s failed (%s) — %s", attempt_model, type(e).__name__, str(e)[:120])
+
+    raise last_err  # all attempts exhausted
 
 
 def azure_openai_available() -> bool:
@@ -52,7 +110,7 @@ def chat_complete(
         response = client.chat.completions.create(
             model=_deployment(),
             messages=messages,
-            max_tokens=max_tokens,
+            max_completion_tokens=max_tokens,
         )
         _record_usage(response)
         return response.choices[0].message.content
@@ -77,7 +135,7 @@ def chat_complete_stream(messages: list[dict], max_tokens: int = 2000, temperatu
     response = client.chat.completions.create(
         model=_deployment(),
         messages=messages,
-        max_tokens=max_tokens,
+        max_completion_tokens=max_tokens,
         stream=True,
     )
     for chunk in response:

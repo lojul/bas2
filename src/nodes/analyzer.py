@@ -138,16 +138,6 @@ def call_analysis_llm(text: str, page_count: int, text_length: int, table_count:
     Returns:
         Analysis dict with structure, fields, entities
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not set")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
     prompt = ANALYSIS_PROMPT.format(
         text=text,
         page_count=page_count,
@@ -155,19 +145,8 @@ def call_analysis_llm(text: str, page_count: int, text_length: int, table_count:
         table_count=table_count
     )
 
-    body = {
-        "model": "qwen/qwen-2.5-72b-instruct",
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 2000,
-        "temperature": 0,
-    }
-
-    with httpx.Client(timeout=60) as client:
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
+    from src.utils.llm import openrouter_chat
+    data = openrouter_chat(prompt, max_tokens=2000, temperature=0.0)
 
     # Report token usage
     usage = data.get("usage", {})
@@ -212,7 +191,7 @@ def determine_extraction_path(
     # (< 300 words means content is embedded in images, not searchable text)
     if document_type == DocumentType.PITCHING_DECK:
         word_count = len(text.split())
-        if word_count < 300:
+        if word_count < 800:
             return ExtractionPath.VISUAL
         return ExtractionPath.STRUCTURED
 

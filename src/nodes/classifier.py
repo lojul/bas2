@@ -203,7 +203,9 @@ def classify_document(state: DocumentState) -> DocumentState:
             doc_type = "pitching_deck"
             confidence = 0.90
 
-        if doc_type == "listing" and auto_detect_listing_list(text, table_count):
+        # Only override to listing_list for multi-page docs — single-page docs with tables
+        # (e.g. ground-floor shop specs) were being misclassified by the rent_amounts heuristic
+        if doc_type == "listing" and page_count > 1 and auto_detect_listing_list(text, table_count):
             doc_type = "listing_list"
             confidence = 0.85
 
@@ -311,16 +313,6 @@ def call_openrouter(text: str, page_count: int = 1, text_length: int = 0, table_
     Returns:
         Classification result dict with type, confidence, reason
     """
-    api_key = os.environ.get("OPENROUTER_API_KEY")
-    if not api_key:
-        raise ValueError("OPENROUTER_API_KEY not set")
-
-    url = "https://openrouter.ai/api/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
     prompt = CLASSIFY_PROMPT.format(
         text=text,
         page_count=page_count,
@@ -328,19 +320,8 @@ def call_openrouter(text: str, page_count: int = 1, text_length: int = 0, table_
         table_count=table_count
     )
 
-    body = {
-        "model": "qwen/qwen-2.5-72b-instruct",  # Alibaba model - works in HK, excellent JSON output
-        "messages": [
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 150,
-        "temperature": 0,  # Zero temp for deterministic classification
-    }
-
-    with httpx.Client(timeout=30) as client:
-        response = client.post(url, headers=headers, json=body)
-        response.raise_for_status()
-        data = response.json()
+    from src.utils.llm import openrouter_chat
+    data = openrouter_chat(prompt, max_tokens=150, temperature=0.0)
 
     # Report token usage to LangSmith
     usage = data.get("usage", {})

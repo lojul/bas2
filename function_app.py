@@ -171,6 +171,13 @@ def timer_trigger(timer: func.TimerRequest) -> None:
     Checks OneDrive /In folder and processes any new files.
     Skips if timer_enabled is set to false in blob config.
     """
+    # Watchdog: alert admin if failed jobs are stuck in the poison queue
+    try:
+        from src.utils.job_queue import check_poison_queue
+        check_poison_queue()
+    except Exception as e:
+        logging.warning("Poison queue check failed: %s", e)
+
     cfg = _load_blob_config()
     if not cfg.get("timer_enabled", True):
         logging.info("Timer trigger disabled via Settings — skipping.")
@@ -188,6 +195,24 @@ def timer_trigger(timer: func.TimerRequest) -> None:
         logging.error(f"Timer trigger failed: {e}")
         raise
 
+
+
+@app.queue_trigger(
+    arg_name="msg",
+    queue_name="pipeline-jobs",
+    connection="AzureWebJobsStorage",
+)
+def pipeline_job_worker(msg: func.QueueMessage) -> None:
+    """Consume pipeline jobs enqueued by the assistant (WhatsApp/dashboard).
+
+    Downloads file bytes from blob, runs the full pipeline, notifies the user.
+    Raising lets the Functions runtime retry (then poison-queue after 5 attempts).
+    """
+    payload = json.loads(msg.get_body().decode("utf-8"))
+    logging.info("Pipeline job received: %s", payload.get("file_name") or "text")
+
+    from src.utils.job_queue import run_pipeline_job
+    run_pipeline_job(payload)
 
 
 @app.route(route="health", methods=["GET"], auth_level=func.AuthLevel.ANONYMOUS)
