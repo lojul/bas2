@@ -60,6 +60,53 @@ def log_run(
         logger.error("Failed to log run to Table Storage: %s", e)
 
 
+_FEEDBACK_TABLE = "AnswerFeedback"
+
+
+def _feedback_client():
+    from azure.data.tables import TableServiceClient
+    sas = os.environ.get("AZURE_TABLE_SAS", "")
+    if not sas:
+        return None
+    url = f"https://{_ACCOUNT}.table.core.windows.net/?{sas}"
+    return TableServiceClient(endpoint=url).get_table_client(_FEEDBACK_TABLE)
+
+
+def log_feedback(
+    thread_id: str,
+    question: str,
+    answer: str,
+    rating: str,          # "up" | "down"
+    channel: str = "dashboard",
+    message_index: int | None = None,
+) -> None:
+    """Write one answer-quality rating to AnswerFeedback table."""
+    try:
+        client = _feedback_client()
+        if client is None:
+            logger.warning("AZURE_TABLE_SAS not set — skipping feedback log")
+            return
+
+        now = datetime.now(timezone.utc)
+        partition_key = now.strftime("%Y-%m")
+        row_key = f"{now.strftime('%Y%m%dT%H%M%S')}_{uuid.uuid4().hex[:8]}"
+
+        entity = {
+            "PartitionKey": partition_key,
+            "RowKey": row_key,
+            "thread_id": thread_id or "",
+            "question": question[:500],
+            "answer": answer[:1000],
+            "rating": rating,
+            "channel": channel,
+            "message_index": message_index if message_index is not None else -1,
+            "logged_at": now.isoformat(),
+        }
+        client.create_entity(entity)
+    except Exception as e:
+        logger.error("Failed to log feedback to Table Storage: %s", e)
+
+
 def log_unsupported(file_name: str, ext: str) -> None:
     """Log a file with an unsupported format to ProcessingHistory."""
     log_run(

@@ -20,6 +20,9 @@ def send_whatsapp(to: str, body: str) -> bool:
         return False
     if not to.startswith("whatsapp:"):
         to = f"whatsapp:{to}"
+    # Twilio enforces a 1600-char limit on outgoing messages (Error 21617).
+    # Emoji and CJK characters count as multiple chars, so truncate conservatively.
+    body = body[:1400] + ("…" if len(body) > 1400 else "")
     try:
         with httpx.Client(timeout=15) as client:
             resp = client.post(

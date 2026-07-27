@@ -50,16 +50,31 @@ def format_completion(final) -> str:
     if final.odoo_sync_status == "synced" and final.odoo_record_id:
         if doc_type == "news":
             lines.append(f"知識文章已建立：\n{ODOO_URL}/knowledge/article/{final.odoo_record_id}")
+        elif doc_type == "contact":
+            # Show extracted contact fields so user can verify what was saved
+            raw = final.extracted.raw if final.extracted else {}
+            name = raw.get("name_zh") or raw.get("name") or ""
+            company = raw.get("company_zh") or raw.get("company") or ""
+            phone = raw.get("phone") or raw.get("mobile") or ""
+            email = raw.get("email") or ""
+            detail_parts = [p for p in (name, company, phone, email) if p]
+            if detail_parts:
+                lines.append("\n".join(detail_parts))
+            lines.append(f"Odoo 聯絡人已建立/更新：\n{ODOO_URL}/odoo/contacts/{final.odoo_record_id}")
         else:
             ids = final.odoo_record_id.split(",")
             lines.append(f"Odoo 放盤管理已建立/更新 {len(ids)} 筆記錄（ID: {final.odoo_record_id}）")
     elif final.odoo_sync_status == "duplicate":
         lines.append(f"⚠️ Odoo 中已有相同文章（未重複建立）：\n{ODOO_URL}/knowledge/article/{final.odoo_record_id}")
     elif final.odoo_sync_status == "error":
-        lines.append("⚠️ Odoo 同步失敗（文件已索引，可稍後重試）")
+        detail = f"：{final.odoo_error_detail[:150]}" if getattr(final, "odoo_error_detail", "") else ""
+        lines.append(f"⚠️ Odoo 同步失敗（文件已索引，可稍後重試）{detail}")
 
     if final.index_id:
-        lines.append("已索引至搜尋庫 — 可透過物業查詢（4）搜尋")
+        if doc_type == "contact":
+            lines.append("已索引至搜尋庫 — 可透過聯絡人查詢（6）搜尋")
+        else:
+            lines.append("已索引至搜尋庫 — 可透過物業查詢（4）搜尋")
 
     return "\n".join(lines)
 
@@ -100,6 +115,7 @@ def enqueue_pipeline_job(
     skip_duplicate_check: bool = False,
     notify_user: str | None = None,
     notify_channel: str = "",
+    sender_number: str = "",
 ) -> bool:
     """Persist the job and enqueue it. Returns False if queue is unavailable
     (caller should fall back to in-process execution)."""
@@ -124,6 +140,7 @@ def enqueue_pipeline_job(
             "skip_duplicate_check": skip_duplicate_check,
             "notify_user": notify_user or "",
             "notify_channel": notify_channel,
+            "sender_number": sender_number,
         }
         try:
             queue.create_queue()
@@ -186,12 +203,17 @@ def run_pipeline_job(payload: dict) -> None:
 
     blob_name = payload.get("blob_name", "")
     file_name = payload.get("file_name", "")
-    text = payload.get("text", "")
+    text = payload.get("text") or ""
+    # Guard: text is the filename echoed by Twilio — treat as no content so DI runs
+    import urllib.parse
+    if text and urllib.parse.unquote_plus(file_name) == text:
+        text = ""
     forced_raw = payload.get("forced_type")
     forced_type = DocumentType(forced_raw) if forced_raw else None
     skip_dup = bool(payload.get("skip_duplicate_check"))
     notify_user = payload.get("notify_user", "")
     notify_channel = payload.get("notify_channel", "")
+    sender_number = payload.get("sender_number", "")
 
     try:
         if blob_name:
@@ -199,11 +221,12 @@ def run_pipeline_job(payload: dict) -> None:
             file_bytes = container.get_blob_client(blob_name).download_blob().readall()
             # Forwarded posts arrive as image + full article text — the text IS the
             # content. Use it as precomputed OCR (skips Azure DI; image kept for Odoo).
-            pre_ocr = OCRResult(text=text) if len(text.strip()) >= 60 else None
+            pre_ocr = OCRResult(text=text) if text and len(text.strip()) >= 60 else None
             final = process_file_from_bytes(
                 file_bytes, file_name, "assistant",
                 precomputed_ocr=pre_ocr,
                 forced_type=forced_type, skip_duplicate_check=skip_dup,
+                whatsapp_number=sender_number,
             )
             try:
                 container.get_blob_client(blob_name).delete_blob()
@@ -216,6 +239,7 @@ def run_pipeline_job(payload: dict) -> None:
                 text.encode("utf-8"), f"whatsapp-news-{stamp}.txt", "assistant",
                 precomputed_ocr=OCRResult(text=text),
                 forced_type=forced_type, skip_duplicate_check=skip_dup,
+                whatsapp_number=sender_number,
             )
         message = format_completion(final)
     except Exception as e:

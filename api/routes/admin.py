@@ -1,15 +1,18 @@
 """Admin routes — document index management and runtime config."""
 
 import json
+import logging
 import os
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from pydantic import BaseModel
 
 from api.auth import get_current_user
 from api.common import read_config, write_config
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin"])
 
@@ -197,3 +200,120 @@ def update_document(
             )
 
     return {"ok": True}
+
+
+# ── Odoo → Azure Search sync webhook ───────────────────────────────────────────
+
+# Reverse maps for Odoo selection keys → human-readable strings stored in extracted_data
+_DISTRICT_REVERSE: dict[str, str] = {
+    "kwun_tong": "觀塘", "kwai_fong": "葵芳", "kwai_chung": "葵涌",
+    "tsuen_wan": "荃灣", "mong_kok": "旺角", "tsim_sha_tsui": "尖沙咀",
+    "causeway_bay": "銅鑼灣", "wan_chai": "灣仔", "central": "中環",
+    "sheung_wan": "上環", "cheung_sha_wan": "長沙灣", "kowloon_bay": "九龍灣",
+    "san_po_kong": "新蒲崗",
+}
+_PROPERTY_TYPE_REVERSE: dict[str, str] = {
+    "ground_shop": "地舖", "office": "寫字樓", "industrial": "工廈",
+    "retail": "商舖", "residential": "住宅",
+}
+
+
+def _sync_odoo_to_search(record_id: int, payload: dict) -> bool:
+    """Find the Azure Search doc for this Odoo record and merge-update it.
+    Returns True if a doc was found and patched."""
+    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
+    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+    index = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    if not endpoint or not api_key:
+        logger.warning("Odoo webhook: Azure Search not configured")
+        return False
+
+    headers = {"api-key": api_key, "Content-Type": "application/json"}
+
+    # Find the doc that matches this Odoo record ID
+    search_url = f"{endpoint}/indexes/{index}/docs/search?api-version=2024-07-01"
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(search_url, headers=headers, json={
+            "filter": f"odoo_record_id eq '{record_id}'",
+            "select": "id,extracted_data",
+            "top": 1,
+        })
+
+    if resp.status_code != 200:
+        logger.error("Odoo webhook: search failed %s", resp.text[:200])
+        return False
+
+    docs = resp.json().get("value", [])
+    if not docs:
+        logger.warning("Odoo webhook: no Search doc found for odoo_record_id=%s", record_id)
+        return False
+
+    doc = docs[0]
+    doc_id = doc["id"]
+
+    # Parse existing extracted_data and merge Odoo values on top
+    try:
+        existing = json.loads(doc.get("extracted_data") or "{}")
+    except (json.JSONDecodeError, TypeError):
+        existing = {}
+
+    odoo_vals = {
+        "address": payload.get("x_c21_address") or existing.get("address"),
+        "district": _DISTRICT_REVERSE.get(payload.get("x_c21_district", ""), payload.get("x_c21_district")) or existing.get("district"),
+        "property_type": _PROPERTY_TYPE_REVERSE.get(payload.get("x_c21_property_type", ""), payload.get("x_c21_property_type")) or existing.get("property_type"),
+        "size_sqft": payload.get("x_c21_size_sqft") or existing.get("size_sqft"),
+        "floor_unit": payload.get("x_c21_floor_unit") or existing.get("floor_unit"),
+        "contact_name": payload.get("x_c21_contact_name") or existing.get("contact_name"),
+        "contact_phone": payload.get("x_c21_contact_phone") or existing.get("contact_phone"),
+        "management_fee_psf": payload.get("x_c21_mgmt_fee_psf") or existing.get("management_fee_psf"),
+    }
+    # Rent: write to both keys so downstream code finds it regardless of doc type
+    rent = payload.get("x_c21_rent_net")
+    if rent is not None:
+        odoo_vals["asking_rent"] = rent
+        odoo_vals["rent_monthly"] = rent
+
+    # Merge: only overwrite with non-null Odoo values
+    merged = {**existing, **{k: v for k, v in odoo_vals.items() if v is not None}}
+
+    # Patch Azure Search
+    patch_url = f"{endpoint}/indexes/{index}/docs/index?api-version=2024-07-01"
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(patch_url, headers=headers, json={
+            "value": [{
+                "@search.action": "merge",
+                "id": doc_id,
+                "extracted_data": json.dumps(merged, ensure_ascii=False),
+            }]
+        })
+
+    if resp.status_code in (200, 201):
+        logger.info("Odoo webhook: patched Search doc %s for Odoo record %s", doc_id, record_id)
+        return True
+
+    logger.error("Odoo webhook: patch failed %s", resp.text[:200])
+    return False
+
+
+@router.post("/odoo/webhook")
+def odoo_webhook(
+    body: dict,
+    key: str | None = Query(default=None),
+    x_api_key: Annotated[str | None, Header()] = None,
+):
+    """Receive Odoo field-update webhooks and sync to Azure AI Search.
+
+    Accepts key via ?key= query param (Odoo native webhook) or X-Api-Key header.
+    Odoo sends: {"id": 16, "x_c21_address": "...", "x_c21_district": "central", ...}
+    """
+    expected_key = os.environ.get("ASSISTANT_API_KEY", "")
+    provided_key = key or x_api_key
+    if not expected_key or provided_key != expected_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key")
+
+    record_id = body.get("id")
+    if not record_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing id")
+
+    found = _sync_odoo_to_search(int(record_id), body)
+    return {"ok": True, "synced": found, "record_id": record_id}

@@ -26,6 +26,8 @@ Classify as ONE of:
    - Floor plans, stacking diagrams, traffic flow
    - Multiple sections: location, project summary, leasing proposal
    - Keywords: Pitching, Re-development, Project Summary, Demographic, Catchment, Heritage
+   - **Leasing Particulars** from developers (Sino Group, Henderson, Swire, K11, etc.)
+     with Catchment Area, Tenant Mix, Proposed Premises, Asking Rent, Marketable Floor Area
    - Mixed-use developments with retail + office + residential components
    - High-quality renders, maps, transformation visuals
 
@@ -132,13 +134,20 @@ def auto_detect_pitching_deck(text: str, text_length: int, page_count: int) -> b
         'leasing proposal', 'by k11', 'k11 mall', 'by henderson',
         'by swire', 'by new world', 'walking distance', 'residential units',
         'office area', 'retail area', 'pitching', 'dimension plan',
-        '人口', '步行', '寫字樓', '零售', '住宅', '商場', '項目概覽'
+        '人口', '步行', '寫字樓', '零售', '住宅', '商場', '項目概覽',
+        # Leasing particulars / developer brochures
+        'leasing particulars', 'leasing partner', 'proposed premises',
+        'marketable floor area', 'tenant mix', 'catchment area',
+        'asking rent', 'turnover rent', 'handover condition',
+        'by sino', 'sino group', 'sino land', 'availability',
+        'shops available', 'management fee', 'air-conditioning charge',
     ]
 
     keyword_count = sum(1 for kw in pitching_keywords if kw in text_lower)
 
-    # If 2+ pitching keywords found in a multi-page doc, it's likely a deck
-    return keyword_count >= 2
+    # Large docs (15+ pages) need only 1 keyword hit — most of the text is images/plans
+    threshold = 1 if page_count >= 15 else 2
+    return keyword_count >= threshold
 
 
 def auto_detect_contact(text: str, text_length: int, page_count: int) -> bool:

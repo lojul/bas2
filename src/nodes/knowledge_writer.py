@@ -23,6 +23,9 @@ STEPHEN_PARTNER_ID = 30    # Stephen Wong
 
 ARTICLE_PROMPT = """You are a C21 property intelligence assistant. Generate a structured Odoo Knowledge article in HTML.
 
+LANGUAGE: Always write in Traditional Chinese (繁體中文). Never use Simplified Chinese characters.
+Examples: 辦公室 not 办公室, 房地產 not 房地产, 概覽 not 概览, 業主 not 业主, 發展 not 发展.
+
 Today: {today}
 
 OUTPUT FORMAT — follow exactly, only include sections that have relevant content:
@@ -65,12 +68,27 @@ Return ONLY valid JSON:
 {{"title": "{today} | ...", "body": "<h1>...</h1>..."}}"""
 
 
-def _models():
-    return xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
+class _TimeoutTransport(xmlrpc.client.SafeTransport):
+    """HTTPS transport with a hard socket timeout so xmlrpc calls never hang forever."""
+    def __init__(self, timeout: int = 10):
+        super().__init__()
+        self._timeout = timeout
+
+    def make_connection(self, host):
+        conn = super().make_connection(host)
+        conn.timeout = self._timeout
+        return conn
 
 
-def _exec(model: str, method: str, args: list, kwargs: dict | None = None):
-    return _models().execute_kw(ODOO_DB, ODOO_UID, ODOO_API_KEY, model, method, args, kwargs or {})
+def _models(timeout: int = 10):
+    return xmlrpc.client.ServerProxy(
+        f"{ODOO_URL}/xmlrpc/2/object",
+        transport=_TimeoutTransport(timeout),
+    )
+
+
+def _exec(model: str, method: str, args: list, kwargs: dict | None = None, timeout: int = 10):
+    return _models(timeout).execute_kw(ODOO_DB, ODOO_UID, ODOO_API_KEY, model, method, args, kwargs or {})
 
 
 @traceable(name="check_knowledge_duplicate", run_type="retriever")
@@ -82,25 +100,26 @@ def check_duplicate(title: str, image_hash: str | None = None) -> dict | None:
     if not ODOO_API_KEY:
         return None
     try:
-        # Image hash check — works across different days
+        # Short timeout (5s) — this runs in the assistant hot path before replying to the user.
+        # If Odoo is slow, return None so the user gets a reply instead of a hang.
         if image_hash:
             results = _exec(
                 "knowledge.article", "search_read",
                 [[["body", "ilike", f"image_hash:{image_hash}"], ["parent_id", "=", KNOWLEDGE_PARENT_ID]]],
                 {"fields": ["id", "name"]},
+                timeout=5,
             )
             if results:
                 return results[0]
 
-        # Headline match — strip date prefix (e.g. "2026-07-02 | ") so same content
-        # submitted on different days is still caught
         headline = title.split(" | ", 1)[-1] if " | " in title else title
         if not headline.strip():
-            return None  # empty ilike would match every article
+            return None
         results = _exec(
             "knowledge.article", "search_read",
             [[["name", "ilike", headline], ["parent_id", "=", KNOWLEDGE_PARENT_ID]]],
             {"fields": ["id", "name"]},
+            timeout=5,
         )
         return results[0] if results else None
     except Exception:
@@ -183,6 +202,8 @@ def create_knowledge_article(
     image_bytes: bytes | None = None,
     image_url: str | None = None,
     image_filename: str | None = None,
+    file_bytes: bytes | None = None,
+    file_name: str | None = None,
     source: str = "assistant",
     skip_duplicate_check: bool = False,
 ) -> dict:
@@ -245,12 +266,17 @@ def create_knowledge_article(
             ),
         }
 
-    # Upload image to Odoo Documents, inject download link into footer (no inline image)
-    if image_bytes and image_filename:
-        img_url = upload_image(image_bytes, image_filename)
+    # Upload source file (image or PDF) to Odoo Documents, inject download link into footer.
+    # upload_image() accepts any file type despite its name.
+    _upload_bytes = image_bytes or file_bytes
+    _upload_name = image_filename or file_name
+    if _upload_bytes and _upload_name:
+        img_url = upload_image(_upload_bytes, _upload_name)
         if img_url:
             import re
-            docs_link = f' ｜ <a href="{img_url}">下載原始圖片（Documents）</a>'
+            _ext = _upload_name.rsplit(".", 1)[-1].lower() if "." in _upload_name else ""
+            _link_label = "下載原始圖片（Documents）" if _ext in ("jpg", "jpeg", "png", "gif", "webp") else "下載原始文件（Documents）"
+            docs_link = f' ｜ <a href="{img_url}">{_link_label}</a>'
             # Use regex so it works regardless of whether body has newlines
             new_body = re.sub(
                 r'(<p>原文來源：[^<]*?)\s*(</p>)',

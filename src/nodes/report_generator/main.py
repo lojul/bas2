@@ -198,13 +198,7 @@ def generate_report_from_sources(
     documents = []
     images = []
 
-    # Document types that contain property listings
-    # processed-documents uses: listing, listing_list
-    # c21net-intelligence-v2 uses: Vacancy Listing, Particular Property
-    LISTING_TYPES = {
-        "listing", "listing_list",
-        "vacancy listing", "particular property",  # c21net-intelligence-v2
-    }
+    LISTING_TYPES = {"listing", "listing_list"}
 
     for src in sources:
         doc_type = (src.get("document_type") or "").lower()
@@ -220,21 +214,7 @@ def generate_report_from_sources(
             except:
                 extracted = {}
 
-        # Handle c21net-intelligence-v2 index format
-        # c21net has data at root level, not in extracted_data
-        if src.get("monthly_rental_hkd") is not None or src.get("floor_area_sqft") is not None:
-            # Build extracted_data from c21net root-level fields
-            extracted = {
-                "rent_monthly": src.get("monthly_rental_hkd"),
-                "rent": src.get("monthly_rental_hkd"),
-                "size_sqft": src.get("floor_area_sqft"),
-                "size": src.get("floor_area_sqft"),
-                "building_name": _extract_building_from_title(src.get("title", "")),
-            }
-            # c21net uses 'title' instead of 'file_name'
-            file_name = src.get("title") or src.get("file_name", "Unknown")
-        else:
-            file_name = src.get("file_name", "Unknown")
+        file_name = src.get("file_name", "Unknown")
 
         # Build document in format expected by statistics module
         doc = {

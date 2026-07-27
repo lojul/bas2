@@ -5,6 +5,7 @@
 #   ./deploy.sh              # deploy App Service (doc-pipeline)
 #   ./deploy.sh --chat       # also deploy the prop-chat App Service
 #   ./deploy.sh --func       # also publish the Function App
+#   ./deploy.sh --func-only  # publish Function App ONLY (fast — skips App Service)
 #   ./deploy.sh --all        # everything
 #
 # Guards against the known pitfalls:
@@ -23,12 +24,13 @@ APP="c21net-bas-api-doc-pipeline-ea-prod"
 CHAT_APP="c21net-bas-api-prop-chat-ea-prod"
 FUNC_APP="c21net-bas-func-doc-pipeline-ea-prod"
 
-DO_CHAT=false; DO_FUNC=false
+DO_CHAT=false; DO_FUNC=false; DO_FUNC_ONLY=false
 for arg in "$@"; do
   case "$arg" in
-    --chat) DO_CHAT=true ;;
-    --func) DO_FUNC=true ;;
-    --all)  DO_CHAT=true; DO_FUNC=true ;;
+    --chat)      DO_CHAT=true ;;
+    --func)      DO_FUNC=true ;;
+    --func-only) DO_FUNC_ONLY=true ;;
+    --all)       DO_CHAT=true; DO_FUNC=true ;;
   esac
 done
 
@@ -53,48 +55,87 @@ if [ "$AGE" -gt 60 ]; then
 fi
 echo "    zip OK (${SIZE}KB, ${AGE}s old)"
 
+get_token() {
+  az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv
+}
+
 deploy_app() {
   local app="$1"
   echo "==> Deploying $app"
   local token
-  token=$(az account get-access-token --resource "https://management.azure.com/" --query accessToken -o tsv)
+  token=$(get_token)
 
   # Remember the current top deployment so we can tell when the NEW one lands
   local prev_id
   prev_id=$(curl -s "https://${app}.scm.azurewebsites.net/api/deployments" \
     -H "Authorization: Bearer $token" \
-    | python3 -c "import json,sys; d=json.load(sys.stdin); print(d[0]['id'] if d else '')" 2>/dev/null || echo "")
+    | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    print(d[0]['id'] if d else '')
+except Exception:
+    print('')
+" 2>/dev/null || echo "")
 
-  local code
-  code=$(curl --http1.1 -s -o /dev/null -w "%{http_code}" -X POST \
-    "https://${app}.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
-    -H "Authorization: Bearer $token" \
-    -H "Content-Type: application/octet-stream" \
-    --data-binary @"$ZIP")
+  # Retry zipdeploy up to 3 times (handles transient 409 conflicts)
+  local code attempt
+  for attempt in 1 2 3; do
+    code=$(curl --http1.1 -s -o /dev/null -w "%{http_code}" -X POST \
+      "https://${app}.scm.azurewebsites.net/api/zipdeploy?isAsync=true" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/octet-stream" \
+      --data-binary @"$ZIP")
+    [ "$code" = "202" ] && break
+    echo "    zipdeploy returned HTTP $code (attempt $attempt/3), retrying in 20s..."
+    sleep 20
+    token=$(get_token)
+  done
   if [ "$code" != "202" ]; then
-    echo "ERROR: zipdeploy returned HTTP $code"
+    echo "ERROR: zipdeploy failed after 3 attempts (last HTTP $code)"
     exit 1
   fi
 
   echo "    waiting for Oryx build..."
-  until curl -s "https://${app}.scm.azurewebsites.net/api/deployments" \
+  # Refresh token inside the loop — Oryx build takes ~5 min, token may age
+  local poll=0
+  while true; do
+    poll=$((poll + 1))
+    [ $((poll % 8)) -eq 0 ] && token=$(get_token)  # refresh every ~2 min
+    done=$(curl -s "https://${app}.scm.azurewebsites.net/api/deployments" \
       -H "Authorization: Bearer $token" \
       | PREV_ID="$prev_id" python3 -c "
 import json, os, sys
-deps = json.load(sys.stdin)
-d = deps[0] if deps else {}
-new = d.get('id', '') != os.environ.get('PREV_ID', '')
-sys.exit(0 if (new and d.get('complete')) else 1)
-"; do
+try:
+    deps = json.load(sys.stdin)
+    d = deps[0] if deps else {}
+    new = d.get('id', '') != os.environ.get('PREV_ID', '')
+    print('1' if (new and d.get('complete')) else '0')
+except Exception:
+    print('0')
+" 2>/dev/null || echo "0")
+    [ "$done" = "1" ] && break
+    if [ "$poll" -gt 60 ]; then echo "ERROR: Oryx build timed out"; exit 1; fi
     sleep 15
   done
 
-  echo "    copying source to wwwroot..."
-  local out
-  out=$(curl -s -X POST "https://${app}.scm.azurewebsites.net/api/command" \
-    -H "Authorization: Bearer $token" -H "Content-Type: application/json" \
-    -d '{"command": "sh -c \"cp -rf /tmp/zipdeploy/extracted/src /home/site/wwwroot/src && cp -rf /tmp/zipdeploy/extracted/api /home/site/wwwroot/api && echo ok\"", "dir": "/"}')
-  echo "$out" | grep -q '"ExitCode":0' || { echo "ERROR: wwwroot copy failed: $out"; exit 1; }
+  echo "    uploading source to wwwroot via VFS..."
+  token=$(get_token)  # fresh token for VFS uploads
+  local vfs_ok=true
+  while IFS= read -r -d '' pyfile; do
+    rel="${pyfile#$DEPLOY_DIR/}"
+    code=$(curl --http1.1 -s -o /dev/null -w "%{http_code}" -X PUT \
+      "https://${app}.scm.azurewebsites.net/api/vfs/site/wwwroot/${rel}" \
+      -H "Authorization: Bearer $token" \
+      -H "Content-Type: application/octet-stream" \
+      -H "If-Match: *" \
+      --data-binary @"$pyfile")
+    if [ "$code" != "201" ] && [ "$code" != "204" ]; then
+      echo "    WARNING: VFS upload failed for $rel (HTTP $code)"
+      vfs_ok=false
+    fi
+  done < <(find "$DEPLOY_DIR/src" "$DEPLOY_DIR/api" -name "*.py" -print0)
+  $vfs_ok && echo "    VFS upload OK" || echo "    WARNING: some files failed to upload"
 
   echo "    restarting..."
   az webapp restart --name "$app" --resource-group "$RG" > /dev/null
@@ -109,10 +150,12 @@ sys.exit(0 if (new and d.get('complete')) else 1)
   echo "    $app healthy ✓"
 }
 
-deploy_app "$APP"
-$DO_CHAT && deploy_app "$CHAT_APP"
+if ! $DO_FUNC_ONLY; then
+  deploy_app "$APP"
+  $DO_CHAT && deploy_app "$CHAT_APP"
+fi
 
-if $DO_FUNC; then
+if $DO_FUNC || $DO_FUNC_ONLY; then
   echo "==> Publishing Function App"
   az account set --subscription "c21net-business-automation-stack"
   (cd "$LANGGRAPH_DIR" && func azure functionapp publish "$FUNC_APP" --python 2>&1 | tail -2)

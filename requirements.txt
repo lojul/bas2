@@ -2,9 +2,10 @@
 azure-functions>=1.17.0
 
 # LangGraph & LangSmith
-langgraph>=0.2
-langsmith>=0.1
-langchain-openai>=0.2
+langgraph>=1.2.0,<2.0
+langsmith>=0.8.5,<2.0
+langchain-openai>=1.2.0,<2.0
+langchain-core>=1.4.0,<2.0
 
 # Azure Services
 azure-storage-blob>=12.0

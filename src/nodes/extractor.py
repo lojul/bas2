@@ -178,6 +178,21 @@ DISTRICT DETECTION - Look for these Hong Kong districts:
 TEXT:
 {text}
 
+SIZE EXTRACTION RULES (critical):
+- "Marketable Floor Area (MFA)", "Lettable Area", "Net Floor Area (NFA)", "GFA", "建築面積", "實用面積" all map to size_sqft
+- Always extract the number (strip "sq. ft.", "sq ft", "呎", "平方呎")
+
+RENT EXTRACTION RULES (critical):
+- "Asking Rent: $380,000/month" → asking_rent: 380000
+- "Asking Rent" / "Initial Rent" / "租金" for the whole unit package → put in asking_rent AND in each available_unit's rent_monthly
+- Strip "$", "HK$", "/month", "/mth" — store the NUMBER only
+- "Turnover Rent" or "15% of gross takings" is NOT the base rent — skip it
+- If you find a monthly rent figure ANYWHERE in the text, ALWAYS populate asking_rent
+
+PREMISES/UNIT EXTRACTION RULES:
+- "Premises: Shop Nos. G1-4, 22-26, 28-33A on Ground Floor" → one available_unit with unit="G1-4, 22-26, 28-33A", floor="G/F"
+- Map "Availability" date to availability_date field
+
 Return a JSON object with ALL available information:
 {{
   "project_name": "project/building name",
@@ -199,9 +214,13 @@ Return a JSON object with ALL available information:
   }},
 
   "available_units": [
-    {{"unit": "G07", "floor": "G/F", "size_sqft": number, "facing": "Java Road", "features": "next to entrance"}}
+    {{"unit": "G07", "floor": "G/F", "size_sqft": number or null, "rent_monthly": number or null, "facing": "Java Road", "features": "next to entrance"}}
   ],
 
+  "asking_rent": number or null,
+  "rent_note": "text when rent has no number, e.g. 'Subject to Offer' or null",
+  "management_fee_psf": number or null,
+  "management_fee_psf_fb": number or null,
   "availability_date": "Q4 2026 or specific date",
 
   "location": {{

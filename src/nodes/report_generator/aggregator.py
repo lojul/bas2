@@ -150,12 +150,8 @@ def aggregate_documents(
     return documents, images
 
 
-# Document types that contain property listings
-# processed-documents uses: listing, listing_list
-# c21net-intelligence-v2 uses: Vacancy Listing, Particular Property
 LISTING_DOC_TYPES = [
-    "listing", "listing_list",  # processed-documents
-    "Vacancy Listing", "Particular Property",  # c21net-intelligence-v2
+    "listing", "listing_list",
 ]
 
 

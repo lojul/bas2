@@ -24,16 +24,16 @@ Extraction paths (chosen by analyzer, no user input required):
                   │
                index          (Azure AI Search + embeddings + smart merge — ALL types)
                   │
-        ┌─────────┼──────────────────┐
-        │         │                  │
-   odoo_sync  knowledge_sync      __end__
-   (listing/  (news →            (contact/
-    listing_    knowledge.article)  unknown)
-    list/
+        ┌─────────┼──────────────────┬──────────────┐
+        │         │                  │              │
+   odoo_sync  knowledge_sync  contact_sync      __end__
+   (listing/  (news →         (contact →       (unknown)
+    listing_    knowledge.      res.partner)
+    list/       article)
     pitching_deck
     → x_c21_listing)
-        │         │
-     __end__   __end__
+        │         │                  │
+     __end__   __end__           __end__
 
 Adding a new extraction path:
   1. Add a value to ExtractionPath in state.py
@@ -88,10 +88,22 @@ def run_ocr_node(data: GraphState) -> GraphState:
 
 def classify_node(data: GraphState) -> GraphState:
     state = data["state"]
-    # Caller already knows the type (e.g. WhatsApp forwarded news image) — skip the LLM call
+
+    # URL enrichment: when the OCR text is short and contains a URL (e.g. a WhatsApp
+    # share link or on.cc article link), fetch the article content via Tavily Extract
+    # so the classifier and extractor see the actual article body, not just the link.
+    # Run this even when forced_type is set — the enriched text still benefits extraction.
+    if state.ocr and state.ocr.text and len(state.ocr.text.strip()) < 300:
+        from src.utils.url_fetcher import enrich_with_url_content
+        enriched = enrich_with_url_content(state.ocr.text)
+        if enriched != state.ocr.text:
+            state.ocr.text = enriched
+
+    # Caller already knows the type (e.g. WhatsApp forwarded news URL) — skip the LLM call
     if state.document_type != DocumentType.UNKNOWN:
         state.update_status(ProcessingStatus.CLASSIFIED)
         return {"state": state}
+
     from src.nodes.classifier import classify_document
     return {"state": classify_document(state)}
 
@@ -153,6 +165,11 @@ def knowledge_sync_node(data: GraphState) -> GraphState:
     return {"state": knowledge_sync(data["state"])}
 
 
+def contact_sync_node(data: GraphState) -> GraphState:
+    from src.nodes.contact_sync import contact_sync
+    return {"state": contact_sync(data["state"])}
+
+
 # =============================================================================
 # Routing
 # =============================================================================
@@ -167,13 +184,15 @@ def route_extraction(data: GraphState) -> Literal["extract_structured", "extract
     return "extract_structured"
 
 
-def route_sync(data: GraphState) -> Literal["odoo_sync", "knowledge_sync", "end"]:
+def route_sync(data: GraphState) -> Literal["odoo_sync", "knowledge_sync", "contact_sync", "end"]:
     """Route to the Odoo sync target by document type after indexing."""
     doc_type = data["state"].document_type
     if doc_type == DocumentType.NEWS:
         return "knowledge_sync"
     if doc_type in (DocumentType.LISTING, DocumentType.LISTING_LIST, DocumentType.PITCHING_DECK):
         return "odoo_sync"
+    if doc_type == DocumentType.CONTACT:
+        return "contact_sync"
     return "end"
 
 
@@ -197,6 +216,7 @@ def create_graph() -> StateGraph:
     graph.add_node("index", index_node)
     graph.add_node("odoo_sync", odoo_sync_node)
     graph.add_node("knowledge_sync", knowledge_sync_node)
+    graph.add_node("contact_sync", contact_sync_node)
 
     # ── Edges ─────────────────────────────────────────────────────────────────
     graph.add_edge(START, "get_download_url")
@@ -229,12 +249,14 @@ def create_graph() -> StateGraph:
         {
             "odoo_sync": "odoo_sync",
             "knowledge_sync": "knowledge_sync",
+            "contact_sync": "contact_sync",
             "end": END,
         },
     )
 
     graph.add_edge("odoo_sync", END)
     graph.add_edge("knowledge_sync", END)
+    graph.add_edge("contact_sync", END)
 
     return graph
 
@@ -299,6 +321,7 @@ def process_file_from_bytes(
     precomputed_ocr=None,  # OCRResult | None
     forced_type: DocumentType | None = None,
     skip_duplicate_check: bool = False,
+    whatsapp_number: str = "",
 ) -> DocumentState:
     """Process a document from raw bytes through the full pipeline (dashboard / manual upload path).
 
@@ -312,6 +335,7 @@ def process_file_from_bytes(
         file_path="",
         file_name=file_name,
         source=source,
+        whatsapp_number=whatsapp_number,
         status=ProcessingStatus.PENDING,
         file_bytes=file_bytes,
         ocr=precomputed_ocr,

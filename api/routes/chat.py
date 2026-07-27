@@ -35,6 +35,14 @@ class ReportRequest(BaseModel):
     report_type: str = "rent"
 
 
+class FeedbackRequest(BaseModel):
+    thread_id: str
+    question: str
+    answer: str
+    rating: str          # "up" | "down"
+    message_index: int | None = None
+
+
 # ── Lazy import helper (avoids loading heavy ML deps at startup) ─────────────
 
 def _get_chatbot():
@@ -145,6 +153,25 @@ def generate_report(
         content=bytes(result.report.pdf_bytes),
         media_type="application/pdf",
         headers={"Content-Disposition": 'attachment; filename="property_report.pdf"'},
+    )
+
+
+@router.post("/feedback", status_code=204)
+def submit_feedback(
+    body: FeedbackRequest,
+    username: Annotated[str, Depends(get_current_user)],
+):
+    """Save a 👍/👎 rating for a chatbot answer."""
+    if body.rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+    from src.utils.table_storage import log_feedback
+    log_feedback(
+        thread_id=body.thread_id,
+        question=body.question,
+        answer=body.answer,
+        rating=body.rating,
+        channel="dashboard",
+        message_index=body.message_index,
     )
 
 

@@ -84,7 +84,8 @@ class DocumentState:
     # Input
     file_path: str = ""
     file_name: str = ""
-    source: str = "onedrive"  # onedrive, dashboard, etc.
+    source: str = "onedrive"  # onedrive, dashboard, assistant, etc.
+    whatsapp_number: str = ""  # sender's WhatsApp number (E.164), set for assistant/whatsapp jobs
     file_bytes: bytes | None = field(default=None, repr=False)  # set for direct uploads; cleared after OCR
 
     # Processing state
@@ -120,6 +121,8 @@ class DocumentState:
     # Odoo sync (populated by odoo_sync / knowledge_sync nodes)
     odoo_record_id: str = ""
     odoo_sync_status: str = ""  # "synced", "pending", "skipped", "duplicate", "error"
+    odoo_error_detail: str = "" # short error message when odoo_sync_status == "error"
+    odoo_doc_url: str = ""      # Odoo Documents shareable URL for the source PDF
     skip_duplicate_check: bool = False  # user confirmed "process anyway" after a duplicate warning
 
     # Metadata

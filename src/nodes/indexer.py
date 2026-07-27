@@ -1,6 +1,6 @@
 """Azure AI Search indexer for processed documents.
 
-Indexes documents to AZURE_SEARCH_INDEX (default: processed-documents).
+Indexes documents to AZURE_SEARCH_INDEX (default: property-intel-index).
 For chatbot search, multiple indexes can be searched via AZURE_SEARCH_INDEXES.
 """
 
@@ -23,16 +23,16 @@ MAX_CONTENT_LENGTH = 8000
 # Comma-separated list of index names
 _search_indexes_str = os.environ.get(
     "AZURE_SEARCH_INDEXES",
-    os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+    os.environ.get("AZURE_SEARCH_INDEX", "property-intel-index")
 )
 SEARCH_INDEXES = [idx.strip() for idx in _search_indexes_str.split(",") if idx.strip()]
 
 # Primary index for writing new documents
-PRIMARY_INDEX = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
+PRIMARY_INDEX = os.environ.get("AZURE_SEARCH_INDEX", "property-intel-index")
 
 # Index schema for auto-creation
 INDEX_SCHEMA = {
-    "name": "processed-documents",
+    "name": "property-intel-index",
     "fields": [
         {"name": "id", "type": "Edm.String", "key": True, "searchable": False},
         {"name": "file_name", "type": "Edm.String", "searchable": True, "filterable": True},
@@ -42,10 +42,11 @@ INDEX_SCHEMA = {
             "name": "content_vector",
             "type": "Collection(Edm.Single)",
             "searchable": True,
-            "dimensions": 1536,
+            "dimensions": 3072,
             "vectorSearchProfile": "default-profile"
         },
         {"name": "extracted_data", "type": "Edm.String", "searchable": True},
+        {"name": "building_name", "type": "Edm.String", "searchable": True, "filterable": True},
         {"name": "image_urls", "type": "Collection(Edm.String)", "searchable": False, "filterable": False},
         {"name": "processed_at", "type": "Edm.DateTimeOffset", "searchable": False, "filterable": True, "sortable": True},
         # Sale listing fields — populated for sale/mixed transaction types
@@ -57,6 +58,8 @@ INDEX_SCHEMA = {
         {"name": "needs_review", "type": "Edm.Boolean", "searchable": False, "filterable": True},
         {"name": "odoo_record_id", "type": "Edm.String", "searchable": False, "filterable": True},
         {"name": "odoo_sync_status", "type": "Edm.String", "searchable": False, "filterable": True},
+        {"name": "source_url", "type": "Edm.String", "searchable": False, "filterable": False},
+        {"name": "whatsapp_number", "type": "Edm.String", "searchable": False, "filterable": True, "facetable": True},
     ],
     "vectorSearch": {
         "profiles": [
@@ -168,6 +171,7 @@ def index_document(state: DocumentState) -> DocumentState:
         sell_price = _extract_int(merged_extracted, "sell_price")
         return_rate = _extract_float(merged_extracted, "return_rate")
         transaction_type = merged_extracted.get("transaction_type") or _infer_transaction_type(merged_extracted)
+        building_name = _extract_building_name(merged_extracted, state.document_type.value if state.document_type else "")
 
         # Prepare document for indexing
         doc = {
@@ -177,6 +181,7 @@ def index_document(state: DocumentState) -> DocumentState:
             "content": content,
             "content_vector": embedding,
             "extracted_data": json.dumps(merged_extracted, ensure_ascii=False),
+            "building_name": building_name,
             "image_urls": image_urls,
             "processed_at": datetime.now(timezone.utc).isoformat(),
             # Sale / pipeline metadata
@@ -185,6 +190,7 @@ def index_document(state: DocumentState) -> DocumentState:
             "transaction_type": transaction_type,
             "extraction_path": state.extraction_path.value if state.extraction_path else "structured",
             "needs_review": getattr(state, "needs_review", False),
+            "whatsapp_number": state.whatsapp_number or None,
         }
         # Drop None-valued optional fields to avoid Azure Search type errors
         doc = {k: v for k, v in doc.items() if v is not None or k in ("id", "file_name", "needs_review")}
@@ -448,6 +454,13 @@ def _infer_transaction_type(data: dict) -> str | None:
     if has_rent:
         return "lease"
     return None
+
+
+def _extract_building_name(extracted: dict, doc_type: str) -> str | None:
+    """Pull canonical building name from extracted data as a top-level indexed field."""
+    if doc_type == "pitching_deck":
+        return extracted.get("project_name") or extracted.get("project_name_zh")
+    return extracted.get("building_name")
 
 
 def _enrich_content(content: str, extracted: dict) -> str:

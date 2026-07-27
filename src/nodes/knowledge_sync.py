@@ -32,18 +32,27 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
 
         text = state.ocr.text if state.ocr else ""
 
-        # Original image (WhatsApp screenshot) → attach to article + hash-based dedup
+        # Pass original file to article for upload to Odoo Documents + download link.
+        # Images: use image_bytes path (enables hash-based dedup).
+        # PDFs and other docs: use file_bytes path (no hash dedup, but link is added).
         image_bytes = None
         image_filename = None
+        file_bytes_doc = None
+        file_name_doc = None
         ext = state.file_name.rsplit(".", 1)[-1].lower() if "." in state.file_name else ""
         if state.file_bytes and ext in _IMAGE_EXTS:
             image_bytes = state.file_bytes
             image_filename = state.file_name
+        elif state.file_bytes:
+            file_bytes_doc = state.file_bytes
+            file_name_doc = state.file_name
 
         result = create_knowledge_article(
             text=text,
             image_bytes=image_bytes,
             image_filename=image_filename,
+            file_bytes=file_bytes_doc,
+            file_name=file_name_doc,
             source=state.source,
             skip_duplicate_check=state.skip_duplicate_check,
         )
@@ -57,7 +66,7 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
         else:
             state.odoo_sync_status = "error"
 
-        _patch_search_doc(state.index_id, state.odoo_record_id, state.odoo_sync_status)
+        _patch_search_doc(state.index_id, state.odoo_record_id, state.odoo_sync_status, None)
         logger.info(
             "Knowledge sync for '%s': %s (article %s)",
             state.file_name, state.odoo_sync_status, state.odoo_record_id or "none",

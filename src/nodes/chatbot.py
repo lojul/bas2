@@ -119,7 +119,8 @@ You have access to TWO types of information:
 
 ## Response Format
 - Bullet points for lists
-- Tables for comparisons
+- NEVER use markdown tables (| col | col |) — they do not render in WhatsApp or the dashboard chat
+- For comparisons, use bullet points or numbered lists instead
 - Structure: Summary → Details → Sources
 
 ## Available Property Information
@@ -275,18 +276,11 @@ def _search_single_index(
 
     client = get_http_client()
 
-    # Index-specific configurations
-    # processed-documents uses default-semantic-config, c21net-intelligence-v2 uses unified-semantic-config
     index_configs = {
-        "processed-documents": {
-            "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+        "property-intel-index": {
+            "select": "id,file_name,document_type,content,extracted_data,building_name,processed_at,image_urls,source_url",
             "searchFields": "content,file_name",
             "semanticConfig": "default-semantic-config",
-        },
-        "c21net-intelligence-v2": {
-            "select": "id,title,document_type,content,monthly_rental_hkd,floor_area_sqft,key_entities,last_updated",
-            "searchFields": "content,title",
-            "semanticConfig": "unified-semantic-config",
         },
     }
 
@@ -378,7 +372,8 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
 
     # Format and deduplicate results
     documents = []
-    seen_files = set()
+    seen_files = set()   # dedup by file_name
+    seen_buildings = set()  # dedup by building_name/project_name across indexes
 
     for doc in all_results:
         # Normalize file_name: c21net-intelligence-v2 uses "title" instead
@@ -389,7 +384,6 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             continue
         seen_files.add(file_name)
 
-        # Get extracted_data (processed-documents) or build from fields (c21net-intelligence-v2)
         extracted = doc.get("extracted_data", "{}")
         if isinstance(extracted, str):
             try:
@@ -397,13 +391,15 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             except:
                 extracted = {}
 
-        # If no extracted_data, build from c21net-intelligence-v2 fields
-        if not extracted and doc.get("_index") == "c21net-intelligence-v2":
-            extracted = {
-                "rent_monthly": doc.get("monthly_rental_hkd"),
-                "size_sqft": doc.get("floor_area_sqft"),
-                "key_entities": doc.get("key_entities", []),
-            }
+        # Secondary dedup by building/project name (catches same building across indexes)
+        building_key = (
+            extracted.get("building_name") or extracted.get("project_name")
+            or doc.get("x_name") or ""
+        ).strip().lower()
+        if building_key and building_key in seen_buildings:
+            continue
+        if building_key:
+            seen_buildings.add(building_key)
 
         # Get semantic caption if available
         captions = doc.get("@search.captions", [])
@@ -415,6 +411,7 @@ def search_documents(query: str, top_k: int = 5, hybrid: bool = True) -> list[di
             "content": doc.get("content", "")[:2000],
             "extracted_data": extracted,
             "image_urls": doc.get("image_urls", []),
+            "source_url": doc.get("source_url", ""),
             "score": doc.get("@search.score", 0),
             "reranker_score": doc.get("@search.rerankerScore", 0),
             "caption": caption_text,
@@ -519,19 +516,12 @@ def _keyword_search_single_index(
 
     has_query = bool(query and query.strip())
 
-    # Index-specific configurations
     index_configs = {
-        "processed-documents": {
-            "select": "id,file_name,document_type,content,extracted_data,processed_at,image_urls",
+        "property-intel-index": {
+            "select": "id,file_name,document_type,content,extracted_data,building_name,processed_at,image_urls,source_url",
             "searchFields": "content,file_name",
             "semanticConfig": "default-semantic-config",
             "orderBy": "processed_at desc",
-        },
-        "c21net-intelligence-v2": {
-            "select": "id,title,document_type,content,monthly_rental_hkd,floor_area_sqft,key_entities,last_updated",
-            "searchFields": "content,title",
-            "semanticConfig": "unified-semantic-config",
-            "orderBy": "last_updated desc",
         },
     }
 
@@ -704,21 +694,12 @@ def keyword_search(
             continue
         seen_files.add(file_name)
 
-        # Get extracted_data (processed-documents) or build from fields (c21net-intelligence-v2)
         extracted = doc.get("extracted_data", "{}")
         if isinstance(extracted, str):
             try:
                 extracted = json.loads(extracted)
             except:
                 extracted = {}
-
-        # If no extracted_data, build from c21net-intelligence-v2 fields
-        if not extracted and doc.get("_index") == "c21net-intelligence-v2":
-            extracted = {
-                "rent_monthly": doc.get("monthly_rental_hkd"),
-                "size_sqft": doc.get("floor_area_sqft"),
-                "key_entities": doc.get("key_entities", []),
-            }
 
         documents.append({
             "id": doc.get("id", ""),
@@ -727,7 +708,7 @@ def keyword_search(
             "content": doc.get("content", "")[:500],
             "extracted_data": extracted,
             "image_urls": doc.get("image_urls", []),
-            "processed_at": doc.get("processed_at") or doc.get("last_updated") or "",
+            "processed_at": doc.get("processed_at") or "",
             "score": doc.get("@search.score", 0),
             "index": doc.get("_index", ""),  # Source index
         })
@@ -796,6 +777,7 @@ def build_context(documents: list[dict], web_results: list[dict] = None) -> str:
         file_name = doc.get("file_name", "Unknown")
         extracted = doc.get("extracted_data", {})
         content = doc.get("content", "")
+        source_url = doc.get("source_url", "")
 
         if doc_type == "listing":
             context_parts.append(f"""
@@ -809,7 +791,7 @@ def build_context(documents: list[dict], web_results: list[dict] = None) -> str:
 - Rent: HK${extracted.get('rent_monthly', 'N/A')}/month
 - Floor/Unit: {extracted.get('floor', 'N/A')} {extracted.get('unit', '')}
 - Contact: {extracted.get('contact_name', 'N/A')} {extracted.get('contact_phone', '')}
-
+{f'- Source Document: {source_url}' if source_url else ''}
 Content Preview:
 {content[:500]}
 """)
@@ -827,7 +809,7 @@ Content Preview:
 - District: {extracted.get('district', 'N/A')}
 - Contact: {extracted.get('contact_phone', 'N/A')}
 - Available Units:
-{units_str}
+{units_str}{f'- Source Document: {source_url}' if source_url else ''}
 Content Preview:
 {content[:300]}
 """)
@@ -862,6 +844,7 @@ Content Preview:
 - Key Features: {', '.join(extracted.get('key_features', [])[:5]) if extracted.get('key_features') else 'N/A'}
 - Available Units for Lease:
 {units_str if units_str else '  - Contact for details'}
+{f'- Source Document: {source_url}' if source_url else ''}
 Content Preview:
 {content[:300]}
 """)
@@ -1053,7 +1036,8 @@ def retrieve_node(state: ChatState) -> dict:
             "document_type": doc["document_type"],
             "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
-            "index": doc.get("index", ""),  # Source index
+            "index": doc.get("index", ""),
+            "source_url": doc.get("source_url", ""),
             "type": "document",
             # Fields for report generation
             "extracted_data": doc.get("extracted_data", {}),
@@ -1417,7 +1401,8 @@ def _chat_retrieve(question: str, thread_id: str) -> dict:
             "document_type": doc["document_type"],
             "image_urls": doc.get("image_urls", []),
             "score": doc.get("score", 0),
-            "index": doc.get("index", ""),  # Source index
+            "index": doc.get("index", ""),
+            "source_url": doc.get("source_url", ""),
             "type": "document",
             # Fields for report generation
             "extracted_data": doc.get("extracted_data", {}),
