@@ -57,6 +57,17 @@ export default function ProcessPage() {
   const totalPages = Math.ceil(total / PAGE_SIZE);
   const pageItems = runs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
+  // Files processed 3+ times in the last 7 days signal a reprocessing loop
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const recentRuns = runs.filter((r) => new Date(r.processed_at).getTime() >= sevenDaysAgo);
+  const runCountByFile = recentRuns.reduce<Record<string, number>>((acc, r) => {
+    acc[r.file_name] = (acc[r.file_name] ?? 0) + 1;
+    return acc;
+  }, {});
+  const repeatedFiles = Object.entries(runCountByFile)
+    .filter(([, count]) => count >= 3)
+    .sort(([, a], [, b]) => b - a);
+
   function toggleExpand(id: string) {
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -78,6 +89,23 @@ export default function ProcessPage() {
 
         {!loading && !error && (
           <>
+            {repeatedFiles.length > 0 && (
+              <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <p className="text-sm font-medium text-amber-800">
+                  Reprocessing loop detected — {repeatedFiles.length} file{repeatedFiles.length > 1 ? "s" : ""} processed 3+ times
+                </p>
+                <ul className="mt-1.5 space-y-0.5">
+                  {repeatedFiles.map(([name, count]) => (
+                    <li key={name} className="text-xs text-amber-700 flex items-center gap-2">
+                      <span className="font-semibold bg-amber-200 text-amber-900 rounded px-1.5 py-0.5">{count}×</span>
+                      <span className="truncate">{name}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-amber-600 mt-2">Check OneDrive /In — file may be stuck. See Known Issues in CLAUDE.md (409 Conflict).</p>
+              </div>
+            )}
+
             <div className="grid grid-cols-3 gap-3 mb-4">
               {[
                 { label: "Total (3 months)", value: total },

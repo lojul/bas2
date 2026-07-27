@@ -213,6 +213,18 @@ export function SourcesPanel({ sources }: { sources: Source[] }) {
                   </p>
                 )}
 
+                {/* Odoo document link */}
+                {s.source_url && (
+                  <a
+                    href={s.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-block text-blue-600 hover:underline"
+                  >
+                    📄 查看文件 View Document
+                  </a>
+                )}
+
                 {/* Structured extracted data */}
                 {Object.keys(extracted).length > 0 && dtype && (
                   <ExtractedData dtype={dtype} data={extracted} />

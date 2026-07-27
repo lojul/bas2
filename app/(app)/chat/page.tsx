@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef } from "react";
-import { streamMessage, clearConversation, generateReport } from "@/lib/api";
+import { streamMessage, clearConversation, generateReport, submitFeedback } from "@/lib/api";
 import type { ChatMessage, Source } from "@/lib/api";
 import { ChatMessages } from "@/components/ChatMessages";
 
@@ -125,6 +125,12 @@ export default function ChatPage() {
     }
   }, [allSources]);
 
+  const handleFeedback = useCallback((messageIndex: number, rating: "up" | "down") => {
+    const answer = messages[messageIndex]?.content ?? "";
+    const question = messages[messageIndex - 1]?.content ?? "";
+    submitFeedback(threadId, question, answer, rating, messageIndex).catch(() => {});
+  }, [messages, threadId]);
+
   const isEmpty = messages.length === 0;
 
   return (
@@ -175,7 +181,7 @@ export default function ChatPage() {
           </div>
         </div>
       ) : (
-        <ChatMessages messages={messages} />
+        <ChatMessages messages={messages} onFeedback={handleFeedback} />
       )}
 
       <div className="shrink-0 px-4 pb-4 pt-2 bg-white border-t border-gray-200">

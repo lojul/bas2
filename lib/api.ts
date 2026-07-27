@@ -63,6 +63,7 @@ export interface Source {
   extracted_data?: Record<string, unknown>;
   image_urls?: string[];
   index?: string;
+  source_url?: string;
 }
 
 export interface ChatMessage {
@@ -139,6 +140,19 @@ export function streamMessage(
   })();
 
   return () => controller.abort();
+}
+
+export async function submitFeedback(
+  threadId: string,
+  question: string,
+  answer: string,
+  rating: "up" | "down",
+  messageIndex?: number,
+): Promise<void> {
+  await chatFetch("/api/chat/feedback", {
+    method: "POST",
+    body: JSON.stringify({ thread_id: threadId, question, answer, rating, message_index: messageIndex ?? null }),
+  });
 }
 
 export async function generateReport(
@@ -306,6 +320,8 @@ export interface IngestResult {
   extracted_data: Record<string, unknown>;
   error?: string | null;
   index_id?: string;
+  odoo_record_id?: string | null;
+  odoo_sync_status?: string | null;
 }
 
 export async function processIngest(
@@ -377,6 +393,7 @@ export interface TriageResult {
   ocr_text?: string;
   ocr_pages?: number;
   ocr_complete?: boolean;
+  extraction_path?: string;
 }
 
 export async function triageFile(file: File): Promise<TriageResult> {
@@ -503,4 +520,29 @@ export async function uploadFiles(
     throw new Error(detail.detail ?? "Upload failed");
   }
   return res.json();
+}
+
+export async function sendAssistantMessage(
+  userId: string,
+  body: string,
+  file?: File,
+): Promise<{ reply: string }> {
+  const token = getToken();
+  const form = new FormData();
+  form.append("user_id", userId);
+  form.append("body", body);
+  form.append("channel", "dashboard");
+  if (file) form.append("file", file);
+  const res = await fetch(`${PIPELINE_API_URL}/api/assistant/message`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (res.status === 401) { clearToken(); window.location.href = "/login"; throw new Error("Unauthorized"); }
+  if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as {detail?:string}).detail ?? "Assistant error"); }
+  return res.json();
+}
+
+export async function clearAssistantSession(userId: string): Promise<void> {
+  await apiFetch(`/api/assistant/session/${encodeURIComponent(userId)}?channel=dashboard`, { method: "DELETE" });
 }
