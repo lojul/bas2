@@ -18,9 +18,14 @@ BAS_OPENAI_ENDPOINT = os.environ.get(
 )
 BAS_EMBEDDING_DEPLOYMENT = os.environ.get("BAS_EMBEDDING_DEPLOYMENT", "text-embedding-3-large")
 
-# LLM for the agent itself (OpenRouter, same provider as the rest of the org's stack)
+# LLM for the agent itself (OpenRouter). moonshotai/kimi-k2 chosen over k3/k2.6+
+# (those are reasoning variants — ~50x more expensive, no benefit for
+# straightforward tool-calling Q&A, and silently return empty content if
+# max_tokens is too low for the hidden reasoning pass) and over Azure OpenAI
+# gpt-5-mini (would need a new deployment + managed identity; OpenRouter matches
+# what the old chatbot.py already used and is already proven HK-compatible).
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY")
-AGENT_MODEL = os.environ.get("AGENT_MODEL", "qwen/qwen-2.5-72b-instruct")
+AGENT_MODEL = os.environ.get("AGENT_MODEL", "moonshotai/kimi-k2")
 
 # Optional
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
