@@ -2,6 +2,9 @@
 
 No channel-specific logic lives here — Slack, WhatsApp, a web widget, etc. all
 call this same contract. See api/auth.py for per-channel API keys.
+
+Run locally: python -m uvicorn api.main:app --host 0.0.0.0 --port 8000
+Same startup command used on Azure App Service (see deploy notes).
 """
 
 from datetime import datetime, timezone
