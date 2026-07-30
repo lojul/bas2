@@ -11,9 +11,13 @@ import time
 
 import azure.functions as func
 import httpx
+from azure.core.exceptions import ResourceExistsError
+from azure.data.tables import TableClient
 from azure.storage.queue import QueueClient, TextBase64EncodePolicy
 
 app = func.FunctionApp()
+
+DEDUP_TABLE = "slackeventsseen"
 
 SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "")
 SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "")
@@ -46,19 +50,36 @@ def _verify_slack_signature(req: func.HttpRequest) -> bool:
     return hmac.compare_digest(computed, slack_sig)
 
 
+def _already_seen(event_id: str) -> bool:
+    """Atomic dedup via Table Storage — True if this exact event_id was
+    already recorded (i.e. this is a duplicate delivery), False if this is
+    the first time (and it's now recorded, so nothing else needs to re-check).
+
+    Not the X-Slack-Retry-Num header alone: found in production testing that
+    Slack doesn't reliably set that header on every redelivery — one
+    duplicate got through with no retry header at all. event_id is unique
+    per logical event regardless of how many times or how it's redelivered,
+    and create_entity() is atomic even across concurrent/cold-started
+    instances, unlike an in-memory set.
+    """
+    table_client = TableClient.from_connection_string(
+        os.environ["AzureWebJobsStorage"], DEDUP_TABLE
+    )
+    try:
+        table_client.create_table()
+    except Exception:
+        pass  # already exists — fine
+    try:
+        table_client.create_entity({"PartitionKey": "event", "RowKey": event_id})
+        return False
+    except ResourceExistsError:
+        return True
+
+
 @app.route(route="slack/events", methods=["POST"], auth_level=func.AuthLevel.ANONYMOUS)
 def slack_events(req: func.HttpRequest) -> func.HttpResponse:
     if not _verify_slack_signature(req):
         return func.HttpResponse("Invalid signature", status_code=401)
-
-    # Slack retries an event (up to 3x) if it doesn't get an ack within ~3s —
-    # a slow cold start alone can trigger this. Retried deliveries carry this
-    # header; skip re-enqueueing so a slow first ack doesn't cause duplicate
-    # replies (found in production testing: a 30s+ cold start produced 3
-    # retries, 2 of which succeeded and posted duplicate answers).
-    if req.headers.get("X-Slack-Retry-Num"):
-        logging.info("slack_events: ignoring Slack retry #%s", req.headers.get("X-Slack-Retry-Num"))
-        return func.HttpResponse("", status_code=200)
 
     body = req.get_json()
 
@@ -67,6 +88,13 @@ def slack_events(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"challenge": body["challenge"]}), mimetype="application/json"
         )
+
+    # Slack includes a unique event_id on every delivery of an event_callback,
+    # including retries — the authoritative dedup key (see _already_seen).
+    event_id = body.get("event_id")
+    if event_id and _already_seen(event_id):
+        logging.info("slack_events: ignoring duplicate delivery of event_id=%s", event_id)
+        return func.HttpResponse("", status_code=200)
 
     event = body.get("event", {})
     is_message = event.get("type") in ("message", "app_mention")
