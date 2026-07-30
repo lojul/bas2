@@ -51,6 +51,15 @@ def slack_events(req: func.HttpRequest) -> func.HttpResponse:
     if not _verify_slack_signature(req):
         return func.HttpResponse("Invalid signature", status_code=401)
 
+    # Slack retries an event (up to 3x) if it doesn't get an ack within ~3s —
+    # a slow cold start alone can trigger this. Retried deliveries carry this
+    # header; skip re-enqueueing so a slow first ack doesn't cause duplicate
+    # replies (found in production testing: a 30s+ cold start produced 3
+    # retries, 2 of which succeeded and posted duplicate answers).
+    if req.headers.get("X-Slack-Retry-Num"):
+        logging.info("slack_events: ignoring Slack retry #%s", req.headers.get("X-Slack-Retry-Num"))
+        return func.HttpResponse("", status_code=200)
+
     body = req.get_json()
 
     # Slack's one-time setup check — must echo the challenge back verbatim.
