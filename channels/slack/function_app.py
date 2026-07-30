@@ -11,7 +11,7 @@ import time
 
 import azure.functions as func
 import httpx
-from azure.storage.queue import QueueClient
+from azure.storage.queue import QueueClient, TextBase64EncodePolicy
 
 app = func.FunctionApp()
 
@@ -64,9 +64,21 @@ def slack_events(req: func.HttpRequest) -> func.HttpResponse:
     # bot_id present = this is our own bot's message (avoid replying to ourselves).
     # subtype present = edits/deletes/joins, not a real new message.
     if is_message and not event.get("bot_id") and not event.get("subtype"):
+        # message_encode_policy=TextBase64EncodePolicy() is required — the
+        # Functions host's queue trigger expects Base64-encoded messages
+        # (QueuesOptions.MessageEncoding=Base64). Without it, the SDK sends
+        # plain text, the host silently fails to decode it before even
+        # invoking slack_worker, and the message poison-queues after 5
+        # retries with no exception ever logged (found by testing directly —
+        # same pattern used by document-processor's own job_queue.py).
         queue_client = QueueClient.from_connection_string(
-            os.environ["AzureWebJobsStorage"], QUEUE_NAME
+            os.environ["AzureWebJobsStorage"], QUEUE_NAME,
+            message_encode_policy=TextBase64EncodePolicy(),
         )
+        try:
+            queue_client.create_queue()
+        except Exception:
+            pass  # already exists — fine
         queue_client.send_message(json.dumps(event))
 
     # Ack fast regardless — Slack requires a response within 3 seconds.
