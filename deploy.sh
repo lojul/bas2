@@ -3,10 +3,16 @@
 #
 # Usage:
 #   ./deploy.sh              # deploy App Service (doc-pipeline)
-#   ./deploy.sh --chat       # also deploy the prop-chat App Service
 #   ./deploy.sh --func       # also publish the Function App
 #   ./deploy.sh --func-only  # publish Function App ONLY (fast — skips App Service)
-#   ./deploy.sh --all        # everything
+#   ./deploy.sh --all        # everything (App Service + Function App)
+#
+# NOTE (2026-07-28): the prop-chat App Service (c21net-bas-api-prop-chat-ea-prod) was
+# permanently deleted — it served the deprecated Next.js dashboard, which was also
+# deleted. The old --chat flag is removed; running it against the deleted resource
+# just hangs/fails against a dead hostname with no clear error. If a chat/search
+# service is ever rebuilt, it belongs in its own deploy path, not bolted back onto
+# this flag.
 #
 # Guards against the known pitfalls:
 #   - stale zip reuse (always deletes first, verifies timestamp)
@@ -21,16 +27,14 @@ DEPLOY_DIR="/private/tmp/api_deploy_dir"
 ZIP="/private/tmp/api-deploy.zip"
 RG="c21net-bas-document-processor-ea-prod"
 APP="c21net-bas-api-doc-pipeline-ea-prod"
-CHAT_APP="c21net-bas-api-prop-chat-ea-prod"
 FUNC_APP="c21net-bas-func-doc-pipeline-ea-prod"
 
-DO_CHAT=false; DO_FUNC=false; DO_FUNC_ONLY=false
+DO_FUNC=false; DO_FUNC_ONLY=false
 for arg in "$@"; do
   case "$arg" in
-    --chat)      DO_CHAT=true ;;
     --func)      DO_FUNC=true ;;
     --func-only) DO_FUNC_ONLY=true ;;
-    --all)       DO_CHAT=true; DO_FUNC=true ;;
+    --all)       DO_FUNC=true ;;
   esac
 done
 
@@ -152,7 +156,6 @@ except Exception:
 
 if ! $DO_FUNC_ONLY; then
   deploy_app "$APP"
-  $DO_CHAT && deploy_app "$CHAT_APP"
 fi
 
 if $DO_FUNC || $DO_FUNC_ONLY; then

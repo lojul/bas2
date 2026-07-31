@@ -59,6 +59,7 @@ class OCRResult:
     pages: int = 0
     confidence: float = 0.0
     image_urls: list[str] = field(default_factory=list)  # URLs of extracted images
+    pdfplumber_markdown: str = ""  # Structured tables extracted by pdfplumber (digital PDFs only)
 
 
 @dataclass

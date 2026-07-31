@@ -1,4 +1,4 @@
-"""Document Pipeline API — triage, upload, process, admin, monitoring."""
+"""Document Pipeline API — WhatsApp assistant ingest + admin config."""
 
 import os
 import sys
@@ -17,9 +17,6 @@ from fastapi.responses import RedirectResponse
 from api.auth import LoginRequest, TokenResponse, login_with_rate_limit
 from api.routes.admin import router as admin_router
 from api.routes.assistant import router as assistant_router
-from api.routes.billing import router as billing_router
-from api.routes.monitoring import router as monitoring_router
-from api.routes.pipeline import router as pipeline_router
 
 # ── Startup warmup ────────────────────────────────────────────────────────────
 
@@ -65,9 +62,6 @@ app.add_middleware(
 
 app.include_router(admin_router, prefix="/api")
 app.include_router(assistant_router, prefix="/api")
-app.include_router(billing_router, prefix="/api")
-app.include_router(monitoring_router, prefix="/api")
-app.include_router(pipeline_router, prefix="/api")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 

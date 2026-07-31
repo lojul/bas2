@@ -14,8 +14,25 @@ from src.utils.llm import chat_complete
 
 ODOO_URL = os.environ.get("ODOO_URL", "https://c21net.odoo.com")
 ODOO_DB = os.environ.get("ODOO_DB", "c21net")
-ODOO_UID = int(os.environ.get("ODOO_UID", "19"))
+ODOO_USERNAME = os.environ.get("ODOO_USERNAME", "admin@c21net.com")
 ODOO_API_KEY = os.environ.get("ODOO_API_KEY", "")
+
+_odoo_uid_cache: int | None = None
+
+def _get_uid() -> int:
+    """Authenticate and return UID dynamically, cached per process."""
+    global _odoo_uid_cache
+    if _odoo_uid_cache is not None:
+        return _odoo_uid_cache
+    common = xmlrpc.client.ServerProxy(
+        f"{ODOO_URL}/xmlrpc/2/common",
+        transport=_TimeoutTransport(10),
+    )
+    uid = common.authenticate(ODOO_DB, ODOO_USERNAME, ODOO_API_KEY, {})
+    if not uid:
+        raise RuntimeError(f"Odoo authentication failed for {ODOO_USERNAME}")
+    _odoo_uid_cache = uid
+    return uid
 
 KNOWLEDGE_PARENT_ID = 39   # Marketing News
 DOCUMENTS_FOLDER_ID = 50   # Marketing News folder in Documents app
@@ -88,7 +105,8 @@ def _models(timeout: int = 10):
 
 
 def _exec(model: str, method: str, args: list, kwargs: dict | None = None, timeout: int = 10):
-    return _models(timeout).execute_kw(ODOO_DB, ODOO_UID, ODOO_API_KEY, model, method, args, kwargs or {})
+    uid = _get_uid()
+    return _models(timeout).execute_kw(ODOO_DB, uid, ODOO_API_KEY, model, method, args, kwargs or {})
 
 
 @traceable(name="check_knowledge_duplicate", run_type="retriever")
@@ -249,6 +267,24 @@ def create_knowledge_article(
         generated = {}
     title = generated.get("title") or f"{today} | Article"
     body = generated.get("body") or f"<p>{text[:4000]}</p>"
+
+    # The LLM writes "原文來源：<url>" as plain text — wrap any bare URL in that line
+    # with a real <a href> so it's actually clickable (previously only file-upload
+    # articles got a clickable link, via the docs_link injection below).
+    import re as _re_link
+
+    def _linkify_source_line(m: "_re_link.Match") -> str:
+        prefix, content, suffix = m.group(1), m.group(2), m.group(3)
+        content = _re_link.sub(
+            r'https?://[^\s<>"\')]+',
+            lambda u: f'<a href="{u.group(0)}" target="_blank" rel="noopener">{u.group(0)}</a>',
+            content,
+        )
+        return prefix + content + suffix
+
+    body = _re_link.sub(
+        r"(<p>原文來源：)(.*?)(</p>)", _linkify_source_line, body, count=1, flags=_re_link.S
+    )
 
     # Duplicate check — image hash first, then title
     existing = None if skip_duplicate_check else check_duplicate(title, image_hash=image_hash)

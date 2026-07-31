@@ -1,11 +1,24 @@
 # Document Processor - Development Rules
 
 ## Project Overview
-LangGraph + LangSmith document processor. Users drop PDFs in OneDrive `/In`, processed results appear in `/Processed`.
+LangGraph + LangSmith document processor.
 
-- **Dashboard (production):** Next.js app on Azure Static Web Apps (see Next.js Dashboard section)
+> **ARCHITECTURE NOTE (2026-07-28, verified against live code):** The pipeline is now a
+> **v2 Odoo-ingest service** — see `src/graph.py` docstring, the source of truth. Single
+> entry point `process_file_from_bytes()`. Documents arrive from WhatsApp/Slack (via n8n)
+> only. **No OneDrive timer, no Azure AI Search writes from this repo.** The RAG chatbot
+> (`src/nodes/chatbot.py`), `/api/chat`, `/api/search`, and the `prop-chat` App Service
+> are **removed/stopped** — sections below describing them (Graph 2, chat routes, Next.js
+> Chat/Search pages) are historical and do not reflect what's deployed. Only two routers
+> are live: `api/routes/admin.py` and `api/routes/assistant.py`
+> (`api/doc_pipeline_main.py`). The document-processor's own Azure AI Search index
+> (`property-intel-index`, confirmed live on `c21net-bas-srch-ea-prod`,
+> `text-embedding-3-large`, 3072 dims) is being deprecated in favor of the separate BAS
+> project's `properties-index` on the same search service — see memory
+> `project-odoo-to-bas-sync.md` for the migration plan.
+
+- **Document pipeline:** WhatsApp/Slack → n8n → `POST /api/assistant/message` → LangGraph → Odoo
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
-- **Document pipeline:** Azure Function App timer trigger (see Azure Functions section)
 
 ## Product Design Philosophy
 
@@ -157,28 +170,30 @@ __end__
 
 ## Key Services
 
-### Azure AI Search
-- Endpoint: `aisearch-eastasia-basic.search.windows.net`
-- Default Write Index: `processed-documents`
-- Read Indexes: `processed-documents,c21net-intelligence-v2` (set via `AZURE_SEARCH_INDEXES`)
-- Features: Vector search (text-embedding-3-small, 1536 dims), BM25, hybrid, semantic ranking
-
-#### Multi-Index Search
-The chatbot searches ALL indexes in `AZURE_SEARCH_INDEXES`. Writing always goes to `AZURE_SEARCH_INDEX`.
-
-#### Index Schema Differences
-| Field | processed-documents | c21net-intelligence-v2 |
-|-------|---------------------|------------------------|
-| Name | `file_name` | `title` |
-| Time | `processed_at` | `last_updated` |
-| Data | `extracted_data` | *(built from fields)* |
-| Images | `image_urls` | *(not available)* |
-| Semantic Config | `default-semantic-config` | `unified-semantic-config` |
-| Doc Types | `listing`, `listing_list` | `Vacancy Listing`, `Particular Property` |
+### Azure AI Search (verified live 2026-07-28)
+- Endpoint: `c21net-bas-srch-ea-prod.search.windows.net` (NOT `aisearch-eastasia-basic` —
+  that name is stale/wrong)
+- Index: `property-intel-index` (`AZURE_SEARCH_INDEX` / `AZURE_SEARCH_INDEXES` in `.env`)
+  — NOT `processed-documents`, which no longer exists as the live write target
+- `content_vector`: **3072 dims**, HNSW/cosine, profile `default-profile`
+- **This repo's pipeline does NOT write to this index at all** (see architecture note
+  at top of file) — `graph.py` v2 routes everything to Odoo only. Confirmed remaining
+  *readers*: `extractor.py fetch_examples()` (keyword search, few-shot examples,
+  fails open) and `assistant.py check_listing_duplicate()` (single-doc dedup GET).
+  `extractors/conversational.py _find_similar_documents()` imports from the now-deleted
+  `src/nodes/indexer.py` — this is dead/broken code (silently fails open, never crashes,
+  but should be cleaned up).
+- **Deprecation in progress:** this index is being retired in favor of the separate BAS
+  project's `properties-index` (same search service, different schema — see memory
+  `project-odoo-to-bas-sync.md` for the gap analysis and migration plan).
+- `c21net-intelligence-v2` / multi-index chatbot search: **removed**, no longer applies.
 
 ### Azure OpenAI
 - Endpoint: `swedencentral.api.cognitive.microsoft.com`
-- Embedding model: `text-embedding-3-small` (1536 dimensions)
+- Embedding model: `text-embedding-3-large` (**3072 dimensions** — corrected 2026-07-28;
+  was documented as `text-embedding-3-small`/1536 dims, which is stale. Confirmed via
+  live App Service env var `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` and the index's actual
+  `content_vector` field schema.)
 
 ### AI Classification/Extraction
 - Provider: OpenRouter — `qwen/qwen-2.5-72b-instruct`
@@ -203,9 +218,14 @@ The chatbot searches ALL indexes in `AZURE_SEARCH_INDEXES`. Writing always goes 
 
 ---
 
-## Graph 2: RAG Chatbot
+## Graph 2: RAG Chatbot — REMOVED (verified 2026-07-28, historical section)
 
-**File:** `src/nodes/chatbot.py` | **LangSmith Project:** `property-chatbot`
+> `src/nodes/chatbot.py` no longer exists in this repo. `prop-chat` App Service was
+> stopped 2026-07-27 (see memory `project-trim-status.md`), pending deletion. `/api/chat`
+> and `/api/search` routes are not registered in `api/doc_pipeline_main.py`. Section kept
+> for historical reference only — do not treat anything below as currently deployed.
+
+**File:** `src/nodes/chatbot.py` (deleted) | **LangSmith Project:** `property-chatbot`
 
 ### Architecture
 ```
@@ -314,8 +334,8 @@ The monolithic API is split into two named App Services:
 
 | Service | Entrypoint | URL | Routes |
 |---------|-----------|-----|--------|
-| `c21net-bas-api-doc-pipeline-ea-prod` | `api/doc_pipeline_main.py` | `https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net` | pipeline, admin, billing, monitoring |
-| `c21net-bas-api-prop-chat-ea-prod` | `api/prop_chat_main.py` | `https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net` | chat, search |
+| `c21net-bas-api-doc-pipeline-ea-prod` | `api/doc_pipeline_main.py` | `https://c21net-bas-api-doc-pipeline-ea-prod.azurewebsites.net` | `admin`, `assistant` (only two routers registered — verified 2026-07-28) |
+| `c21net-bas-api-prop-chat-ea-prod` | `api/prop_chat_main.py` (file no longer exists) | `https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net` | **STOPPED 2026-07-27**, pending deletion — see memory `project-trim-status.md` |
 
 - **Resource group:** `c21net-bas-document-processor-ea-prod` | **Subscription:** `c21net-business-automation-stack`
 - Old monolith `c21net-bas-api-prop-intel-core-ea-prod` was deleted (verified gone 2026-07-05)
@@ -424,19 +444,22 @@ curl https://c21net-bas-api-prop-chat-ea-prod.azurewebsites.net/api/health
 - **SOURCE FILES PITFALL:** Oryx extracts the zip to `/tmp/zipdeploy/extracted/` (temp), NOT to wwwroot. Oryx only puts the built virtualenv into `output.tar.zst` in wwwroot. Source files in wwwroot are NEVER updated by the deploy — only the virtualenv is. After every deploy, you MUST manually copy `/tmp/zipdeploy/extracted/src/` and `/tmp/zipdeploy/extracted/api/` to wwwroot via the Kudu command API (step 8 above), then restart both services (step 9).
 - **`SCM_DO_BUILD_DURING_DEPLOYMENT=true` REQUIRED** — If set to false, Kudu extracts the zip but Oryx does NOT install packages. The app crashes with "No module named uvicorn". This must be `true` on both services or every deploy wipes the virtualenv.
 
-### API Routes
+### API Routes (verified live 2026-07-28 — grepped `@router.`/`@app.` decorators directly)
 | Method | Path | Auth | Purpose |
 |--------|------|------|---------|
 | POST | `/api/auth/login` | None | Get JWT token |
 | GET | `/api/health` | None | Health check |
-| POST | `/api/chat/stream` | Bearer | SSE streaming chat |
-| POST | `/api/chat/report` | Bearer | Generate PDF report |
-| POST | `/api/search` | Bearer | Keyword/hybrid search |
-| POST | `/api/admin/triage` | Bearer | Quick OCR + classify file before pipeline (single file) |
-| POST | `/api/admin/upload` | Bearer | Upload file(s) to OneDrive /In (PDF/DOCX/PPTX/JPG/PNG) |
-| GET | `/api/admin/runs` | Bearer | LangSmith runs (last N hours) |
-| GET | `/api/admin/history` | Bearer | Permanent history from Azure Table Storage |
-| GET | `/api/admin/documents` | Bearer | List indexed documents from Azure Search |
+| GET | `/api/config` | Bearer | Read runtime config |
+| PUT | `/api/config` | Bearer | Update runtime config |
+| POST | `/api/assistant/message` | `X-Api-Key` | WhatsApp/Slack assistant entry point (n8n calls this) |
+| DELETE | `/api/assistant/session/{user_id}` | `X-Api-Key` | Clear a conversation session |
+
+**Everything below is REMOVED — not registered in `doc_pipeline_main.py`, kept here only
+so nobody goes looking for dead code:** `/api/chat/stream`, `/api/chat/report`,
+`/api/search`, `/api/admin/triage`, `/api/admin/upload`, `/api/admin/runs`,
+`/api/admin/history`, `/api/admin/documents`. The Next.js dashboard's Ingest/Process/
+Vector DB/Chat/Search pages are therefore calling endpoints that no longer exist on this
+service — if those pages are still expected to work, that's a separate gap to scope.
 
 ### Authentication & Security (`api/auth.py`)
 

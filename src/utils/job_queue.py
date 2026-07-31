@@ -68,7 +68,7 @@ def format_completion(final) -> str:
         lines.append(f"⚠️ Odoo 中已有相同文章（未重複建立）：\n{ODOO_URL}/knowledge/article/{final.odoo_record_id}")
     elif final.odoo_sync_status == "error":
         detail = f"：{final.odoo_error_detail[:150]}" if getattr(final, "odoo_error_detail", "") else ""
-        lines.append(f"⚠️ Odoo 同步失敗（文件已索引，可稍後重試）{detail}")
+        lines.append(f"⚠️ Odoo 同步失敗（可稍後重試）{detail}")
 
     if final.index_id:
         if doc_type == "contact":
@@ -249,3 +249,6 @@ def run_pipeline_job(payload: dict) -> None:
     if notify_user and notify_channel == "whatsapp":
         from src.utils.whatsapp_notify import send_whatsapp
         send_whatsapp(notify_user, message)
+    elif notify_user and notify_channel == "slack":
+        from src.utils.slack_notify import send_slack
+        send_slack(notify_user, message)

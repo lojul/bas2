@@ -38,6 +38,95 @@ def _extract_tables(result: AnalyzeResult) -> list[dict[str, Any]]:
     return tables
 
 
+_PLUMBER_KEY_HEADERS = {
+    "街名", "物業簡稱", "建築面積", "每月租金", "地域", "地區",
+    # common variants with line breaks collapsed
+    "建築面積(尺)", "建築面積 (尺)", "每月租金(港元)",
+}
+
+
+def _extract_tables_pdfplumber(pdf_bytes: bytes) -> str:
+    """Extract tables from a digital PDF using pdfplumber.
+
+    Only keeps columns relevant for property extraction (building name, floor/unit,
+    size, rent, district) — strips noise columns (管理費, 差餉, 間格, 備註, etc.)
+    so the LLM receives a focused 5-6 column table rather than a 20+ column one.
+
+    Applies fill-down for None/empty cells and normalises all whitespace to single
+    spaces so every row stays on one line in the markdown output.
+
+    Returns "" if pdfplumber finds no tables or the PDF has no text layer (scanned).
+    """
+    try:
+        import io
+        import pdfplumber
+
+        parts: list[str] = []
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            table_num = 0
+            for page in pdf.pages:
+                for table in page.extract_tables():
+                    if not table or len(table) < 2:
+                        continue
+                    table_num += 1
+                    col_count = max(len(row) for row in table)
+
+                    # Normalise all cells: collapse whitespace, pad to col_count
+                    def _norm(val: object) -> str:
+                        return " ".join((val or "").split())
+
+                    raw_rows = [
+                        [_norm(c) for c in (list(row) + [""] * (col_count - len(row)))]
+                        for row in table
+                    ]
+
+                    # Identify which columns to keep from the header row
+                    header = raw_rows[0]
+                    keep: list[int] = []
+                    for idx, h in enumerate(header):
+                        h_clean = h.replace(" ", "").replace("(", "").replace(")", "")
+                        if any(
+                            kw.replace(" ", "").replace("(", "").replace(")", "") in h_clean
+                            or h_clean in kw.replace(" ", "").replace("(", "").replace(")", "")
+                            for kw in _PLUMBER_KEY_HEADERS
+                        ):
+                            keep.append(idx)
+                    # Always keep first col (listing ref) for context
+                    if 0 not in keep:
+                        keep = [0] + keep
+                    if not keep:
+                        keep = list(range(col_count))
+
+                    # Apply fill-down on kept columns only
+                    last_vals: list[str] = [""] * col_count
+                    filled_rows: list[list[str]] = []
+                    for row_idx, row in enumerate(raw_rows):
+                        filled: list[str] = []
+                        for col_idx in keep:
+                            val = row[col_idx] if col_idx < len(row) else ""
+                            if val:
+                                last_vals[col_idx] = val
+                                filled.append(val)
+                            elif row_idx > 0:
+                                filled.append(last_vals[col_idx])
+                            else:
+                                filled.append("")
+                        filled_rows.append(filled)
+
+                    n = len(keep)
+                    lines = [
+                        "| " + " | ".join(filled_rows[0]) + " |",
+                        "| " + " | ".join(["---"] * n) + " |",
+                    ]
+                    for row in filled_rows[1:]:
+                        lines.append("| " + " | ".join(row) + " |")
+                    parts.append(f"TABLE {table_num}:\n" + "\n".join(lines))
+
+        return "\n\n".join(parts)
+    except Exception:
+        return ""
+
+
 _PDF_IMAGE_EXTS = {"pdf", "jpg", "jpeg", "png"}
 
 
@@ -183,13 +272,15 @@ def ocr_from_bytes(content: bytes, file_name: str = "") -> OCRResult:
     record_di_usage(page_count)
     full_text = result.content if result.content else ""
 
-    # Extract images from PDF
+    # Extract images and pdfplumber tables from PDF
     image_urls = []
+    pdfplumber_markdown = ""
     if ext == "pdf":
         images = _extract_images_from_pdf(content, max_images=10)
         if images:
             doc_id = hashlib.md5(file_name.encode()).hexdigest()
             image_urls = upload_images_batch(images, doc_id)
+        pdfplumber_markdown = _extract_tables_pdfplumber(content)
 
     return OCRResult(
         text=full_text,
@@ -198,6 +289,7 @@ def ocr_from_bytes(content: bytes, file_name: str = "") -> OCRResult:
         pages=page_count,
         confidence=0.97,
         image_urls=image_urls,
+        pdfplumber_markdown=pdfplumber_markdown,
     )
 
 
@@ -238,13 +330,15 @@ def ocr_from_url(blob_url: str, file_name: str = "") -> OCRResult:
     )
     result = poller.result()
 
-    # Extract images from PDF
+    # Extract images and pdfplumber tables from PDF
     image_urls = []
+    pdfplumber_markdown = ""
     if pdf_data:
         images = _extract_images_from_pdf(pdf_data, max_images=10)
         if images:
             doc_id = hashlib.md5(file_name.encode()).hexdigest()
             image_urls = upload_images_batch(images, doc_id)
+        pdfplumber_markdown = _extract_tables_pdfplumber(pdf_data)
 
     page_count = len(result.pages) if result.pages else 0
     record_di_usage(page_count)
@@ -256,4 +350,5 @@ def ocr_from_url(blob_url: str, file_name: str = "") -> OCRResult:
         pages=page_count,
         confidence=0.97,
         image_urls=image_urls,
+        pdfplumber_markdown=pdfplumber_markdown,
     )

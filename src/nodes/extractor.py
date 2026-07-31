@@ -1,9 +1,12 @@
 """Document data extractor using OpenRouter AI."""
 
+import logging
 import os
 import httpx
 from langsmith import traceable
 from langsmith.run_helpers import get_current_run_tree
+
+logger = logging.getLogger(__name__)
 
 from src.state import DocumentState, DocumentType, ProcessingStatus, ExtractedData
 from src.utils.json_parser import parse_json_response
@@ -80,6 +83,8 @@ UNIT EXTRACTION RULES (critical):
 - COUNT the properties in the document; the units array must have the same number of entries
 - property_type per unit: 地舖 (G/F street shop), 商舖 (mall/arcade shop), 寫字樓 (office),
   工廈 (industrial), 住宅 (residential) — infer from context like G/F, 商場, 舖
+- NEVER skip a unit because it has no building name — if a row has only a street address
+  (街名/地址) but no named building, set building_name to the street address (e.g. "九龍尖沙咀山林道46-48號")
 
 CONTACT EXTRACTION (do not skip):
 - Agent names and phones usually appear in page FOOTERS, e.g. "可致電 2753 9862 何小姐 或 9844 6661 譚小姐洽"
@@ -255,6 +260,62 @@ JSON:""",
 }
 
 
+def _tables_to_markdown(tables: list[dict]) -> str:
+    """Convert DI structured table objects to proper markdown table format.
+
+    Applies fill-down to empty cells: DI only writes a cell once for merged/spanning
+    cells (e.g. a building name that spans 4 floor rows). Filling down propagates the
+    value to every row so the LLM sees the correct building name on every data row.
+    """
+    parts = []
+    for i, table in enumerate(tables, 1):
+        # Build sparse row→col→text map
+        rows: dict[int, dict[int, str]] = {}
+        for cell in table.get("cells", []):
+            row_idx = cell.get("row", 0)
+            col_idx = cell.get("col", 0)
+            text = cell.get("text", "")
+            if row_idx not in rows:
+                rows[row_idx] = {}
+            if text:  # only store non-empty values
+                rows[row_idx][col_idx] = text
+
+        if not rows:
+            continue
+
+        col_count = max(max(r.keys(), default=0) for r in rows.values()) + 1
+        sorted_indices = sorted(rows.keys())
+
+        # Fill down: for each column, carry the last non-empty value forward
+        last_vals: list[str] = [""] * col_count
+        filled_rows: list[list[str]] = []
+        for row_idx in sorted_indices:
+            row_data = rows[row_idx]
+            filled: list[str] = []
+            for col_idx in range(col_count):
+                if col_idx in row_data:
+                    last_vals[col_idx] = row_data[col_idx]
+                    filled.append(row_data[col_idx])
+                elif row_idx > 0:
+                    # Data row with missing cell — fill from previous row
+                    filled.append(last_vals[col_idx])
+                else:
+                    filled.append("")
+            filled_rows.append(filled)
+
+        if len(filled_rows) < 2:
+            continue
+
+        lines = ["| " + " | ".join(filled_rows[0]) + " |",
+                 "| " + " | ".join(["---"] * col_count) + " |"]
+        for row in filled_rows[1:]:
+            lines.append("| " + " | ".join(row) + " |")
+
+        parts.append(f"TABLE {i}:\n" + "\n".join(lines))
+
+    return "\n\n".join(parts)
+
+
 @traceable(name="extract_data", run_type="chain")
 def extract_data(state: DocumentState) -> DocumentState:
     """Extract structured data based on document type.
@@ -272,26 +333,19 @@ def extract_data(state: DocumentState) -> DocumentState:
     tables = state.ocr.tables if state.ocr else []
     doc_type = state.document_type
 
-    # Format tables as text for LLM (Document Intelligence extracts these)
-    tables_text = ""
-    if tables:
-        for i, table in enumerate(tables, 1):
-            tables_text += f"\n\n=== TABLE {i} ===\n"
-            # Group cells by row
-            rows = {}
-            for cell in table.get("cells", []):
-                row_idx = cell.get("row", 0)
-                if row_idx not in rows:
-                    rows[row_idx] = []
-                rows[row_idx].append((cell.get("col", 0), cell.get("text", "")))
-            # Format rows
-            for row_idx in sorted(rows.keys()):
-                row_cells = sorted(rows[row_idx], key=lambda x: x[0])
-                row_text = " | ".join(cell[1] for cell in row_cells)
-                tables_text += row_text + "\n"
-
-    # Combine text and tables
-    full_text = text + tables_text
+    # For listing_list: use pdfplumber tables if available (digital PDF with text layer).
+    # pdfplumber gives the cleanest structured input — proper rows, fill-down handled,
+    # no duplicate content. Fall back to DI structured tables if pdfplumber found nothing
+    # (scanned PDF). Footer context (last 600 chars) appended for contact info in footers.
+    pdfplumber_md = state.ocr.pdfplumber_markdown if state.ocr else ""
+    if doc_type == DocumentType.LISTING_LIST and pdfplumber_md:
+        footer_context = text[-600:] if len(text) > 600 else text
+        full_text = pdfplumber_md + "\n\n" + footer_context
+    elif doc_type == DocumentType.LISTING_LIST and tables:
+        footer_context = text[-600:] if len(text) > 600 else text
+        full_text = _tables_to_markdown(tables) + "\n\n" + footer_context
+    else:
+        full_text = text
 
     if not full_text or doc_type == DocumentType.UNKNOWN:
         state.extracted = ExtractedData(
@@ -310,33 +364,20 @@ def extract_data(state: DocumentState) -> DocumentState:
 
     try:
         # For pitching decks, sample from multiple parts of the document
-        # Key data is often in middle (project summary) and end (leasing details)
         if doc_type == DocumentType.PITCHING_DECK and len(full_text) > 20000:
-            # Sample: first 8K + middle 8K + last 8K = 24K total
             text_start = full_text[:8000]
             middle_start = len(full_text) // 3
             text_middle = full_text[middle_start:middle_start + 8000]
             text_end = full_text[-8000:]
             text_sample = text_start + "\n\n... [MIDDLE SECTION] ...\n\n" + text_middle + "\n\n... [END SECTION] ...\n\n" + text_end
+            result = _run_extraction(prompt_template, text_sample, doc_type)
+
         else:
-            # For other types, use first 16000 chars
+            # For listing_list: use higher token limit (8000) to avoid Qwen truncating
+            # mid-table. A 2-page vacancy list with 20 rows fits in a single pass.
             text_sample = full_text[:16000]
-
-        prompt = prompt_template.format(text=text_sample)
-
-        # Extraction memory (Phase 1): show the LLM how similar past documents
-        # were extracted — teaser ads, flyers etc. share formats, so one good
-        # past extraction teaches the pattern without any code change.
-        examples = fetch_examples(text_sample, doc_type)
-        if examples:
-            prompt = examples + "\n\n" + prompt
-
-        try:
-            result = call_llm(prompt)
-        except ValueError as parse_err:
-            # JSON parse failed — retry once with a stricter JSON-only instruction
-            retry_prompt = prompt + "\n\nCRITICAL: Your previous response could not be parsed as JSON. Return ONLY raw JSON — no markdown fences, no ```json, no explanation, no trailing text."
-            result = call_llm(retry_prompt)
+            result = _run_extraction(prompt_template, text_sample, doc_type,
+                                     max_tokens=8000 if doc_type == DocumentType.LISTING_LIST else 4000)
 
         state.extracted = ExtractedData(
             raw=result,
@@ -361,6 +402,19 @@ def extract_data(state: DocumentState) -> DocumentState:
         state.set_error(f"Extraction error: {str(e)}")
 
     return state
+
+
+def _run_extraction(prompt_template: str, text_sample: str, doc_type: DocumentType, max_tokens: int = 4000) -> dict:
+    """Run a single LLM extraction pass and return the parsed dict."""
+    prompt = prompt_template.format(text=text_sample)
+    examples = fetch_examples(text_sample, doc_type)
+    if examples:
+        prompt = examples + "\n\n" + prompt
+    try:
+        return call_llm(prompt, max_tokens=max_tokens)
+    except ValueError:
+        retry_prompt = prompt + "\n\nCRITICAL: Your previous response could not be parsed as JSON. Return ONLY raw JSON — no markdown fences, no ```json, no explanation, no trailing text."
+        return call_llm(retry_prompt, max_tokens=max_tokens)
 
 
 def fetch_examples(text_sample: str, doc_type: DocumentType, top: int = 2) -> str:
@@ -413,12 +467,9 @@ def fetch_examples(text_sample: str, doc_type: DocumentType, top: int = 2) -> st
     )
 
 
-def call_llm(prompt: str) -> dict:
-    """Always use OpenRouter (Qwen) for extraction.
-    Azure OpenAI gpt-5-mini is a reasoning model — too slow and has API restrictions.
-    Azure OpenAI is reserved for embeddings only.
-    """
-    return call_openrouter(prompt)
+def call_llm(prompt: str, max_tokens: int = 4000) -> dict:
+    """Always use OpenRouter (Qwen) for extraction."""
+    return call_openrouter(prompt, max_tokens=max_tokens)
 
 
 @traceable(name="extractor_azure_openai", run_type="llm")
@@ -434,17 +485,10 @@ def call_azure_openai(prompt: str) -> dict:
 
 
 @traceable(name="extractor_openrouter", run_type="llm")
-def call_openrouter(prompt: str) -> dict:
-    """Call OpenRouter API for extraction.
-
-    Args:
-        prompt: Full prompt with text
-
-    Returns:
-        Extracted data dict
-    """
+def call_openrouter(prompt: str, max_tokens: int = 4000) -> dict:
+    """Call OpenRouter API for extraction."""
     from src.utils.llm import openrouter_chat
-    data = openrouter_chat(prompt, max_tokens=4000, temperature=0.0)
+    data = openrouter_chat(prompt, max_tokens=max_tokens, temperature=0.0)
 
     # Report token usage to LangSmith
     usage = data.get("usage", {})

@@ -7,14 +7,12 @@ Logic:
   1. Skip non-contact doc types
   2. Dedup: search by email → mobile → name + company
   3. Create or update res.partner
-  4. Patch Azure AI Search doc with odoo_record_id + odoo_sync_status
 """
 
 import logging
 import os
 import xmlrpc.client
 
-import httpx
 from langsmith import traceable
 
 from src.state import DocumentState, DocumentType
@@ -67,7 +65,6 @@ def contact_sync(state: DocumentState) -> DocumentState:
 
         state.odoo_record_id = str(partner_id)
         state.odoo_sync_status = "synced"
-        _patch_search_doc(state.index_id, str(partner_id), "synced")
 
     except Exception as e:
         logger.error("contact_sync error for '%s': %s", state.file_name, e)
@@ -82,7 +79,6 @@ def contact_sync(state: DocumentState) -> DocumentState:
             state.odoo_error_detail = last_line
         else:
             state.odoo_error_detail = str(e)
-        _patch_search_doc(state.index_id, "", "error")
 
     return state
 
@@ -179,24 +175,3 @@ def _find_existing(models, uid: int, api_key: str, raw: dict) -> int | None:
     return None
 
 
-def _patch_search_doc(doc_id: str, odoo_record_id: str, sync_status: str) -> None:
-    """Merge-update the Azure Search document with Odoo sync result fields."""
-    if not doc_id:
-        return
-    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
-    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
-    if not endpoint or not api_key:
-        return
-    url = f"{endpoint}/indexes/{index_name}/docs/index?api-version=2024-07-01"
-    body = {"value": [{
-        "@search.action": "merge",
-        "id": doc_id,
-        "odoo_record_id": odoo_record_id,
-        "odoo_sync_status": sync_status,
-    }]}
-    try:
-        with httpx.Client(timeout=15) as client:
-            client.post(url, headers={"api-key": api_key, "Content-Type": "application/json"}, json=body)
-    except Exception as e:
-        logger.warning("contact_sync: failed to patch Azure Search doc %s: %s", doc_id, e)

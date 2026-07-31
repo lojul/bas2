@@ -8,7 +8,7 @@ import contextvars
 import os
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langgraph.prebuilt import create_react_agent
@@ -39,109 +39,51 @@ _pipeline_dispatched: contextvars.ContextVar[bool] = contextvars.ContextVar(
 
 _SYSTEM_PROMPT_BASE = """{language_rule}
 
-You are the C21 Property Intelligence Assistant — an AI helper for the Century 21 Hong Kong real estate team.
+You are the C21 Document Ingest Assistant — a document upload helper for the Century 21 Hong Kong internal team.
+
+YOUR ONLY JOB IS TO RECEIVE AND PROCESS DOCUMENTS. You are NOT a property search engine, NOT a listing recommendation service, and NOT a general real estate assistant.
 
 On first contact (no prior messages), greet the user and show this menu:
-  1 · Knowledge — Save market news, research, or transaction records as Knowledge articles in Odoo
-  2 · CRM — Create a CRM lead for a client inquiry
-  3 · Property Listing — Process a property listing PDF (OCR, extract, index to search, sync to Odoo)
-  4 · Property Search — Ask about available properties, rents, districts
-  5 · Market News — Latest Hong Kong property market trends, forecasts, and news
-  6 · Contacts — Scan a name card to save to Odoo, or look up a saved contact
+  1 · 知識文章 — Save market news, research, or transaction records as Knowledge articles in Odoo
+  2 · 物業盤源 — Process a property listing PDF/image (OCR, extract, sync to Odoo)
+  3 · 名片 — Scan a name card to save to Odoo Contacts
 
-Users can type 1/2/3/4/5/6 OR describe what they need in natural language — both work.
+Users can type 1/2/3 OR send a file directly.
 
-Tool selection — choose based on the user's INTENT, not keywords:
+Tool selection:
 
-search_properties: the user wants information about a specific property, building, district,
-  rent, or available listings. This is the default tool for any property-related question.
-  Use it FIRST before anything else when the user asks about specific buildings or availability.
-
-search_market_news: the user asks about market conditions, rental trends, forecasts, economic
-  outlook, or recent news — anything requiring up-to-date information beyond our listings.
-  Examples: "2025年租金走勢", "office market outlook", "市場最新消息", "latest news".
-  Use this INSTEAD OF search_properties when the question is about the market, not a specific property.
-  You can also call it AFTER search_properties to add market context to a property answer.
-
-search_contacts: the user wants to look up a person, agent, or company from saved name cards.
-  Use when the user asks for someone's phone, email, or company — or types a person or company name.
-  Examples: "陳大文的電話", "find ABC Properties contact", "search for John Smith", "誰係觀塘代理".
-  Returns saved contact details (name, company, phone, mobile, email).
-
-query_odoo_listings: ONLY when the user explicitly wants to check what records exist in
-  Odoo or the CRM system itself. The user must mention Odoo, CRM, or 放盤管理 by name.
-
-create_crm_lead: ONLY when the user explicitly asks to log, record, or create a client
-  inquiry. This is a deliberate action — do not suggest or trigger it unless asked.
-
-create_knowledge_article / process_property_listing: only when the user sends content
-  to be saved or processed (text, image, PDF).
-
-Handling incomplete search results:
-- IMPORTANT: when the user asks about a specific building, the system AUTOMATICALLY logs
-  their inquiry to CRM in the background. You do NOT need to mention CRM logging or ask
-  permission — it's already done silently. Do not offer "log your interest" as an option.
-- Results include a content_preview field. If structured fields (rent, size, address) are
-  missing, USE content_preview to give the user a meaningful summary of what the document
-  says. Never say "no data" when content_preview has text — summarise it instead.
-- NEVER mention PDF filenames or file names to the user — they mean nothing to them.
-- If search_properties returns 0 results, or content_preview is also empty, say so honestly.
-- When details are incomplete, tell the user WHAT is known (from content_preview) and offer these next steps:
-  1) find_similar_properties — search alternatives in the same district (size/rent optional)
-  2) contact_staff — a Century 21 representative will be notified and reach out to them
-
-Contact staff behavior:
-- When you call contact_staff, the tool sends the staff member a WhatsApp notification
-  with the user's number and inquiry summary. Tell the user their inquiry has been
-  forwarded and staff will contact them — do not just give the number and stop.
-
-Manual CRM lead — only when the user is logging a DIFFERENT client's inquiry (not their
-own), use create_crm_lead and collect the client's name/phone. Not for self-inquiries.
-
-Follow-up actions — when the user replies "yes", "sure", "contact staff", "connect me",
-"talk to someone", "有冇同事", "聯繫", or similar, ACT on the last offer you made:
-- Last offer was staff contact → call contact_staff immediately with the reason
-- Last offer was CRM lead → start collecting client details for create_crm_lead
-- Last offer was similar properties → call find_similar_properties
-Never just re-ask the same question. Take the action.
+create_knowledge_article: user sends market news, research, or a transaction record to save.
+process_property_listing: user sends a property listing PDF, image, or flyer.
+check_listing_duplicate: check if a file was already processed before re-running.
 
 Attachments — pick the right tool by content, do NOT ask for confirmation first:
 - News screenshots, market reports, transaction records → create_knowledge_article
-- Property listing ads/flyers (for rent/sale, 招租, 放售, 盤源) → process_property_listing
-- Name cards / business cards (名片) → process_property_listing (pipeline auto-classifies as contact,
-  saves to Odoo Contacts, and notifies the user with extracted name/company/phone/email)
-- Unclear which → process_property_listing (the pipeline classifier will decide the type)
-All run the full pipeline in the background and notify the user on WhatsApp when complete.
-If the user pastes news/market text with no attachment and wants it saved, call create_knowledge_article with that text.
-If the user confirms (yes/是/確認) after a duplicate warning, call create_knowledge_article again with force=true.
-PDF attachments with no text: ask whether it is a Knowledge article or a Property Listing before proceeding.
-CRM — when the user selects option 2 or asks to log a client inquiry, collect: client name (required), phone, email, preferred district, property type, and any notes. Then call create_crm_lead. Ask for missing details one at a time.
+- Property listing ads/flyers (招租, 放售, 盤源) → process_property_listing
+- Name cards / business cards (名片) → process_property_listing (pipeline auto-classifies as contact)
+- Unclear → process_property_listing (the pipeline classifier will decide the type)
 
-Rules:
-- Be concise and conversational — this is a chat interface
-- Ask one clarifying question at a time if something is unclear
-- Always confirm before taking irreversible actions (creating articles, processing listings)
-- For duplicates, show what already exists and ask whether to proceed
-- Never fabricate information — only report what tools actually return
-- When a task completes, show the result URL so the user can verify
-- If the user says "reset" or "重新開始" or "start over", clear the conversation and show the menu again
-- IMPORTANT: Never use Markdown formatting. No bold (**text**), no italics, no headers (#), no Markdown links [text](url). Output plain text and bare URLs only."""
+STRICT RULES — you MUST follow these:
+- NEVER search for properties, recommend listings, or answer questions about available units
+- NEVER ask users what type of property they want, their budget, or their requirements
+- NEVER pretend you can search the database or find listings
+- If the user asks to search for properties, find listings, or browse the database, reply: "這個助理只負責處理文件上傳。如需查詢放盤，請聯絡我們的同事。" (English: "This assistant only handles document upload. For property enquiries, please contact our team.")
+- If the user sends text about wanting to rent or buy, reply with the above message and show the menu
+- Be concise — this is a chat interface, not a search portal
+- If the user says "reset" or "重新開始", show the menu again
+- NEVER use Markdown formatting. No bold, no italics, no headers. Plain text only."""
 
 _LANGUAGE_RULES = {
     "whatsapp": "CRITICAL: Always reply in the same language the user writes in. If they write English, your reply MUST be in English. If they write Traditional Chinese (繁體中文), reply in Chinese. This applies to ALL your output including when presenting tool results — never paste tool output verbatim, always reformulate it in the user's language. Professional tone — clear and concise.",
     "dashboard": "CRITICAL: Always reply in the same language the user writes in. If they write English, your reply MUST be in English. If they write Traditional Chinese (繁體中文), reply in Chinese. This applies to ALL your output including when presenting tool results — never paste tool output verbatim, always reformulate it in the user's language. Professional tone — clear and concise.",
 }
 
-GREETING = """您好，我是 C21 智能助理。請選擇所需服務：
+GREETING = """您好，我是 C21 文件助理。請選擇所需服務：
 
 1 · 知識文章 — 儲存市場資訊、研究報告或成交記錄至 Odoo
-2 · CRM — 建立客戶查詢
-3 · 物業盤源 — 處理物業資料 PDF（OCR、提取、索引及同步至 Odoo）
-4 · 物業查詢 — 搜尋物業、租金、地區資料
-5 · 市場資訊 — 最新香港物業市場趨勢及新聞
-6 · 聯絡人 — 掃描名片儲存至 Odoo，或搜尋已儲存的聯絡人
+2 · 物業盤源 — 處理物業資料 PDF（OCR、提取及同步至 Odoo）
+3 · 名片 — 掃描名片儲存至 Odoo 聯絡人
 
-請輸入 1–6，或直接描述您的需要（例如「觀塘有咩盤?」）。如有附件，系統將自動建議最合適的處理方式。"""
+請輸入 1–3，或直接傳送附件，系統將自動處理。"""
 
 
 def _detect_language(text: str) -> str | None:
@@ -305,6 +247,9 @@ def _dispatch_pipeline_async(
         if notify_user and notify_channel == "whatsapp":
             from src.utils.whatsapp_notify import send_whatsapp
             send_whatsapp(notify_user, message)
+        elif notify_user and notify_channel == "slack":
+            from src.utils.slack_notify import send_slack
+            send_slack(notify_user, message)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -406,228 +351,36 @@ def process_property_listing(notes: str = "") -> str:
 
 @tool
 def check_listing_duplicate(filename: str) -> str:
-    """Check if a property listing with this filename already exists in Azure AI Search."""
-    import hashlib
-    import os
-    import httpx
-
-    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT", "")
-    index = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
-    api_key = os.environ.get("AZURE_SEARCH_API_KEY", "")
-    if not all([endpoint, api_key]):
-        return "Search service not configured — cannot check for duplicates."
-
-    doc_id = hashlib.md5(filename.encode()).hexdigest()
-    url = f"{endpoint}/indexes/{index}/docs/{doc_id}?api-version=2024-07-01&$select=file_name,processed_at"
-    try:
-        with httpx.Client(timeout=10) as client:
-            resp = client.get(url, headers={"api-key": api_key})
-        if resp.status_code == 404:
-            return f"No existing record found for '{filename}' — safe to process."
-        if resp.status_code == 200:
-            doc = resp.json()
-            return (
-                f"⚠️ '{filename}' was already processed on {doc.get('processed_at', 'unknown date')}.\n"
-                "Reply *yes* to reprocess, or *no* to skip."
-            )
-        return "Could not check for duplicates — proceeding."
-    except Exception:
-        return "Could not check for duplicates — proceeding."
-
-
-@tool
-def search_properties(query: str) -> str:
-    """Search the property document database (vector DB) for listings, buildings,
-    or market documents matching the user's question.
-    Use this when the user asks about available properties, rents, districts,
-    or anything like "觀塘有咩盤" / "any office in Central".
-    Returns structured JSON data — you must format this into a natural reply for the user.
-    """
-    import json as _json
-    try:
-        from src.nodes.chatbot import search_documents
-        docs = search_documents(query, top_k=8, hybrid=True)
-    except Exception as e:
-        return _json.dumps({"error": str(e)[:80]})
-
-    if not docs:
-        return _json.dumps({"count": 0, "results": []})
-
-    # Semantic reranker scores 0-4. Filter to meaningful matches (>=1.0).
-    # If no results pass threshold (semantic unavailable), take top 3 by score.
-    reranked = [d for d in docs if d.get("reranker_score", 0) >= 1.0]
-    docs = reranked if reranked else docs[:3]
-
-    # For short queries (likely a specific building name), further filter to only
-    # results where the query term appears in the building name or file name.
-    query_lower = query.lower().strip()
-    is_specific = len(query_lower.split()) <= 4 and "?" not in query_lower and "有" not in query_lower
-    matched_specific = False
-    if is_specific:
-        keyword_matched = [
-            d for d in docs
-            if query_lower in ((d.get("extracted_data") or {}).get("building_name") or "").lower()
-            or query_lower in ((d.get("extracted_data") or {}).get("project_name") or "").lower()
-            or query_lower in (d.get("file_name") or "").lower()
-        ]
-        if keyword_matched:
-            docs = keyword_matched
-            matched_specific = True
-
-    docs = docs[:3]
-
-    # Auto-log CRM inquiry when user asks about a SPECIFIC building via WhatsApp.
-    # Silent — no ask, no permission. Broad district browsing does NOT auto-log.
-    if matched_specific and docs:
-        _auto_log_inquiry(query, docs[0])
-
-    results = []
-    for doc in docs:
-        ex = doc.get("extracted_data") or {}
-        units = ex.get("units") or []
-        doc_type = doc.get("document_type", "")
-
-        # Avoid surfacing raw filenames as building names — they're meaningless to users.
-        _raw_name = ex.get("building_name") or ex.get("project_name") or ex.get("title") or ""
-        _file_name = doc.get("file_name", "")
-        _is_plain_filename = not _raw_name and bool(_file_name) and (
-            _file_name.rsplit(".", 1)[-1].lower() in ("pdf", "jpg", "jpeg", "png", "docx", "pptx")
-            if "." in _file_name else False
-        )
-        building_name = _raw_name if _raw_name else (None if _is_plain_filename else _file_name)
-
-        # Include a content preview so the LLM can describe documents that have no
-        # structured extracted_data (e.g. raw PDFs, news articles without field extraction).
-        content_raw = doc.get("content") or ""
-        content_preview = content_raw[:400].strip() if content_raw else None
-
-        results.append({
-            "building_name": building_name,
-            "document_type": doc_type,
-            "district": ex.get("district"),
-            "address": ex.get("address"),
-            "size_sqft": ex.get("size_sqft"),
-            "rent_monthly": ex.get("rent_monthly"),
-            "sell_price": ex.get("sell_price"),
-            "floor_unit": ex.get("floor_unit"),
-            "contact_name": ex.get("contact_name"),
-            "contact_phone": ex.get("contact_phone"),
-            # News / article fields
-            "title": ex.get("title"),
-            "date": ex.get("date"),
-            "source": ex.get("source"),
-            "summary": ex.get("summary"),
-            "units": [
-                {k: u.get(k) for k in ("building_name", "floor", "unit", "size", "rent", "price") if u.get(k)}
-                for u in units[:5]
-            ] if units else [],
-            "content_preview": content_preview,
-        })
-
-    return _json.dumps({"count": len(results), "results": results}, ensure_ascii=False)
-
-
-@tool
-def search_market_news(query: str) -> str:
-    """Search the web for Hong Kong property market news, trends, forecasts, or any
-    real-time market information the user is asking about.
-    Use this when the user asks about market conditions, rental trends, economic outlook,
-    recent news, or anything that requires up-to-date information beyond our document database.
-    Examples: "2025年租金走勢", "office market outlook", "市場最新消息".
-    Returns a list of web results — summarise them naturally for the user.
-    """
-    import json as _json
-    try:
-        from src.nodes.chatbot import web_search
-        results = web_search(query, max_results=4)
-    except Exception as e:
-        return _json.dumps({"error": str(e)[:80]})
-
-    if not results:
-        return _json.dumps({"count": 0, "results": []})
-
-    return _json.dumps({
-        "count": len(results),
-        "results": [
-            {
-                "title": r.get("title"),
-                "url": r.get("url"),
-                "content": r.get("content"),
-            }
-            for r in results
-        ],
-    }, ensure_ascii=False)
-
-
-@tool
-def query_odoo_listings(keyword: str = "", district: str = "") -> str:
-    """Query active property listings in the Odoo 放盤管理 database (x_c21_listing).
-    Use this when the user asks what listings are currently in Odoo / the CRM,
-    or wants listings filtered by building name or district.
-    keyword: building name or address text to match (optional).
-    district: Hong Kong district in Chinese, e.g. 觀塘, 中環 (optional).
-    Returns a plain-text list of matching records.
-    """
+    """Check if a property listing with this filename already exists in Odoo."""
     import xmlrpc.client
-    from src.nodes.odoo_sync import ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_MODEL, _map_district
+    from src.nodes.odoo_sync import ODOO_URL, ODOO_DB, ODOO_USERNAME, DOCUMENTS_FOLDER_ID
     from src.nodes.knowledge_writer import _TimeoutTransport
 
     api_key = os.environ.get("ODOO_API_KEY", "")
     if not api_key:
-        return "Odoo 連線未設定（ODOO_API_KEY 缺失）。"
+        return "Odoo 連線未設定（ODOO_API_KEY 缺失）— cannot check for duplicates."
 
     try:
         _tx = _TimeoutTransport(10)
         common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common", transport=_tx)
         uid = common.authenticate(ODOO_DB, ODOO_USERNAME, api_key, {})
         if not uid:
-            return "Odoo 登入失敗。"
+            return "Could not check for duplicates — proceeding."
         models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", transport=_tx)
 
-        # When a keyword is given, search all statuses (not just active) so records
-        # like GARDENEAST (rent=0, possibly non-active) are still found.
-        domain: list = [] if keyword.strip() else [["x_c21_status", "=", "active"]]
-        if keyword.strip():
-            # Correct Odoo prefix notation: | applies to exactly the next two conditions
-            domain += ["|", ["x_name", "ilike", keyword.strip()], ["x_c21_address", "ilike", keyword.strip()]]
-        district_key = _map_district(district) if district.strip() else None
-        if district_key:
-            domain.append(["x_c21_district", "=", district_key])
-
-        records = models.execute_kw(
-            ODOO_DB, uid, api_key, ODOO_MODEL, "search_read",
-            [domain],
-            {
-                "fields": [
-                    "x_name", "x_c21_address", "x_c21_district", "x_c21_floor_unit",
-                    "x_c21_property_type", "x_c21_size_sqft", "x_c21_rent_net",
-                    "x_c21_contact_name", "x_c21_contact_phone",
-                ],
-                "limit": 5,
-                "order": "id desc",
-            },
+        existing = models.execute_kw(
+            ODOO_DB, uid, api_key, "documents.document", "search_read",
+            [[["name", "=", filename], ["folder_id", "=", DOCUMENTS_FOLDER_ID]]],
+            {"fields": ["create_date"], "limit": 1},
         )
-    except Exception as e:
-        return f"Odoo 查詢失敗：{str(e)[:80]}"
-
-    if not records:
-        return "Odoo 放盤管理中找不到符合條件的盤源。"
-
-    lines = []
-    for r in records:
-        parts = [r.get("x_name") or ""]
-        if r.get("x_c21_address"):
-            parts.append(f"地址: {r['x_c21_address']}")
-        if r.get("x_c21_size_sqft"):
-            parts.append(f"面積: {r['x_c21_size_sqft']:,.0f}呎")
-        if r.get("x_c21_rent_net"):
-            parts.append(f"月租: ${r['x_c21_rent_net']:,.0f}")
-        contact = " ".join(str(x) for x in (r.get("x_c21_contact_name"), r.get("x_c21_contact_phone")) if x)
-        if contact:
-            parts.append(f"聯絡: {contact}")
-        lines.append(" | ".join(parts))
-
-    return f"Odoo 放盤管理中找到 {len(records)} 個盤源：\n\n" + "\n".join(lines)
+        if not existing:
+            return f"No existing record found for '{filename}' — safe to process."
+        return (
+            f"⚠️ '{filename}' was already processed on {existing[0].get('create_date', 'unknown date')}.\n"
+            "Reply *yes* to reprocess, or *no* to skip."
+        )
+    except Exception:
+        return "Could not check for duplicates — proceeding."
 
 
 @tool
@@ -779,53 +532,6 @@ def log_property_inquiry(
         return _json.dumps({"success": False, "message": f"Odoo error: {str(e)[:120]}"})
 
 
-def _auto_log_inquiry(query: str, top_doc: dict) -> None:
-    """Silently log a WhatsApp user's property inquiry to Odoo CRM. Errors are
-    swallowed — this is a background best-effort action, never blocks the reply."""
-    try:
-        user_key = _pending_user_key.get() or ""
-        if ":" not in user_key:
-            return
-        whatsapp_number, channel = user_key.rsplit(":", 1)
-        if channel != "whatsapp" or not whatsapp_number:
-            return
-
-        api_key = os.environ.get("ODOO_API_KEY", "")
-        if not api_key:
-            return
-
-        ex = top_doc.get("extracted_data") or {}
-        building = ex.get("building_name") or ex.get("project_name") or top_doc.get("file_name", query)
-        district = ex.get("district") or ""
-
-        import xmlrpc.client
-        from src.nodes.odoo_sync import ODOO_URL, ODOO_DB, ODOO_USERNAME
-        from src.nodes.knowledge_writer import _TimeoutTransport
-        _tx = _TimeoutTransport(5)  # 5s hard limit — never block a search reply
-        common = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/common", transport=_tx)
-        uid = common.authenticate(ODOO_DB, ODOO_USERNAME, api_key, {})
-        if not uid:
-            return
-        models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", transport=_tx)
-
-        desc = (
-            f"Property of interest: {building}\n"
-            f"District: {district}\n"
-            f"User query: {query}\n"
-            f"Source: WhatsApp {whatsapp_number} (auto-logged)"
-        )
-        models.execute_kw(ODOO_DB, uid, api_key, "crm.lead", "create", [{
-            "name": f"WhatsApp inquiry — {building}",
-            "partner_name": f"WhatsApp {whatsapp_number}",
-            "phone": whatsapp_number,
-            "team_id": 1,
-            "source_id": 20,
-            "description": desc,
-        }])
-    except Exception:
-        pass  # best-effort — never break the search reply
-
-
 @tool
 def contact_staff(reason: str = "") -> str:
     """Redirect the user to a live Century 21 staff representative. Sends the staff
@@ -891,129 +597,12 @@ def contact_staff(reason: str = "") -> str:
     }, ensure_ascii=False)
 
 
-@tool
-def find_similar_properties(
-    district: str = "",
-    size_sqft: int = 0,
-    max_rent: int = 0,
-    exclude_building: str = "",
-) -> str:
-    """Find properties similar to a reference — by district, size, or rent budget.
-    Use after search_properties returns thin details, to recommend alternatives.
-    district: HK district in Chinese or English (e.g. "灣仔", "Wan Chai").
-    size_sqft: target size; matches within +/- 30%.
-    max_rent: maximum monthly rent in HKD.
-    exclude_building: building name to skip (the one the user already saw).
-    Returns JSON — format in the user's language.
-    """
-    import json as _json
-    try:
-        from src.nodes.chatbot import search_documents
-        # Build a broad query so vector search casts a wide net
-        query_parts = []
-        if district:
-            query_parts.append(district)
-        query_parts.append("commercial property office retail listing")
-        docs = search_documents(" ".join(query_parts), top_k=15, hybrid=True)
-    except Exception as e:
-        return _json.dumps({"error": str(e)[:80]})
-
-    exclude_lower = exclude_building.strip().lower()
-    results = []
-    for doc in docs:
-        ex = doc.get("extracted_data") or {}
-        name = ex.get("building_name") or ex.get("project_name") or doc.get("file_name", "")
-        if exclude_lower and exclude_lower in str(name).lower():
-            continue
-
-        # District filter
-        if district:
-            d_ex = str(ex.get("district") or "").lower()
-            if district.lower() not in d_ex and d_ex not in district.lower():
-                continue
-
-        # Size filter (+/- 30%)
-        if size_sqft > 0:
-            s = ex.get("size_sqft")
-            if isinstance(s, (int, float)):
-                if not (0.7 * size_sqft <= s <= 1.3 * size_sqft):
-                    continue
-
-        # Rent filter
-        if max_rent > 0:
-            r = ex.get("rent_monthly")
-            if isinstance(r, (int, float)) and r > max_rent:
-                continue
-
-        results.append({
-            "building_name": name,
-            "district": ex.get("district"),
-            "address": ex.get("address"),
-            "size_sqft": ex.get("size_sqft"),
-            "rent_monthly": ex.get("rent_monthly"),
-            "contact_name": ex.get("contact_name"),
-            "contact_phone": ex.get("contact_phone"),
-        })
-        if len(results) >= 5:
-            break
-
-    return _json.dumps({
-        "count": len(results),
-        "criteria": {"district": district, "size_sqft": size_sqft, "max_rent": max_rent},
-        "results": results,
-    }, ensure_ascii=False)
-
-
-@tool
-def search_contacts(query: str) -> str:
-    """Search saved name cards and contacts by person name, company, phone number, or email.
-    Use when the user asks for someone's contact details, phone, or email, or types a person
-    or company name to look up.
-    Returns saved contact details — name, title, company, phone, mobile, email.
-    """
-    import json as _json
-    try:
-        from src.nodes.chatbot import keyword_search
-        results = keyword_search(query=query, filters={"document_type": "contact"}, top_k=5)
-    except Exception as e:
-        return _json.dumps({"error": str(e)[:80]})
-
-    if not results:
-        return _json.dumps({"count": 0, "results": []})
-
-    contacts = []
-    for doc in results:
-        ex = doc.get("extracted_data") or {}
-        # Skip entries with no useful contact data
-        if not any(ex.get(f) for f in ("name", "name_zh", "phone", "mobile", "email")):
-            continue
-        contacts.append({
-            "name": ex.get("name_zh") or ex.get("name"),
-            "title": ex.get("title"),
-            "company": ex.get("company_zh") or ex.get("company"),
-            "phone": ex.get("phone"),
-            "mobile": ex.get("mobile"),
-            "email": ex.get("email"),
-            "address": ex.get("address"),
-        })
-
-    return _json.dumps({"count": len(contacts), "results": contacts}, ensure_ascii=False)
-
-
 # ── Agent ─────────────────────────────────────────────────────────────────────
 
 _TOOLS = [
     create_knowledge_article,
     process_property_listing,
     check_listing_duplicate,
-    search_properties,
-    search_market_news,
-    find_similar_properties,
-    search_contacts,
-    query_odoo_listings,
-    create_crm_lead,
-    log_property_inquiry,
-    contact_staff,
 ]
 
 
@@ -1063,6 +652,13 @@ def handle_message(
     else:
         _pending_file.set(None)
     _pending_media_url.set(media_url)
+
+    # Slack sends links as mrkdwn <url> or <url|label> — normalize to a plain URL so
+    # downstream URL detection/Tavily extraction/article generation see a clean link.
+    # (WhatsApp/Twilio already sends plain URLs, so this is a no-op there.)
+    if channel == "slack" and body:
+        import re as _re_slack_link
+        body = _re_slack_link.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", body)
 
     # Load session
     session = get_session(user_id, channel)
@@ -1224,14 +820,14 @@ def handle_message(
     # Catches bare URLs like https://share.google/... AND short link-preview captions
     # like "來源：on.cc https://..." where the WhatsApp card adds surrounding text.
     # Auto-dispatch as news — pipeline fetches content via Tavily (with redirect following).
-    if channel == "whatsapp" and not file_name and not media_url:
+    if channel in ("whatsapp", "slack") and not file_name and not media_url:
         import re as _re_url
         _body_s = body.strip()
         _has_url = bool(_re_url.search(r'https?://\S+', _body_s))
         # Trigger when body IS a bare URL, or when body is short and URL-dominant
         _is_url_msg = _has_url and (
             bool(_re_url.match(r'^https?://\S+$', _body_s))  # bare URL
-            or len(_body_s) < 80  # short caption + URL (e.g. WhatsApp link preview)
+            or len(_body_s) < 80  # short caption + URL (e.g. link preview)
         )
         if _is_url_msg:
             from src.state import DocumentType
@@ -1252,13 +848,32 @@ def handle_message(
     # Dispatch directly — pipeline classifier decides news vs listing. Avoids the
     # ReAct agent's 3-LLM-call chain which easily exceeds n8n's HTTP timeout.
     # Dashboard users are NOT caught here (they use the chat UI and ask questions).
-    if channel == "whatsapp" and not file_name and not media_url and len(body.strip()) >= 60:
+    if channel in ("whatsapp", "slack") and not file_name and not media_url and len(body.strip()) >= 60:
         _dispatch_pipeline_async(
             None, None, text=body.strip(),
             notify_user=user_id, notify_channel=channel,
         )
         reply = _PROCESSING_REPLY
         session["messages"].append({"role": "user", "content": body.strip()[:300]})
+        session["messages"].append({"role": "assistant", "content": reply})
+        session["messages"] = session["messages"][-10:]
+        save_session(user_id, channel, session)
+        return reply
+
+    # Fast path: property search queries — instant rejection, no LLM needed.
+    # Users typing property search intent should be redirected immediately.
+    _SEARCH_SIGNALS = {
+        "有咩盤", "有冇盤", "搵盤", "查盤", "睇盤", "有冇", "推介",
+        "recommend", "search", "find", "查詢放盤", "查詢",
+        "放租", "放售", "出租", "出售", "租樓", "買樓", "賣樓",
+    }
+    if not file_name and not media_url and any(sig in body for sig in _SEARCH_SIGNALS):
+        _lang = _resolve_language(body, session.get("messages", []))
+        if _lang == "en":
+            reply = "This assistant only handles document upload (listings, news, name cards). For property enquiries, please contact our team directly."
+        else:
+            reply = "這個助理只負責處理文件上傳（放盤資料、新聞、名片）。如需查詢或搜尋放盤，請直接聯絡我們的同事。"
+        session["messages"].append({"role": "user", "content": body.strip()})
         session["messages"].append({"role": "assistant", "content": reply})
         session["messages"] = session["messages"][-10:]
         save_session(user_id, channel, session)

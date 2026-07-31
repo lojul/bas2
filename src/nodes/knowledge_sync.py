@@ -28,7 +28,6 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
 
     try:
         from src.nodes.knowledge_writer import create_knowledge_article
-        from src.nodes.odoo_sync import _patch_search_doc
 
         text = state.ocr.text if state.ocr else ""
 
@@ -65,8 +64,8 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
             state.odoo_record_id = str(result.get("article_id") or "")
         else:
             state.odoo_sync_status = "error"
+            state.odoo_error_detail = result.get("message", "Odoo rejected the article")[:120]
 
-        _patch_search_doc(state.index_id, state.odoo_record_id, state.odoo_sync_status, None)
         logger.info(
             "Knowledge sync for '%s': %s (article %s)",
             state.file_name, state.odoo_sync_status, state.odoo_record_id or "none",
@@ -75,6 +74,7 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
     except Exception as e:
         logger.error("Knowledge sync error for '%s': %s", state.file_name, e)
         state.odoo_sync_status = "error"
+        state.odoo_error_detail = str(e)[:120]
 
     state.file_bytes = None
     return state
