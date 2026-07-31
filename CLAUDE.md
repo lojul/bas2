@@ -136,6 +136,176 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 
 ---
 
+## Session Summary — 2026-07-30/31: Odoo→BAS Sync + Standalone Property Chatbot
+
+Two new standalone repos built and deployed, both live in production and
+pushed to GitHub. Neither shares code with this repo — only external data
+(Odoo, BAS's Azure Search index). Also fixed a gap in this repo's own Odoo
+instance and committed a large backlog of already-deployed-but-uncommitted
+work (the ingest-only pivot itself had never been git-committed until now).
+
+### 1. Odoo Automated Action (in this repo's Odoo instance, not a code change)
+Added a `base.automation` + `ir.actions.server` on `x_c21_listing` that
+auto-flips `x_c21_published` back to `False` whenever a human edits a
+listing's business fields directly in Odoo's UI — closes the last gap in the
+"Odoo is source of truth, trust-AI" sync design. Non-obvious gotcha: an
+`object_write` server action needs BOTH `update_field_id` AND `update_path`
+set, or it silently no-ops — Odoo's own UI sets both together via onchange,
+but the API does not auto-populate `update_path` from `update_field_id`.
+
+### 2. `x_c21_doc_url` field — closed end-to-end, committed (`4975b3a`)
+Added `x_c21_doc_url` (char) on `x_c21_listing`; `odoo_sync.py`'s
+`_map_fields()`/`_map_unit_fields()` now write it (previously the Documents
+share URL was only embedded inside `x_c21_notes` HTML, never a clean field).
+Backfilled 45 existing listings by regex-extracting the URL out of their old
+HTML notes. Verified live: `properties-index`'s `odoo-listing-3` now has a
+real `sourceWebUrl`, meaning BAS's Teams bot can render a clickable document
+button for listings synced from here on.
+
+### 3. `odoo-bas-sync` (new repo: `github.com/lojul/odoo-bas-sync`)
+Daily sync job: reads Odoo `x_c21_listing` records where
+`x_c21_published=False`, embeds via Azure OpenAI, upserts into BAS's
+`properties-index`, flips the flag back to `True`. Deployed as Function App
+`c21net-bas-func-odoo-sync-ea-prod` (own managed identity, RBAC-granted on
+BAS's OpenAI + Search resources). Verified end-to-end on real production
+data. Only 3 of ~46 pending listings synced so far — the daily 18:00 UTC
+timer will pick up the rest automatically.
+
+### 4. `c21-property-chatbot` (new repo: `github.com/lojul/c21-property-chatbot`)
+Standalone, channel-agnostic internal chatbot for C21 **staff** (not
+customers) — built because BAS's own Teams bot gates every message behind a
+lead-qualification funnel and felt much less capable than this org's old,
+now-deleted `chatbot.py`.
+
+- Channel-agnostic API: `POST /api/v1/chat {channel, conversation_id,
+  message}` — any channel adapter calls this same contract, no
+  channel-specific logic mixed into the core.
+- Agent: LangGraph `create_react_agent`, LLM = `moonshotai/kimi-k2` via
+  OpenRouter — chosen over reasoning variants (`k3`, `k2.6+`) which are
+  ~50-90x more expensive and can silently return empty content if
+  `max_tokens` is too low for their hidden reasoning pass.
+- 5 tools, all real and verified against production data: `search_properties`
+  (hybrid+semantic search on BAS's `properties-index`, read-only),
+  `create_crm_lead` (writes Odoo `crm.lead`), `search_contacts` (real-time
+  Odoo `res.partner` lookup), `search_knowledge` (real-time Odoo
+  `knowledge.article` lookup), `web_search` (Tavily, for general HK
+  commercial property market questions the internal data can't answer).
+- Daily usage limiting: per-user cap (default 20/day) + a global backstop cap
+  (default 300/day) via Azure Table Storage — the global cap specifically
+  guards against the channel API key ever leaking (a per-user cap alone is
+  trivially bypassed by inventing new fake user IDs).
+- Design decisions (user-specified): property search accuracy is the primary
+  job, never gated behind budget/district/timeline questions; CRM lead
+  logging is a secondary, optional add-on, only on explicit request; the
+  chatbot talks to **staff describing a customer**, never to the customer
+  directly (never 2nd-person "you"/"您" toward the lead).
+- Deployed: App Service `c21net-bas-api-property-chatbot-ea-prod` (core API)
+  + Function App `c21net-bas-func-chatbot-slack-ea-prod` (Slack adapter),
+  both in RG `c21net-bas-property-chatbot-ea-prod`. Slack integration fully
+  live — real Slack App registered ("C21 Property Chatbot"), installed to
+  the whole workspace (available to every member automatically, no
+  per-person setup), real bot replying in real DMs.
+
+### Reusable gotchas found (apply to any future Azure work in this org)
+1. **Azure Storage Queue messages need `TextBase64EncodePolicy()`** when sent
+   via the SDK (`azure-storage-queue`), or the Functions host silently fails
+   to invoke the queue-triggered function — no exception anywhere, the
+   message just poison-queues after 5 retries. Already done correctly in
+   `src/utils/job_queue.py` — any new queue-based Function App should copy
+   that pattern from the start, not rediscover it.
+2. **A new Storage Queue must be created explicitly** before first use
+   (`queue_client.create_queue()`) — it does not auto-create on
+   `send_message()`.
+3. **Slack's "Socket Mode" silently overrides the Request URL** — when
+   enabled, events are delivered over a WebSocket instead of HTTP POST to
+   the configured webhook. The webhook's one-time URL-verification check
+   still passes (a separate mechanism), masking the problem — real events
+   just never arrive. Must be disabled for a standard Events API webhook to
+   receive anything.
+4. **Slack's `X-Slack-Retry-Num` header is NOT a reliable dedup signal** —
+   tested live, a duplicate delivery got through with no retry header set at
+   all. The robust fix is content-based: Slack's `event_id` (present on
+   every delivery, retries included) + an atomic Table Storage
+   `create_entity()` insert as the idempotency lock — `ResourceExistsError`
+   means "already processed, skip."
+5. **App Service zipdeploy needs `Content-Type: application/zip`**, not
+   `application/json` — the deploy recipe documented later in this file
+   (under "Deploy" in the FastAPI Backend section) uses `application/json`
+   and failed here with a cryptic `400 Deployment Failed. Unexpected
+   character... value: P` (the parser choking on the zip's own `PK` magic
+   bytes) when tried against the new property-chatbot App Service. Worth
+   re-testing on this repo's own App Service next deploy — that recipe may
+   have always been subtly wrong.
+6. **`az functionapp create --plan`/`--storage-account` accept full resource
+   IDs for cross-resource-group reuse** — confirmed working: reusing an
+   existing plan/storage account from a different RG than the new
+   Function App's own RG is fine, just pass the full ARM resource ID, not
+   the bare name (which resolves relative to `--resource-group` and 404s).
+
+### Architecture debt noted, not urgent — `src/nodes/assistant.py` channel mixing
+Audited against the clean separation used in `c21-property-chatbot`
+(channel-agnostic core API, thin per-channel adapters). Findings:
+
+**Good, matches the pattern — no change needed:**
+- `function_app.py`'s `pipeline_job_worker` — thin adapter, deserializes the
+  queue message and calls `run_pipeline_job()`, no business logic itself.
+- n8n's workflow config is entirely external to this repo — just a
+  documented contract in, a notify webhook out.
+- `api/routes/assistant.py` → `handle_message()` is a reasonably clean HTTP
+  seam — auth, file resolution, then delegates.
+
+**Tangled — inside `handle_message` itself (`src/nodes/assistant.py`):**
+despite taking a generic `channel` parameter, channel-specific logic is woven
+directly into the "core" agent rather than isolated in an adapter — e.g.
+`if channel in ("whatsapp", "slack")` fast-paths that skip the normal agent
+flow (justified by avoiding n8n's HTTP timeout — a transport limitation
+leaking into agent logic), Slack mrkdwn link-unwrapping sitting inline in the
+core function, and WhatsApp-only branches/fields threaded through
+`contact_staff`, `log_property_inquiry`, `_dispatch_pipeline_async`.
+
+**Cost:** adding a real second channel to this assistant (e.g. Teams for
+document intake) would mean more conditionals inside `assistant.py`, not a
+clean new adapter — the opposite of what `c21-property-chatbot` achieves.
+
+**Suggested future refactor (not urgent — this is live and working, this is
+architectural debt, not a bug):** extract the channel-conditional shortcuts
+out of `handle_message` into the route/adapter layer
+(`api/routes/assistant.py`) or a thin per-channel pre-processor, so
+`handle_message` becomes genuinely channel-blind.
+
+### Pending / next steps (as of 2026-07-31)
+
+**Git status — all clean.** All three repos (`document-processor`,
+`odoo-bas-sync`, `c21-property-chatbot`) are fully committed and pushed to
+GitHub as of this writing.
+
+**`odoo-bas-sync`:** only 3 of ~46 pending listings synced so far — the
+daily 18:00 UTC timer will pick up the rest automatically, or trigger
+`POST /api/sync` on `c21net-bas-func-odoo-sync-ea-prod` manually.
+
+**`c21-property-chatbot`:**
+- Slack Function App's slow cold-start ack (15-34s, sometimes triggering
+  Slack retries) — root cause never diagnosed, only worked around via
+  event_id-based dedup. Could still show up as a noticeable reply delay.
+- No Application Insights configured on the core API App Service
+  (`c21net-bas-api-property-chatbot-ea-prod`) — only the Function Apps have
+  it. Add if this App Service ever needs debugging.
+- Security follow-ups discussed, not yet done: rotate API keys periodically
+  as good practice, and review who has Azure RBAC access to read App
+  Settings on `c21net-bas-property-chatbot-ea-prod` (anyone with read access
+  can see these secrets in plaintext via the Azure Portal).
+- Slack queue polling interval (`host.json`, `MaxPollingInterval`) could be
+  reduced for snappier replies — currently up to 1 minute added latency.
+
+**This file vs. `document processor/CLAUDE.md` (parent directory, no git
+repo of its own):** that outer file is a STALE duplicate — it still
+describes the pre-pivot OneDrive/Streamlit/Next.js dashboard architecture
+this file's own intro note (top of file) already marked removed on
+2026-07-28. Worth reconciling or deleting that outer copy; not done as part
+of this session since it wasn't the scope asked for.
+
+---
+
 ## Graph 1: Document Processing
 
 **File:** `src/graph.py` | **LangSmith Project:** `document-processor`
