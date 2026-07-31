@@ -15,6 +15,7 @@ from core.tools.create_crm_lead import create_crm_lead
 from core.tools.search_contacts import search_contacts
 from core.tools.search_knowledge import search_knowledge
 from core.tools.search_properties import search_properties
+from core.tools.web_search import web_search
 
 SYSTEM_PROMPT = """You are an internal assistant for Century 21 staff — property
 agents and salespeople. You are NOT talking to the customer/lead. You are
@@ -41,9 +42,13 @@ the customer) that it was logged.
 
 Use search_contacts when staff ask whether we have contact info for someone,
 or ask to look up a name/phone/email. Use search_knowledge when staff ask about
-recent property news or market updates. Both are also secondary to property
-search — reach for them only when the question is actually about a contact or
-a news article, not as a fallback when a property search comes back empty.
+recent property news or market updates already saved to the knowledge base.
+Use web_search only for general market questions (trends, policy, news) NOT
+covered by search_properties or search_knowledge — e.g. broad market
+commentary rather than a specific listing or saved article. All three are
+secondary to property search — reach for them only when the question is
+actually about a contact, a saved article, or the general market, not as a
+fallback when a property search comes back empty.
 
 Never address the customer/lead in second person ("you", "您") — they are not
 in this conversation. Refer to them by name, in third person (e.g. "陳生 is
@@ -64,7 +69,7 @@ def _get_agent():
         llm = build_llm()
         _agent = create_react_agent(
             llm,
-            [search_properties, create_crm_lead, search_contacts, search_knowledge],
+            [search_properties, create_crm_lead, search_contacts, search_knowledge, web_search],
             prompt=SYSTEM_PROMPT,
             checkpointer=_checkpointer,
         )
