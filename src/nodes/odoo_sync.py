@@ -1,15 +1,14 @@
-"""Odoo sync node — creates or updates a C21 放盤管理 (x_c21_listing) record after indexing.
+"""Odoo sync node — creates or updates C21 放盤管理 records after extraction.
 
-Runs after the index node. Fully non-blocking: any Odoo failure is logged and the
-pipeline continues. Document processing is never affected by Odoo availability.
+Fully non-blocking: any Odoo failure is logged and the pipeline continues.
 
 Logic:
   1. Skip non-property doc types (news, contact)
-  2. Upload the PDF to Odoo Documents (folder "Property Listings", ID 58)
+  2. Upload PDF to Odoo Documents (folder "Property Listings", ID 58)
   3. listing/pitching_deck → one record; listing_list → ONE RECORD PER UNIT
   4. If state.odoo_record_id is set → update that record (reprocessing path)
      Otherwise → search by x_name, then x_c21_address → update if found, else create
-  5. Patch Azure AI Search doc with odoo_record_id + odoo_sync_status
+  5. Write unmapped AI fields to x_c21_extra_field (key-value overflow table)
 
 Required env var: ODOO_API_KEY
 """
@@ -24,6 +23,22 @@ from typing import Any
 
 import httpx
 from langsmith import traceable
+
+EXTRA_FIELD_MODEL = "x_c21_extra_field"
+
+# AI extraction keys that map to explicit Odoo columns on x_c21_listing.
+# Anything in raw NOT in this set goes to x_c21_extra_field.
+_KNOWN_AI_KEYS: frozenset[str] = frozenset({
+    "building_name", "project_name", "address", "district", "area",
+    "property_type", "size_sqft", "total_gfa_sqft", "typical_floor_sqft",
+    "available_units", "asking_rent", "rent_monthly",
+    "contact_name", "contact_phone",
+    "electrical", "drainage", "aircon", "water_supply", "handover",
+    "gas_supply", "management_fee_psf",
+    "listing_ref", "headline",
+    # nested / meta keys — not written as extra fields
+    "units", "_extraction_failed", "_no_data",
+})
 
 from src.state import DocumentState, DocumentType
 from src.utils.als_lookup import lookup_building
@@ -105,7 +120,6 @@ def odoo_sync(state: DocumentState) -> DocumentState:
                 return state
             state.odoo_record_id = ",".join(map(str, ids))
             state.odoo_sync_status = "synced"
-            _patch_search_doc(state.index_id, state.odoo_record_id, "synced", doc_url)
             logger.info(
                 "Odoo sync complete for '%s': %d unit records %s",
                 state.file_name, len(ids), ids,
@@ -115,20 +129,22 @@ def odoo_sync(state: DocumentState) -> DocumentState:
         vals = _map_fields(state, doc_url, building_id)
         odoo_id = _create_or_update(models, uid, api_key, state.odoo_record_id, vals)
 
+        # Write unmapped AI fields to x_c21_extra_field
+        unmapped = _extract_unmapped(raw)
+        _sync_extra_fields(models, uid, api_key, odoo_id, unmapped)
+
         state.odoo_record_id = str(odoo_id)
         state.odoo_sync_status = "synced"
-        _patch_search_doc(state.index_id, str(odoo_id), "synced", doc_url)
 
         logger.info(
-            "Odoo sync complete for '%s': record ID %s, doc_url=%s",
-            state.file_name, odoo_id, doc_url or "none",
+            "Odoo sync complete for '%s': record ID %s, extra_fields=%d, doc_url=%s",
+            state.file_name, odoo_id, len(unmapped), doc_url or "none",
         )
 
     except Exception as e:
         logger.error("Odoo sync error for '%s': %s", state.file_name, e)
         state.odoo_sync_status = "error"
         state.odoo_error_detail = str(e)
-        _patch_search_doc(state.index_id, state.odoo_record_id or "", "error", None)
 
     state.file_bytes = None
     return state
@@ -172,6 +188,7 @@ def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentSta
             "datas": datas,
             "folder_id": DOCUMENTS_FOLDER_ID,
             "mimetype": "application/pdf",
+            "access_via_link": "view",
         }])
 
     doc_data = models.execute_kw(
@@ -186,14 +203,39 @@ def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentSta
 # Building parent — find or create
 # ---------------------------------------------------------------------------
 
+def _address_overlap(ai_address: str, als_address: str, minlen: int = 2) -> bool:
+    """True if any Chinese substring (>=minlen chars) of ai_address appears in als_address.
+
+    ALS's fuzzy building-name search sometimes returns a plausible-but-wrong building
+    at the same confidence score as a correct match (e.g. "Enterprise Square 3" →
+    a different "常悅道 9號"; "United Building" → a different "順聯大廈" in Central
+    instead of the correct one in Fortress Hill). Confidence alone can't distinguish
+    these. Cross-checking the street name against the AI's own extracted address can:
+    the correct match always shares a street-name substring, the wrong one never does
+    (verified against both real-world cases above).
+    """
+    if not ai_address or not als_address:
+        return True  # nothing to cross-check against — don't block on missing data
+    tokens = re.findall(r"[一-鿿]+", ai_address)
+    for token in tokens:
+        for length in range(len(token), minlen - 1, -1):
+            for i in range(len(token) - length + 1):
+                sub = token[i:i + length]
+                if len(sub) >= minlen and sub in als_address:
+                    return True
+    return False
+
+
 def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> int | None:
     """Return Odoo x_c21_building record ID, creating it if needed.
 
     Resolution order:
     1. ALS lookup on building name → canonical name + GeoAddress dedup key
-    2. Search Odoo by ALS GeoAddress (exact, permanent key)
-    3. Search Odoo by building name (ilike, fallback when ALS misses)
-    4. Create new building record (with needs_review=True if ALS missed)
+    2. Cross-check ALS's address against the AI-extracted address — reject the ALS
+       match entirely if they share no street-name overlap (see _address_overlap)
+    3. Search Odoo by ALS GeoAddress (exact, permanent key) — only if step 2 passed
+    4. Search Odoo by building name (ilike, fallback when ALS misses or was rejected)
+    5. Create new building record (with needs_review=True if ALS missed/was rejected)
     """
     building_name = (raw.get("building_name") or raw.get("project_name") or "").strip()
     if not building_name:
@@ -202,6 +244,13 @@ def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> i
     try:
         # ALS lookup for canonical data + dedup key
         als = lookup_building(building_name)
+
+        if als and not _address_overlap(raw.get("address") or "", als.address_zh or ""):
+            logger.warning(
+                "ALS match for '%s' rejected — no address overlap (ALS: %s, AI: %s)",
+                building_name, als.address_zh, raw.get("address"),
+            )
+            als = None
 
         if als and als.geo_id:
             # Search by stable GeoAddress ID first
@@ -266,6 +315,40 @@ def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> i
 # Multi-unit sync (listing_list)
 # ---------------------------------------------------------------------------
 
+def _extract_unmapped(raw: dict) -> dict:
+    """Return AI-extracted fields that have no fixed Odoo column on x_c21_listing."""
+    return {
+        k: v for k, v in raw.items()
+        if k not in _KNOWN_AI_KEYS and v is not None and v != "" and not isinstance(v, (list, dict))
+    }
+
+
+def _sync_extra_fields(models: Any, uid: int, api_key: str, listing_id: int, unmapped: dict) -> None:
+    """Write unmapped AI fields to x_c21_extra_field as key-value rows.
+
+    Full replace on each sync: deletes existing rows for this listing, then re-creates.
+    """
+    if not unmapped:
+        return
+    try:
+        existing = models.execute_kw(
+            ODOO_DB, uid, api_key, EXTRA_FIELD_MODEL, "search",
+            [[["x_listing_id", "=", listing_id]]],
+        )
+        if existing:
+            models.execute_kw(ODOO_DB, uid, api_key, EXTRA_FIELD_MODEL, "unlink", [existing])
+
+        rows = [
+            {"x_listing_id": listing_id, "x_field_name": k, "x_field_value": str(v)}
+            for k, v in unmapped.items()
+        ]
+        if rows:
+            models.execute_kw(ODOO_DB, uid, api_key, EXTRA_FIELD_MODEL, "create", [rows])
+            logger.info("extra_fields: wrote %d rows for listing %s", len(rows), listing_id)
+    except Exception as e:
+        logger.warning("_sync_extra_fields failed for listing %s: %s", listing_id, e)
+
+
 def _sync_units(models: Any, uid: int, api_key: str, state: DocumentState, doc_url: str | None, building_id: int | None = None) -> list[int]:
     """Create/update one x_c21_listing record per unit in a listing_list document."""
     raw: dict = state.extracted.raw if state.extracted else {}
@@ -277,7 +360,8 @@ def _sync_units(models: Any, uid: int, api_key: str, state: DocumentState, doc_u
     for unit in units[:20]:
         if not isinstance(unit, dict):
             continue
-        vals = _map_unit_fields(raw, unit, doc_url, state.file_name)
+        ocr_text = state.ocr.text if state.ocr and state.ocr.text else None
+        vals = _map_unit_fields(raw, unit, doc_url, state.file_name, ocr_text)
         if not vals:
             continue
 
@@ -296,8 +380,28 @@ def _sync_units(models: Any, uid: int, api_key: str, state: DocumentState, doc_u
         floor_unit = " ".join(str(x) for x in (unit.get("floor"), unit.get("unit")) if x)
         existing_id = _find_unit_record(models, uid, api_key, unit_building, unit_address, floor_unit)
 
+        # Flag for re-sync to BAS — new records already default to False via ir.default,
+        # but write() doesn't apply defaults, so set it explicitly for reprocessed records.
+        vals["x_c21_published"] = False
+
         try:
-            ids.append(_create_or_update(models, uid, api_key, existing_id or "", vals))
+            if existing_id:
+                # Update the known record directly — no fuzzy fallback
+                models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
+                                  [[int(existing_id)], vals])
+                unit_id = int(existing_id)
+            else:
+                # No prior record found — always create a new one.
+                # Do NOT use _create_or_update here: its ilike fallback matches any record
+                # with the same building name, collapsing multiple floors into one record.
+                unit_id = models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "create", [vals])
+            ids.append(unit_id)
+            # Extra fields per unit (unit-level fields that didn't fit known columns)
+            unit_unmapped = _extract_unmapped({k: v for k, v in unit.items() if k not in {
+                "building_name", "address", "floor", "unit", "district",
+                "property_type", "size", "rent", "price", "features",
+            }})
+            _sync_extra_fields(models, uid, api_key, unit_id, unit_unmapped)
         except Exception as e:
             logger.warning("Odoo sync: unit record failed for '%s': %s", vals.get("x_name"), e)
     return ids
@@ -337,7 +441,9 @@ def _find_unit_record(
     return None
 
 
-def _map_unit_fields(raw: dict, unit: dict, doc_url: str | None, file_name: str = "") -> dict | None:
+def _map_unit_fields(
+    raw: dict, unit: dict, doc_url: str | None, file_name: str = "", ocr_text: str | None = None,
+) -> dict | None:
     """Map one unit entry → Odoo vals. Unit-level fields win over document-level."""
     building = unit.get("building_name") or raw.get("building_name")
     address = unit.get("address") or raw.get("address")
@@ -350,6 +456,8 @@ def _map_unit_fields(raw: dict, unit: dict, doc_url: str | None, file_name: str 
     name = f"{name_base} {floor_unit}".strip() if floor_unit else str(name_base)
 
     vals: dict = {"x_name": name, "x_c21_status": "active"}
+    if ocr_text:
+        vals["x_c21_ocr_text"] = ocr_text
     if address:
         vals["x_c21_address"] = address
 
@@ -386,6 +494,7 @@ def _map_unit_fields(raw: dict, unit: dict, doc_url: str | None, file_name: str 
     if unit.get("features"):
         notes.append(f"<p>{unit['features']}</p>")
     if doc_url:
+        vals["x_c21_doc_url"] = doc_url
         notes.append(f'<p>業主放盤文件：<a href="{doc_url}" target="_blank">開啟文件 Open Document</a></p>')
     if notes:
         vals["x_c21_notes"] = "".join(notes)
@@ -441,6 +550,9 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
     vals: dict = {"x_name": name, "x_c21_status": "active"}
     if building_id:
         vals["x_building_id"] = building_id
+
+    if state.ocr and state.ocr.text:
+        vals["x_c21_ocr_text"] = state.ocr.text
 
     if raw.get("address"):
         vals["x_c21_address"] = raw["address"]
@@ -521,6 +633,7 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
         vals["x_c21_date_received"] = date_received
 
     if doc_url:
+        vals["x_c21_doc_url"] = doc_url
         vals["x_c21_notes"] = (
             f'<p>業主放盤文件：<a href="{doc_url}" target="_blank">開啟文件 Open Document</a></p>'
         )
@@ -534,6 +647,10 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
 
 def _create_or_update(models: Any, uid: int, api_key: str, existing_id: str, vals: dict) -> int:
     """Update existing Odoo record or create a new one. Returns the record ID."""
+    # Flag for re-sync to BAS — new records already default to False via ir.default,
+    # but write() doesn't apply defaults, so set it explicitly here for all paths.
+    vals["x_c21_published"] = False
+
     # 1. Known record ID from previous run — try update first
     if existing_id:
         try:
@@ -571,40 +688,6 @@ def _create_or_update(models: Any, uid: int, api_key: str, existing_id: str, val
 
     # 3. Create new record
     return models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "create", [vals])
-
-
-# ---------------------------------------------------------------------------
-# Azure AI Search patch
-# ---------------------------------------------------------------------------
-
-def _patch_search_doc(doc_id: str, odoo_record_id: str, sync_status: str, source_url: str | None) -> None:
-    """Merge-update the Azure Search document with Odoo sync result fields."""
-    if not doc_id:
-        return
-    endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
-    api_key = os.environ.get("AZURE_SEARCH_API_KEY")
-    index_name = os.environ.get("AZURE_SEARCH_INDEX", "processed-documents")
-    if not endpoint or not api_key:
-        return
-    url = f"{endpoint}/indexes/{index_name}/docs/index?api-version=2024-07-01"
-    merge: dict = {
-        "@search.action": "merge",
-        "id": doc_id,
-        "odoo_record_id": odoo_record_id,
-        "odoo_sync_status": sync_status,
-    }
-    if source_url:
-        merge["source_url"] = source_url
-    body = {"value": [merge]}
-    try:
-        with httpx.Client(timeout=30) as client:
-            client.post(
-                url,
-                headers={"api-key": api_key, "Content-Type": "application/json"},
-                json=body,
-            )
-    except Exception as e:
-        logger.warning("Odoo sync: failed to patch Azure Search doc %s: %s", doc_id, e)
 
 
 # ---------------------------------------------------------------------------
