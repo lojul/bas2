@@ -8,10 +8,10 @@ import contextvars
 import os
 from typing import Any
 
+from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
-from langgraph.prebuilt import create_react_agent
 from langsmith import traceable
 
 from src.utils.file_cache import cache_file, clear_cached_file, get_cached_file
@@ -949,7 +949,7 @@ def handle_message(
 
     try:
         llm = _build_llm()
-        agent = create_react_agent(llm, _TOOLS)
+        agent = create_agent(llm, _TOOLS)
         result = agent.invoke({"messages": input_messages})
 
         # Extract final AI reply
