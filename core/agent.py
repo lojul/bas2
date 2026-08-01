@@ -7,8 +7,8 @@ questions only if a search comes back empty.
 
 import logging
 
+from langchain.agents import create_agent
 from langgraph.checkpoint.memory import MemorySaver
-from langgraph.prebuilt import create_react_agent
 
 from core.llm import build_llm
 from core.tools.create_crm_lead import create_crm_lead
@@ -67,10 +67,10 @@ def _get_agent():
     global _agent
     if _agent is None:
         llm = build_llm()
-        _agent = create_react_agent(
+        _agent = create_agent(
             llm,
             [search_properties, create_crm_lead, search_contacts, search_knowledge, web_search],
-            prompt=SYSTEM_PROMPT,
+            system_prompt=SYSTEM_PROMPT,
             checkpointer=_checkpointer,
         )
     return _agent
