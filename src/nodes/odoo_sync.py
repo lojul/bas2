@@ -103,8 +103,12 @@ def odoo_sync(state: DocumentState) -> DocumentState:
             raise ValueError("Odoo authentication failed — check ODOO_API_KEY")
         models = xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object")
 
-        doc_url = _upload_to_documents(models, uid, api_key, state)
-        state.file_bytes = None  # bytes no longer needed after Documents upload
+        # Grab PDF bytes once, before Documents upload — reused for photo extraction
+        # below. Not cleared from state until every return path (photo extraction
+        # needs them too, so the old "clear right after Documents upload" spot was
+        # too early).
+        pdf_bytes = _get_pdf_bytes(state)
+        doc_url = _upload_to_documents(models, uid, api_key, state, pdf_bytes)
 
         if doc_url:
             state.odoo_doc_url = doc_url
@@ -119,13 +123,16 @@ def odoo_sync(state: DocumentState) -> DocumentState:
             if not ids:
                 state.odoo_sync_status = "skipped"
                 logger.info("Odoo sync: no units extracted for '%s', skipping", state.file_name)
+                state.file_bytes = None
                 return state
+            _sync_photos(models, uid, api_key, state, pdf_bytes, ids)
             state.odoo_record_id = ",".join(map(str, ids))
             state.odoo_sync_status = "synced"
             logger.info(
                 "Odoo sync complete for '%s': %d unit records %s",
                 state.file_name, len(ids), ids,
             )
+            state.file_bytes = None
             return state
 
         pitching_units = raw.get("available_units") or []
@@ -137,13 +144,16 @@ def odoo_sync(state: DocumentState) -> DocumentState:
             if not ids:
                 state.odoo_sync_status = "skipped"
                 logger.info("Odoo sync: no units extracted for '%s', skipping", state.file_name)
+                state.file_bytes = None
                 return state
+            _sync_photos(models, uid, api_key, state, pdf_bytes, ids)
             state.odoo_record_id = ",".join(map(str, ids))
             state.odoo_sync_status = "synced"
             logger.info(
                 "Odoo sync complete for '%s': %d unit records %s",
                 state.file_name, len(ids), ids,
             )
+            state.file_bytes = None
             return state
 
         vals = _map_fields(state, doc_url, building_id)
@@ -152,6 +162,7 @@ def odoo_sync(state: DocumentState) -> DocumentState:
         # Write unmapped AI fields to x_c21_extra_field
         unmapped = _extract_unmapped(raw)
         _sync_extra_fields(models, uid, api_key, odoo_id, unmapped)
+        _sync_photos(models, uid, api_key, state, pdf_bytes, [odoo_id])
 
         state.odoo_record_id = str(odoo_id)
         state.odoo_sync_status = "synced"
@@ -174,19 +185,26 @@ def odoo_sync(state: DocumentState) -> DocumentState:
 # Odoo Documents upload
 # ---------------------------------------------------------------------------
 
-def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentState) -> str | None:
-    """Upload PDF to Odoo Documents folder 58 and return the shareable URL."""
-    pdf_bytes = state.file_bytes
-    if not pdf_bytes and state.blob_url:
+def _get_pdf_bytes(state: DocumentState) -> bytes | None:
+    """Return the source PDF's raw bytes, downloading from blob storage if needed.
+
+    Shared by _upload_to_documents and _sync_photos so the PDF is only fetched once.
+    """
+    if state.file_bytes:
+        return state.file_bytes
+    if state.blob_url:
         try:
             with httpx.Client(timeout=60) as client:
                 resp = client.get(state.blob_url)
                 resp.raise_for_status()
-                pdf_bytes = resp.content
+                return resp.content
         except Exception as e:
-            logger.warning("Odoo sync: PDF download failed, skipping Documents upload: %s", e)
-            return None
+            logger.warning("Odoo sync: PDF download failed for '%s': %s", state.file_name, e)
+    return None
 
+
+def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentState, pdf_bytes: bytes | None) -> str | None:
+    """Upload PDF to Odoo Documents folder 58 and return the shareable URL."""
     if not pdf_bytes:
         logger.info("Odoo sync: no PDF bytes available for '%s', skipping Documents upload", state.file_name)
         return None
@@ -217,6 +235,178 @@ def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentSta
     )
     token = doc_data[0].get("access_token") if doc_data else None
     return f"{ODOO_URL}/odoo/documents/{token}" if token else None
+
+
+# ---------------------------------------------------------------------------
+# Photo sync — embedded PDF images → Odoo product photos
+# ---------------------------------------------------------------------------
+
+_PAGE_BREAK_RE = re.compile(r"<!--\s*PageBreak\s*-->")
+_MD_HEADING_RE = re.compile(r"^##\s+(.+)$", re.M)
+_NON_ALNUM_RE = re.compile(r"[^\w/]+")
+
+MAX_SYNCED_IMAGES = 30
+MIN_IMAGE_DIM = 100  # px — filters out logos/icons/alpha-mask fragments
+
+
+def _extract_pdf_images(pdf_bytes: bytes, max_images: int = MAX_SYNCED_IMAGES) -> list[tuple[int, bytes, str, int, int]]:
+    """Extract embedded photos/floor plans from a PDF via PyMuPDF, keeping page numbers.
+
+    Returns (page_num [1-indexed], image_bytes, ext, width, height) tuples, in
+    page order. Skips tiny images (<100px either side) — these are logos, icons,
+    and colour-swatch fragments, never real content; verified against `pdfimages
+    -list` on a real leasing deck (2026-09-03): this filter matched pdfimages'
+    "real photo" count exactly, with zero false positives/negatives.
+    """
+    import fitz  # PyMuPDF — already a dependency (used by ocr.py)
+
+    out: list[tuple[int, bytes, str, int, int]] = []
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    try:
+        for page_index in range(len(doc)):
+            if len(out) >= max_images:
+                break
+            page = doc[page_index]
+            seen_xrefs: set[int] = set()
+            for img_info in page.get_images(full=True):
+                if len(out) >= max_images:
+                    break
+                xref = img_info[0]
+                if xref in seen_xrefs:
+                    continue
+                seen_xrefs.add(xref)
+                try:
+                    base = doc.extract_image(xref)
+                except Exception:
+                    continue
+                if not base:
+                    continue
+                w, h = base.get("width", 0), base.get("height", 0)
+                if w < MIN_IMAGE_DIM or h < MIN_IMAGE_DIM:
+                    continue
+                out.append((page_index + 1, base["image"], base.get("ext", "jpg"), w, h))
+    finally:
+        doc.close()
+    return out
+
+
+def _split_ocr_pages(ocr_text: str) -> list[str]:
+    """Split Azure Document Intelligence markdown into per-page chunks."""
+    return _PAGE_BREAK_RE.split(ocr_text)
+
+
+def _page_heading(page_text: str) -> str | None:
+    """First '## heading' on a page, if any (used to detect a floor/unit label)."""
+    m = _MD_HEADING_RE.search(page_text)
+    return m.group(1).strip() if m else None
+
+
+def _match_floor_unit(heading: str, unit_floor: dict[int, str]) -> int | None:
+    """Loosely match a page heading (e.g. '1/F 樓') against each unit's x_c21_floor_unit."""
+    h = _NON_ALNUM_RE.sub("", heading).lower()
+    if not h:
+        return None
+    for listing_id, floor in unit_floor.items():
+        f = _NON_ALNUM_RE.sub("", floor or "").lower()
+        if f and (f in h or h in f):
+            return listing_id
+    return None
+
+
+def _sync_photos(
+    models: Any, uid: int, api_key: str, state: DocumentState,
+    pdf_bytes: bytes | None, unit_ids: list[int],
+) -> None:
+    """Extract embedded photos/floor plans from the source PDF and attach them to
+    each synced unit's linked product (gallery images + main thumbnail).
+
+    Best-effort and fully non-blocking — any failure here is logged and swallowed,
+    never fails the listing sync that already succeeded.
+
+    Page 1 is always treated as the building/cover photo and set as every synced
+    unit's product.image_1920 (main thumbnail). For a single-unit document, every
+    other extracted image goes straight into that unit's photo gallery. For a
+    multi-unit document, remaining pages are assigned to a unit by matching a
+    '## <floor label>' markdown heading (from the OCR text) against that unit's
+    x_c21_floor_unit, carrying the last-matched heading forward across pages that
+    don't have their own — this matches the common HK leasing-brochure layout of
+    one floor-plan-then-photos section per unit (verified against a real 2-unit
+    deck, 2026-09-03). Any page that can't be matched to a specific unit is
+    attached to every unit rather than silently dropped.
+    """
+    if not pdf_bytes or not unit_ids:
+        return
+    try:
+        images = _extract_pdf_images(pdf_bytes)
+    except Exception as e:
+        logger.warning("Odoo sync: photo extraction failed for '%s': %s", state.file_name, e)
+        return
+    if not images:
+        return
+
+    try:
+        listings = models.execute_kw(
+            ODOO_DB, uid, api_key, ODOO_MODEL, "read",
+            [unit_ids], {"fields": ["id", "x_c21_floor_unit", "x_c21_product_id"]},
+        )
+    except Exception as e:
+        logger.warning("Odoo sync: could not read units for photo sync on '%s': %s", state.file_name, e)
+        return
+
+    unit_floor: dict[int, str] = {r["id"]: (r.get("x_c21_floor_unit") or "") for r in listings}
+    unit_product: dict[int, int] = {
+        r["id"]: r["x_c21_product_id"][0] for r in listings if r.get("x_c21_product_id")
+    }
+    if not unit_product:
+        return
+
+    cover = images[0] if images[0][0] == 1 else None
+    gallery_images = images[1:] if cover else images
+
+    # Multi-unit: map each remaining page to a unit via OCR heading carry-forward.
+    # Single-unit: every remaining image belongs to that one unit — no mapping needed.
+    page_unit: dict[int, int] = {}
+    if len(unit_ids) > 1 and state.ocr and state.ocr.text:
+        pages = _split_ocr_pages(state.ocr.text)
+        current_unit: int | None = None
+        for page_num in range(1, len(pages) + 1):
+            heading = _page_heading(pages[page_num - 1])
+            if heading:
+                matched = _match_floor_unit(heading, unit_floor)
+                if matched is not None:
+                    current_unit = matched
+            if current_unit is not None:
+                page_unit[page_num] = current_unit
+
+    for unit_id in unit_ids:
+        product_id = unit_product.get(unit_id)
+        if not product_id:
+            continue
+
+        if cover:
+            _, img_bytes, _ext, _w, _h = cover
+            try:
+                models.execute_kw(ODOO_DB, uid, api_key, "product.template", "write",
+                                  [[product_id], {"image_1920": base64.b64encode(img_bytes).decode()}])
+            except Exception as e:
+                logger.warning("Odoo sync: cover image write failed for product %s: %s", product_id, e)
+
+        if len(unit_ids) == 1:
+            my_images = gallery_images
+        else:
+            # No confident mapping for this page → attach to every unit (never drop it)
+            my_images = [img for img in gallery_images if page_unit.get(img[0], unit_id) == unit_id]
+
+        for idx, (page_num, img_bytes, _ext, _w, _h) in enumerate(my_images, start=1):
+            name = f"p{page_num} 圖片 {idx}"
+            try:
+                models.execute_kw(ODOO_DB, uid, api_key, "product.image", "create", [{
+                    "name": name,
+                    "image_1920": base64.b64encode(img_bytes).decode(),
+                    "product_tmpl_id": product_id,
+                }])
+            except Exception as e:
+                logger.warning("Odoo sync: gallery image write failed for product %s: %s", product_id, e)
 
 
 # ---------------------------------------------------------------------------
