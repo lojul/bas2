@@ -27,6 +27,24 @@ from langsmith import traceable
 
 EXTRA_FIELD_MODEL = "x_c21_extra_field"
 
+# Fields that staff routinely hand-edit in Odoo after a listing is created
+# (renaming to a clean display name, marking a unit withdrawn/leased). A rerun
+# of the same source PDF must not clobber these on an UPDATE — only set them
+# when creating a brand-new record. See _strip_manual_fields.
+_MANUAL_OVERRIDE_FIELDS: frozenset[str] = frozenset({"x_name", "x_c21_status"})
+
+
+def _strip_manual_fields(vals: dict) -> dict:
+    """Return a copy of vals with staff-editable fields removed, for use on UPDATE only.
+
+    Without this, every rerun of the same PDF (e.g. a Slack re-test) silently
+    reverts a manually-cleaned x_name back to the verbose AI-generated form, and
+    resets x_c21_status back to 'active' even if staff had marked the unit
+    withdrawn/leased — undoing the archive-on-withdraw workflow. Confirmed via a
+    live rerun in Odoo, 2026-09-03.
+    """
+    return {k: v for k, v in vals.items() if k not in _MANUAL_OVERRIDE_FIELDS}
+
 # AI extraction keys that map to explicit Odoo columns on x_c21_listing.
 # Anything in raw NOT in this set goes to x_c21_extra_field.
 _KNOWN_AI_KEYS: frozenset[str] = frozenset({
@@ -397,6 +415,22 @@ def _sync_photos(
             # No confident mapping for this page → attach to every unit (never drop it)
             my_images = [img for img in gallery_images if page_unit.get(img[0], unit_id) == unit_id]
 
+        # Reprocessing the same PDF (e.g. a Slack re-test) must not pile up a second
+        # copy of every gallery photo — delete this product's previously auto-synced
+        # set (identified by our own "p<page> 圖片 <n>" naming) before recreating it.
+        # Staff-curated images use a different naming convention and are left alone.
+        # Confirmed via a live rerun in Odoo, 2026-09-03: without this, image count
+        # doubled on every reprocess.
+        try:
+            stale = models.execute_kw(
+                ODOO_DB, uid, api_key, "product.image", "search",
+                [[["product_tmpl_id", "=", product_id], ["name", "=like", "p%圖片%"]]],
+            )
+            if stale:
+                models.execute_kw(ODOO_DB, uid, api_key, "product.image", "unlink", [stale])
+        except Exception as e:
+            logger.warning("Odoo sync: stale gallery image cleanup failed for product %s: %s", product_id, e)
+
         for idx, (page_num, img_bytes, _ext, _w, _h) in enumerate(my_images, start=1):
             name = f"p{page_num} 圖片 {idx}"
             try:
@@ -620,9 +654,10 @@ def _sync_units(models: Any, uid: int, api_key: str, state: DocumentState, doc_u
 
         try:
             if existing_id:
-                # Update the known record directly — no fuzzy fallback
+                # Update the known record directly — no fuzzy fallback. Preserve any
+                # manual x_name/x_c21_status edit — see _strip_manual_fields.
                 models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
-                                  [[int(existing_id)], vals])
+                                  [[int(existing_id)], _strip_manual_fields(vals)])
                 unit_id = int(existing_id)
             else:
                 # No prior record found — always create a new one.
@@ -766,8 +801,9 @@ def _sync_pitching_deck_units(
 
         try:
             if existing_id:
+                # Preserve any manual x_name/x_c21_status edit — see _strip_manual_fields.
                 models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
-                                  [[int(existing_id)], vals])
+                                  [[int(existing_id)], _strip_manual_fields(vals)])
                 unit_id = int(existing_id)
             else:
                 unit_id = models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "create", [vals])
@@ -967,8 +1003,9 @@ def _create_or_update(models: Any, uid: int, api_key: str, existing_id: str, val
                 [[["id", "=", int(existing_id)]]],
             )
             if found:
+                # Preserve any manual x_name/x_c21_status edit — see _strip_manual_fields.
                 models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
-                                  [[int(existing_id)], vals])
+                                  [[int(existing_id)], _strip_manual_fields(vals)])
                 return int(existing_id)
         except Exception:
             pass  # Record deleted in Odoo — fall through to search/create
@@ -990,8 +1027,9 @@ def _create_or_update(models: Any, uid: int, api_key: str, existing_id: str, val
                 )
         if found:
             record_id = found[0]
+            # Preserve any manual x_name/x_c21_status edit — see _strip_manual_fields.
             models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
-                              [[record_id], vals])
+                              [[record_id], _strip_manual_fields(vals)])
             return record_id
 
     # 3. Create new record
