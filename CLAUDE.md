@@ -133,6 +133,17 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] JWT sessions extended to 30 days
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 - [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
+- [ ] **Wire PDF image extraction to Odoo product photos** (requested 2026-09-03, not started).
+      `ocr.py`'s `_extract_images_from_pdf()` already pulls embedded images via PyMuPDF and
+      uploads them to blob (`state.ocr.image_urls`) — but that's a dead end today, nothing
+      downstream reads `image_urls` or uploads to Odoo. Manually proved the concept works for
+      a 2-unit pitching deck (Connaught Marina): extracted per-page with PyMuPDF, verified
+      complete against `pdfimages -list`, mapped photos to the correct unit by page number,
+      uploaded as `product.image` + set page-1 cover as `image_1920` main thumbnail. To build
+      for real: track page numbers through extraction (current blob upload loses them), map
+      pages → unit via the same floor/unit boundaries the extractor already detects, and add
+      this as a step in (or right after) `odoo_sync.py` so it runs on every future document,
+      not just this one-off. See Session Summary below for full detail.
 
 ---
 
