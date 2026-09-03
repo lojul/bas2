@@ -197,6 +197,17 @@ RENT EXTRACTION RULES (critical):
 PREMISES/UNIT EXTRACTION RULES:
 - "Premises: Shop Nos. G1-4, 22-26, 28-33A on Ground Floor" → one available_unit with unit="G1-4, 22-26, 28-33A", floor="G/F"
 - Map "Availability" date to availability_date field
+- If the deck lists MULTIPLE units/floors each with their own size/rent/rates (e.g. "1/F" and "2/F"
+  as separate rows), create ONE available_unit entry per floor/unit — do not merge them into one
+- "差餉及地租" or "Rate and Rent" per floor (e.g. "1/F: $8,500/quarter") → that unit's rates_quarterly
+  (if 差餉 and 地租 are given as one combined figure, use it for rates_quarterly and leave
+  govt_rent_quarterly null)
+
+SPECIFICATIONS EXTRACTION RULES:
+- "交吉狀況" / "Property Condition" / "物業狀況" (e.g. "As-is basis", "現狀交吉") → handover
+- "樓底高度" / "Ceiling Height" (e.g. "Approx. 4.87M") → ceiling_height (keep the text as-is, with unit)
+- "電力供應" → electrical, "排水" → drainage, "來水" → water_supply, "空調" → aircon,
+  "煤氣供應" → gas_supply (true if supplied/checked, false if explicitly not, null if not mentioned)
 
 Return a JSON object with ALL available information:
 {{
@@ -219,7 +230,9 @@ Return a JSON object with ALL available information:
   }},
 
   "available_units": [
-    {{"unit": "G07", "floor": "G/F", "size_sqft": number or null, "rent_monthly": number or null, "facing": "Java Road", "features": "next to entrance"}}
+    {{"unit": "G07", "floor": "G/F", "size_sqft": number or null, "rent_monthly": number or null,
+      "rates_quarterly": number or null, "govt_rent_quarterly": number or null,
+      "facing": "Java Road", "features": "next to entrance"}}
   ],
 
   "asking_rent": number or null,
@@ -227,6 +240,13 @@ Return a JSON object with ALL available information:
   "management_fee_psf": number or null,
   "management_fee_psf_fb": number or null,
   "availability_date": "Q4 2026 or specific date",
+  "ceiling_height": "text with unit, e.g. 'Approx. 4.87M/米' or null",
+  "handover": "property condition text, e.g. 'As-is 現狀交吉' or null",
+  "electrical": "text or null",
+  "drainage": "text or null",
+  "water_supply": "text or null",
+  "aircon": "text or null",
+  "gas_supply": true or false or null,
 
   "location": {{
     "mtr_stations": ["Fortress Hill (5 min)", "North Point (9 min)"],

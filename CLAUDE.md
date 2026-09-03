@@ -136,6 +136,199 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 
 ---
 
+## Session Summary — 2026-09-03: Odoo API Key Renewal + Pitching-Deck Multi-Unit Sync Bugs (found, fixed, deployed)
+
+### What happened
+Started from a stale `ODOO_API_KEY` (WhatsApp pipeline was failing with "Odoo authentication
+failed"). Renewed the key (reused the still-valid key from the `c21net.odoo.com` project's
+`check_auth.py`) and updated it in this repo's `.env`, `odoo-bas-sync/local.settings.json`, and
+the production Function App's app settings. While verifying the fix by reprocessing a real
+document (`Connaught Marina - leasing particulars (2026)_260902_170013.pdf`, a 2-unit pitching
+deck), found the sync was silently dropping data and, on a later rerun, creating duplicate Odoo
+records — five separate bugs, all in `src/nodes/odoo_sync.py` / `src/nodes/extractor.py`.
+
+### Root causes
+1. **Multi-unit pitching decks only synced the first unit.** `_map_fields()`'s single-record path
+   did `unit = raw["available_units"][0]` — any document classified `pitching_deck` (not just
+   `listing_list`) with more than one unit silently dropped every unit after the first. This is
+   how the 2/F unit went missing on the first sync.
+2. **`PITCHING_DECK` extraction prompt never asked for spec/fee fields that `odoo_sync.py` already
+   had mapping code for.** `electrical`, `drainage`, `aircon`, `water_supply`, `handover`,
+   `gas_supply` were mapped from `raw[...]` in code, but the prompt (`extractor.py`) never
+   included those keys — always blank for pitching-deck docs. Same for total 管理費 (never
+   computed from psf × size) and 差餉/地租 (no extraction path at all) and 樓底高度 (brand new Odoo
+   field, no extraction support).
+3. **Dedup-key mismatch (introduced and fixed same session) in the new multi-unit sync path.**
+   The fix for bug #1 (`_sync_pitching_deck_units`) computed its dedup search key by joining
+   `unit.get("floor")` + `unit.get("unit")`, but `_map_fields()` actually stores only
+   `unit.get("floor") or unit.get("unit")` (OR, not joined) in `x_c21_floor_unit`. When one
+   extraction run returned two different "shapes" for the same physical unit (one with just
+   `floor`, one with `floor` + a `unit` string carrying fit-out text), the second shape's search
+   key never matched the first's stored value → created a duplicate listing instead of updating.
+4. **Building dedup broken by a manual Odoo edit.** `_get_or_create_building()`'s fallback search
+   was `x_name ilike <AI-extracted building name>` — one-directional substring match. A user
+   edit in Odoo split "Connaught Marina 干諾中心" into `x_name="干諾中心"` +
+   `x_name_en="Connaught Marina"`; the AI's full extracted name no longer appears as a substring
+   of the (now shorter) `x_name`, so a duplicate Building record got created and both listings got
+   silently re-pointed to it on the next sync.
+5. **Duplicate-record IDs in the WhatsApp completion message.** Both multi-unit sync loops
+   (`_sync_units`, `_sync_pitching_deck_units`) appended every processed unit's resulting ID to
+   the returned list unconditionally — when bug #3's extraction "shapes" both correctly matched
+   the same existing record (after the dedup fix), the same ID got appended twice, so the WhatsApp
+   reply said "4 筆記錄 (ID: 122,123,122,123)" for what was really 2 records.
+
+### Fixes applied (all deployed to both `c21net-bas-api-doc-pipeline-ea-prod` App Service AND
+`c21net-bas-func-doc-pipeline-ea-prod` Function App — see [[feedback-deploy-discipline]])
+- `odoo_sync.py`: new `_sync_pitching_deck_units()` — routes any `pitching_deck` doc with >1
+  `available_units` through a per-unit create/update loop (reusing `_map_fields(unit=...)`
+  rather than `_map_unit_fields`, since pitching decks use the `size_sqft`/`rent_monthly` key
+  names, not `listing_list`'s `size`/`rent`).
+- `_map_fields()`: new optional `unit` param (defaults to `available_units[0]` — unchanged
+  behavior for single-unit docs); maps `unit["rates_quarterly"]`/`unit["govt_rent_quarterly"]` →
+  `x_c21_rates`/`x_c21_govt_rent`; auto-computes `x_c21_mgmt_fee = psf × size_sqft` (deterministic,
+  no LLM needed); maps new `ceiling_height` key → `x_c21_ceiling_height`.
+- `extractor.py`: `PITCHING_DECK` prompt now asks for `electrical`, `drainage`, `water_supply`,
+  `aircon`, `gas_supply`, `handover`, `ceiling_height` (top-level) and `rates_quarterly` /
+  `govt_rent_quarterly` (per-unit, inside `available_units[]`), with extraction-rule hints for
+  each (Chinese label → key mapping).
+- `_sync_pitching_deck_units()` dedup key fixed to match `_map_fields()`'s storage exactly
+  (`unit.get("floor") or unit.get("unit")`, not joined).
+- `_get_or_create_building()`: added two more fallback searches before giving up and creating a
+  new building — `x_name_en ilike <name>`, then a Python-side address-overlap check
+  (`_address_overlap`, already used for the ALS-match-rejection case) against every building's
+  `x_address`. Address is a much more stable identifier than a free-text name that can be
+  manually edited.
+- `_sync_units()` and `_sync_pitching_deck_units()`: both now dedup the returned ID list
+  (`if unit_id not in ids: ids.append(...)`) so the WhatsApp completion message reports the true
+  record count.
+- Odoo Studio: added `x_c21_ceiling_height` (listing) → `x_c21_unit_info.x_c21_ceiling_height` →
+  `product.template.x_c21_ceiling_height_display` (related field), wired into the existing
+  `ir.actions.server` #1142 listing→product sync, and registered as a `trigger_field_ids` entry on
+  `base.automation` #5 (new custom fields are NOT auto-included in that trigger list — easy to
+  miss; a write to a field not in it silently does nothing).
+
+### Known remaining issues (not fixed this session)
+- **Rent extraction is unreliable for this specific document** — the extraction LLM
+  (`qwen/qwen-2.5-72b-instruct` via OpenRouter, see `src/utils/llm.py`) has tripled the monthly
+  rent (e.g. $53,430 → $160,290) on *every* rerun of this PDF, consistently 3×. Root cause is in
+  the model's reasoning, not the code — no deterministic multiplier exists anywhere in the
+  pipeline. A cheap guard worth adding: cross-check `rent_net ≈ size_sqft × rent_per_sqft` when
+  both are extracted and flag mismatches for review instead of trusting the LLM's arithmetic.
+  Model swap was considered but deferred — some OpenRouter models are blocked from Hong Kong,
+  needs checking which ones are actually reachable before picking a replacement.
+- **`x_c21_date_received` (收到日期) still doesn't populate for WhatsApp-ingested files.**
+  `_extract_date()` expects an 8-digit `YYYYMMDD` run in the filename; actual WhatsApp/Twilio
+  filenames use `YYMMDD_HHMMSS` (e.g. `..._260902_170013.pdf`), which never matches.
+- **No automated image extraction yet.** Manually verified (via PyMuPDF, cross-checked against
+  `pdfimages -list`) that all embedded photos/floor plans in a pitching deck can be reliably
+  extracted and mapped to the right unit's product by page number. Not yet built as a pipeline
+  node — remains a manual one-off process for now.
+
+### Odoo data cleanup performed (data-only, no code)
+Duplicate Building 34 (created by bug #4) and duplicate Listings 124/125 + their auto-generated
+Products 58/59 + Unit Info 50/51 (created by bug #3, before its fix was deployed) were deleted;
+Listings 122/123 were re-pointed back to the correct Building 33. Verified via read-back that
+exactly 2 listings remain for Connaught Marina, both linked to one building, with no orphaned
+Unit Info/Product records left behind (deleting a Listing does **not** cascade-delete its linked
+Unit Info/Product — no automation handles `unlink`, only `on_write`/`on_create_or_write` — so any
+future manual listing deletion needs the same manual cleanup of its Product/Unit Info).
+
+Separately confirmed **not a regression**: 44 of 47 total `product.template` records are archived
+(`active=False`) with `create_date` predating this session (some from 2026-05) — pre-existing
+draft/test catalog state, unrelated to anything fixed or deployed this session.
+
+---
+
+## Session Summary — 2026-08-04: Knowledge Article Hallucination Bug (found, fixed, deployed, backfilled)
+
+### What happened
+A WhatsApp forward (bus-ad image + short caption + `share.google` link) produced a fabricated
+Odoo Knowledge article about a "中環豪宅成交" (Central luxury sale) — completely unrelated to the
+real source (a KKday × 永東巴士 coach-ticket promo). Root-caused via direct Odoo XML-RPC
+inspection (`documents.document` + `knowledge.article` `read`) and live browsing of the actual
+`share.google` link.
+
+### Root causes (three independent bugs, all in the news/knowledge path — NOT the main
+`extractor.py` NEWS prompt, which is a separate, unaffected code path)
+1. **`src/nodes/knowledge_writer.py` `ARTICLE_PROMPT`** — the OUTPUT FORMAT example embedded
+   *literal* placeholder values (`29/6/2026`, `Unit 11/12`) instead of bracketed placeholders.
+   With near-empty source text, Qwen copied the example values verbatim into the live article
+   instead of leaving the table empty. No "insufficient content" escape hatch existed at all
+   (unlike `extractor.py`'s LISTING prompt, which already has one).
+2. **`src/utils/url_fetcher.py` `resolve_redirect()`** used an HTTP **HEAD** request — `share.google`
+   only completes its 2-hop redirect chain to the real article on **GET**; HEAD dead-ends on a
+   Google interstitial page. Confirmed by direct testing against the real failing URL.
+3. **`TAVILY_API_KEY` was never configured** for this repo (not in `.env`, not as an Azure app
+   setting on either service) — `enrich_with_url_content()` had been a silent no-op in production
+   since it was written. Fix #2 alone would have done nothing without this.
+4. (Found during fix #3) Even with a working key, **Tavily's `/extract` API got bot-walled by
+   `etnet.com.hk`** — a plain `httpx` GET with a normal desktop User-Agent fetched the real
+   article fine, but Tavily's crawler got an "idle, please reload" placeholder page instead.
+5. (Found while verifying the regenerated articles) **URL/link regexes in both `url_fetcher.py`
+   and `knowledge_writer.py`** used `\S+`/`[^\s<>"')]+`, which also matches CJK characters glued
+   directly onto a URL with no separator (e.g. `http://on.cc東網` — a source citation like
+   "on.cc東網", not a real link at all). This produced broken/garbage `<a href>` links in
+   generated articles. Fixed by restricting both regexes to printable-ASCII (`[!-~]+`).
+
+### Fixes applied (all deployed to both `c21net-bas-api-doc-pipeline-ea-prod` App Service AND
+`c21net-bas-func-doc-pipeline-ea-prod` Function App — pipeline code needs both, per
+[[feedback-deploy-discipline]])
+- `knowledge_writer.py`: bracketed placeholders in `ARTICLE_PROMPT`; hard guard (skip LLM call
+  entirely if source text < 60 chars); LLM-level `{"insufficient_content": true}` escape hatch;
+  printable-ASCII-only link regex.
+- `knowledge_sync.py` / `job_queue.py`: new `"skipped"` odoo_sync_status path with a clear
+  WhatsApp reply ("⚠️ 內容不足，未能生成知識文章...") instead of silent fabrication.
+- `url_fetcher.py`: `resolve_redirect()` now GETs (not HEAD); **primary content-fetch path is now
+  a direct `httpx` GET + `<article>`-tag regex extraction**, falling back to Tavily only if that
+  finds nothing — more reliable than Tavily alone and avoids the etnet bot-wall; printable-ASCII
+  URL-extraction regex.
+- `TAVILY_API_KEY` added to both services — **reused from `c21-property-chatbot`'s existing key**
+  (shared free-tier quota, not a dedicated key — see memory `project-tavily-key-shared.md` for the
+  tradeoff and why).
+
+### Odoo data backfill (data-only, no code — full scan of the "📊 Marketing News" Knowledge folder)
+Found the bug had fired at least **5 times** before this session caught it (not just the 1
+reported). Per-article remediation (judgment call each time — grepping for the literal
+`29/6/2026`/`Unit 11/12` strings alone gives false positives, see article 53 below):
+- **69, 70** — fully fabricated, wrong topic entirely → archived (Odoo Knowledge trash:
+  `active=False, to_delete=True` together, or Odoo silently no-ops the trash write).
+- **61, 62, 63** — all three trace to the *same* `share.google` link (one real event reprocessed
+  3x: 61 = LLM JSON parse failed → empty stub, 62/63 = two different fully-fabricated fake
+  stories). Archived all three, replaced with **one** correct article (73) after resolving the
+  real source (元朗虹方 property portfolio → mortgagee sale).
+- **54, 59, 60** — real, accurate article content, but a nonsensical "成交日期/成交單位" transaction
+  table bolted onto stories that aren't about a specific unit transaction (a tender, a
+  market-trend piece, a quarterly overview). Surgically removed just the bad table (content
+  otherwise untouched).
+- **55** — accurate transaction data throughout except a fabricated date; corrected to the date
+  the source actually implies ("昨日" relative to the article's dateline).
+- **64** — accurate content including a real quote; only the date field was fabricated (no
+  reliable date to infer this time, unlike 55) → removed just that row.
+- **53** — flagged by the naive grep (contains `29/6/2026`+`Unit 11/12`) but verified 100%
+  accurate against the real source flyer — a genuine coincidence, left untouched. This is
+  probably where the broken prompt's placeholder example values originally came from.
+
+### Deploy incident (self-inflicted, cost ~1 hour) — see [[feedback-deploy-discipline]]
+Chained `./deploy.sh` immediately followed by `./deploy.sh --func` (which *also* redeploys the
+App Service first) — the second zipdeploy's SCM container restart hit the first deploy's still-
+finishing VFS upload, corrupting wwwroot and taking the App Service down (503, container exit
+code 1) for several minutes. This is exactly the scenario the **"NEVER chain `./deploy.sh`+`--func`
+back-to-back"** rule two paragraphs below already warns about — re-confirmed the hard way.
+Recovery: clean re-run of `./deploy.sh` alone fixed it. Separately (unrelated to the chaining
+mistake), the remote Oryx build for the Function App **hung twice** on
+`"Requesting metadata for platform python from external SDK provider"` — confirmed via Kudu's
+`/deployments/{id}/log` endpoint showing no progress for 13+ minutes, not just "slow." Recovery
+pattern each time: `az functionapp restart` to clear the stuck build, then retry
+`./deploy.sh --func-only`. Lesson: don't trust `func azure functionapp publish`'s own exit code
+or "Remote build succeeded!" message at face value — it has given a false "done" signal (CLI gave
+up polling early) at least once this session. Always independently verify via Kudu's
+`/api/deployments` (`complete: true`, `active: true`) AND by downloading the actual deployed
+package (`/api/vfs/data/SitePackages/{name}.zip` for the Function App — **not** `/site/wwwroot`,
+which is irrelevant for Linux Consumption Python Function Apps; they run from a packaged zip
+under `/home/data/SitePackages`) and grepping it for the expected code.
+
+---
+
 ## Session Summary — 2026-07-30/31: Odoo→BAS Sync + Standalone Property Chatbot
 
 Two new standalone repos built and deployed, both live in production and
@@ -765,6 +958,7 @@ WhatsApp user → Twilio → n8n "WhatsApp Twilio Integration" (2KEkDoOvwKB7Y6Ml
 | `ADMIN_WHATSAPP` | both | Admin number for guard/poison alerts |
 | `DI_DAILY_PAGE_LIMIT` | both (optional) | OCR daily page ceiling, default 200 |
 | `AZURE_BLOB_READ_SAS`, `AZURE_TABLE_SAS`, `ODOO_API_KEY` | Function App | Were missing/stale — queue worker needs them |
+| `TAVILY_API_KEY` (added 2026-08-04) | both | Used by `src/utils/url_fetcher.py` to enrich short OCR text containing URLs (e.g. `share.google` news forwards) before classify/extract. **Reused from `c21-property-chatbot`'s key, not dedicated** — shared free-tier quota, see memory `project-tavily-key-shared.md` |
 
 ## Ingest & Triage
 

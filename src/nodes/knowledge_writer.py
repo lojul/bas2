@@ -53,7 +53,7 @@ OUTPUT FORMAT — follow exactly, only include sections that have relevant conte
 <h2>摘要</h2>
 <p>[One short factual summary paragraph]</p>
 <h2>主要數據</h2>
-<table style="border-collapse:collapse;width:100%"><tr style="background-color:#374151;color:white;"><th style="border:1px solid #374151;padding:8px 12px;text-align:left">項目</th><th style="border:1px solid #374151;padding:8px 12px;text-align:left">詳情</th></tr><tr><td style="border:1px solid #d1d5db;padding:8px 12px">成交日期</td><td style="border:1px solid #d1d5db;padding:8px 12px">29/6/2026</td></tr><tr><td style="border:1px solid #d1d5db;padding:8px 12px">成交單位</td><td style="border:1px solid #d1d5db;padding:8px 12px">Unit 11/12</td></tr></table>
+<table style="border-collapse:collapse;width:100%"><tr style="background-color:#374151;color:white;"><th style="border:1px solid #374151;padding:8px 12px;text-align:left">項目</th><th style="border:1px solid #374151;padding:8px 12px;text-align:left">詳情</th></tr><tr><td style="border:1px solid #d1d5db;padding:8px 12px">[field name, e.g. 成交日期]</td><td style="border:1px solid #d1d5db;padding:8px 12px">[value FROM SOURCE CONTENT ONLY]</td></tr></table>
 <h2>市場背景</h2>
 <ul><li>[point]</li></ul>
 <h2>各方回應</h2>
@@ -72,9 +72,17 @@ Other rules:
 - Title (name field): {today} | [same concise headline as H1]
 - Match source language (Chinese or English)
 - Factual only — no embellishment, no hallucination
+- The example values in the OUTPUT FORMAT above (dates, unit numbers, figures) are placeholders
+  showing structure ONLY — never copy them into your output. Every fact in your article must
+  trace back to something literally present in the source content below.
 - Omit any section that has no relevant content
 - Do NOT add a Documents download link — it will be appended automatically
 - The <hr/> footer line must always end with a space after the source (the link is appended there)
+
+CRITICAL — insufficient content check:
+If the source content below is just a source citation and/or a bare link (e.g. "來源：X｜https://...")
+with no actual article body, summary, or facts to report, do NOT invent an article. Instead return
+exactly: {{"insufficient_content": true}}
 
 Source content:
 ---
@@ -247,6 +255,16 @@ def create_knowledge_article(
         except Exception:
             text = f"[Image: {image_filename}]"
 
+    # Guard: a bare source citation / link (no real article body) isn't enough to write
+    # from — skip the LLM call entirely rather than risk it inventing facts to fill the
+    # template. Threshold is well under any real article's length.
+    if len(text.strip()) < 60:
+        return {
+            "success": False,
+            "duplicate": False,
+            "message": "⚠️ 內容不足，未能生成知識文章（僅收到來源引用/連結，沒有實際文章內容）。",
+        }
+
     # Generate article HTML via Qwen on OpenRouter — better HTML format compliance than Azure o-series
     prompt = ARTICLE_PROMPT.format(content=text[:6000], today=today)
     api_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -265,6 +283,14 @@ def create_knowledge_article(
         generated = parse_json_response(raw)
     except Exception:
         generated = {}
+
+    if generated.get("insufficient_content"):
+        return {
+            "success": False,
+            "duplicate": False,
+            "message": "⚠️ 內容不足，未能生成知識文章（來源內容缺乏實際文章內容）。",
+        }
+
     title = generated.get("title") or f"{today} | Article"
     body = generated.get("body") or f"<p>{text[:4000]}</p>"
 
@@ -275,8 +301,12 @@ def create_knowledge_article(
 
     def _linkify_source_line(m: "_re_link.Match") -> str:
         prefix, content, suffix = m.group(1), m.group(2), m.group(3)
+        # Printable-ASCII only, not [^\s<>"')]+ — that also matches CJK characters
+        # appended directly with no separator (e.g. "http://on.cc東網", a source
+        # citation like "on.cc東網" that isn't a real link, just text that happens
+        # to start with "http://"). Real URLs don't contain raw literal CJK.
         content = _re_link.sub(
-            r'https?://[^\s<>"\')]+',
+            r'https?://[!-~]+',
             lambda u: f'<a href="{u.group(0)}" target="_blank" rel="noopener">{u.group(0)}</a>',
             content,
         )

@@ -66,6 +66,8 @@ def format_completion(final) -> str:
             lines.append(f"Odoo 放盤管理已建立/更新 {len(ids)} 筆記錄（ID: {final.odoo_record_id}）")
     elif final.odoo_sync_status == "duplicate":
         lines.append(f"⚠️ Odoo 中已有相同文章（未重複建立）：\n{ODOO_URL}/knowledge/article/{final.odoo_record_id}")
+    elif final.odoo_sync_status == "skipped" and getattr(final, "odoo_error_detail", ""):
+        lines.append(final.odoo_error_detail)
     elif final.odoo_sync_status == "error":
         detail = f"：{final.odoo_error_detail[:150]}" if getattr(final, "odoo_error_detail", "") else ""
         lines.append(f"⚠️ Odoo 同步失敗（可稍後重試）{detail}")

@@ -62,6 +62,9 @@ def knowledge_sync(state: DocumentState) -> DocumentState:
         elif result.get("duplicate"):
             state.odoo_sync_status = "duplicate"
             state.odoo_record_id = str(result.get("article_id") or "")
+        elif "內容不足" in (result.get("message") or ""):
+            state.odoo_sync_status = "skipped"
+            state.odoo_error_detail = result.get("message", "")[:120]
         else:
             state.odoo_sync_status = "error"
             state.odoo_error_detail = result.get("message", "Odoo rejected the article")[:120]

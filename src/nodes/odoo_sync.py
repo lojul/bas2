@@ -5,7 +5,8 @@ Fully non-blocking: any Odoo failure is logged and the pipeline continues.
 Logic:
   1. Skip non-property doc types (news, contact)
   2. Upload PDF to Odoo Documents (folder "Property Listings", ID 58)
-  3. listing/pitching_deck → one record; listing_list → ONE RECORD PER UNIT
+  3. listing → one record; listing_list → ONE RECORD PER UNIT;
+     pitching_deck → one record, or ONE RECORD PER UNIT if available_units has >1 entry
   4. If state.odoo_record_id is set → update that record (reprocessing path)
      Otherwise → search by x_name, then x_c21_address → update if found, else create
   5. Write unmapped AI fields to x_c21_extra_field (key-value overflow table)
@@ -34,7 +35,8 @@ _KNOWN_AI_KEYS: frozenset[str] = frozenset({
     "available_units", "asking_rent", "rent_monthly",
     "contact_name", "contact_phone",
     "electrical", "drainage", "aircon", "water_supply", "handover",
-    "gas_supply", "management_fee_psf",
+    "gas_supply", "management_fee_psf", "ceiling_height",
+    "rates_quarterly", "govt_rent_quarterly",
     "listing_ref", "headline",
     # nested / meta keys — not written as extra fields
     "units", "_extraction_failed", "_no_data",
@@ -114,6 +116,24 @@ def odoo_sync(state: DocumentState) -> DocumentState:
         if state.document_type == DocumentType.LISTING_LIST:
             # Multi-property file: one Odoo record per unit
             ids = _sync_units(models, uid, api_key, state, doc_url, building_id)
+            if not ids:
+                state.odoo_sync_status = "skipped"
+                logger.info("Odoo sync: no units extracted for '%s', skipping", state.file_name)
+                return state
+            state.odoo_record_id = ",".join(map(str, ids))
+            state.odoo_sync_status = "synced"
+            logger.info(
+                "Odoo sync complete for '%s': %d unit records %s",
+                state.file_name, len(ids), ids,
+            )
+            return state
+
+        pitching_units = raw.get("available_units") or []
+        if state.document_type == DocumentType.PITCHING_DECK and len(pitching_units) > 1:
+            # Pitching deck describing MULTIPLE units (e.g. one flyer, several floors) —
+            # one Odoo record per unit, same as listing_list, but using the
+            # available_units[] schema (size_sqft/rent_monthly keys, not size/rent).
+            ids = _sync_pitching_deck_units(models, uid, api_key, state, doc_url, building_id, pitching_units)
             if not ids:
                 state.odoo_sync_status = "skipped"
                 logger.info("Odoo sync: no units extracted for '%s', skipping", state.file_name)
@@ -270,6 +290,30 @@ def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> i
         if found:
             return found[0]
 
+        # Fallback: search by x_name_en too — x_name alone misses a building whose
+        # Chinese name was manually shortened in Odoo (e.g. "Connaught Marina 干諾中心"
+        # → "干諾中心" with "Connaught Marina" moved to x_name_en), since ilike only
+        # matches when the FIELD contains the search string, not the reverse.
+        found = models.execute_kw(
+            ODOO_DB, uid, api_key, BUILDING_MODEL, "search",
+            [[["x_name_en", "ilike", search_name]]],
+        )
+        if found:
+            return found[0]
+
+        # Last-resort fallback: address overlap. Catches renames that also don't share
+        # a common substring at all (e.g. name shortened AND reordered) — the street
+        # address is a much more stable identifier than a free-text building name.
+        ai_address = raw.get("address") or ""
+        if ai_address:
+            candidates = models.execute_kw(
+                ODOO_DB, uid, api_key, BUILDING_MODEL, "search_read",
+                [[["x_address", "!=", False]]], {"fields": ["id", "x_address"]},
+            )
+            for cand in candidates:
+                if _address_overlap(ai_address, cand.get("x_address") or ""):
+                    return cand["id"]
+
         # Create new building record
         vals: dict = {
             "x_name": als.name_zh if als else building_name,
@@ -395,7 +439,8 @@ def _sync_units(models: Any, uid: int, api_key: str, state: DocumentState, doc_u
                 # Do NOT use _create_or_update here: its ilike fallback matches any record
                 # with the same building name, collapsing multiple floors into one record.
                 unit_id = models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "create", [vals])
-            ids.append(unit_id)
+            if unit_id not in ids:
+                ids.append(unit_id)
             # Extra fields per unit (unit-level fields that didn't fit known columns)
             unit_unmapped = _extract_unmapped({k: v for k, v in unit.items() if k not in {
                 "building_name", "address", "floor", "unit", "district",
@@ -502,6 +547,53 @@ def _map_unit_fields(
     return vals
 
 
+def _sync_pitching_deck_units(
+    models: Any, uid: int, api_key: str, state: DocumentState,
+    doc_url: str | None, building_id: int | None, units: list,
+) -> list[int]:
+    """Create/update one x_c21_listing record per unit in a multi-unit pitching_deck.
+
+    Unlike listing_list (_sync_units), a pitching deck describes ONE building with
+    several floors/units using the available_units[] schema (size_sqft/rent_monthly,
+    not size/rent) — so this reuses _map_fields(unit=...) rather than _map_unit_fields.
+    """
+    raw: dict = state.extracted.raw if state.extracted else {}
+    building = raw.get("building_name") or raw.get("project_name")
+    address = raw.get("address")
+    ids: list[int] = []
+
+    for unit in units[:20]:
+        if not isinstance(unit, dict):
+            continue
+        vals = _map_fields(state, doc_url, building_id, unit=unit)
+
+        # Dedup key MUST match what _map_fields actually stores in x_c21_floor_unit
+        # (floor, falling back to unit — not both joined) or an existing record with
+        # only one of the two populated will never be found, creating a duplicate.
+        floor_unit = str(unit.get("floor") or unit.get("unit") or "")
+        existing_id = _find_unit_record(models, uid, api_key, building, address, floor_unit)
+        vals["x_c21_published"] = False
+
+        try:
+            if existing_id:
+                models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
+                                  [[int(existing_id)], vals])
+                unit_id = int(existing_id)
+            else:
+                unit_id = models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "create", [vals])
+            if unit_id not in ids:
+                ids.append(unit_id)
+        except Exception as e:
+            logger.warning("Odoo sync: pitching_deck unit record failed for '%s': %s", vals.get("x_name"), e)
+
+    # Document-level unmapped AI fields go on every unit record (they're shared across units)
+    unmapped = _extract_unmapped(raw)
+    for unit_id in ids:
+        _sync_extra_fields(models, uid, api_key, unit_id, unmapped)
+
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Field mapping
 # ---------------------------------------------------------------------------
@@ -539,14 +631,25 @@ def _build_listing_name(raw: dict, file_name: str) -> str:
     return base or headline or file_name
 
 
-def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | None = None) -> dict:
+def _map_fields(
+    state: DocumentState, doc_url: str | None, building_id: int | None = None,
+    unit: dict | None = None,
+) -> dict:
     """Map AI extracted_data → Odoo x_c21_listing field values.
 
     Only non-null values are included so existing manual edits in Odoo are preserved.
+
+    `unit` overrides which entry of raw["available_units"] to use for floor/rent/size/
+    rates (defaults to the first). Pass explicitly when syncing one record per unit
+    (see _sync_pitching_deck_units) so each record gets its own unit's data instead
+    of every unit collapsing onto available_units[0].
     """
     raw: dict = state.extracted.raw if state.extracted else {}
 
     name = _build_listing_name(raw, state.file_name)
+    if unit and (unit.get("floor") or unit.get("unit")):
+        floor_unit_suffix = " ".join(str(x) for x in (unit.get("floor"), unit.get("unit")) if x)
+        name = f"{name} {floor_unit_suffix}".strip()
     vals: dict = {"x_name": name, "x_c21_status": "active"}
     if building_id:
         vals["x_building_id"] = building_id
@@ -572,26 +675,36 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
         except (TypeError, ValueError):
             pass
 
-    # First available unit: floor/unit label + rent + size fallback
+    # Selected unit (defaults to the first): floor/unit label + rent + size + rates fallback
     units = raw.get("available_units") or []
-    if units and isinstance(units, list):
+    if unit is None and units and isinstance(units, list):
         unit = units[0]
-        if isinstance(unit, dict):
-            floor_unit = unit.get("floor") or unit.get("unit")
-            if floor_unit:
-                vals["x_c21_floor_unit"] = str(floor_unit)
-            rent = unit.get("rent_monthly")
-            if rent is not None:
-                try:
-                    vals["x_c21_rent_net"] = float(rent)
-                except (TypeError, ValueError):
-                    pass
-            # Size fallback: if not captured at top level, use first unit's size
-            if "x_c21_size_sqft" not in vals and unit.get("size_sqft") is not None:
-                try:
-                    vals["x_c21_size_sqft"] = float(unit["size_sqft"])
-                except (TypeError, ValueError):
-                    pass
+    if isinstance(unit, dict):
+        floor_unit = unit.get("floor") or unit.get("unit")
+        if floor_unit:
+            vals["x_c21_floor_unit"] = str(floor_unit)
+        rent = unit.get("rent_monthly")
+        if rent is not None:
+            try:
+                vals["x_c21_rent_net"] = float(rent)
+            except (TypeError, ValueError):
+                pass
+        # Size fallback: if not captured at top level, use this unit's size
+        if "x_c21_size_sqft" not in vals and unit.get("size_sqft") is not None:
+            try:
+                vals["x_c21_size_sqft"] = float(unit["size_sqft"])
+            except (TypeError, ValueError):
+                pass
+        if unit.get("rates_quarterly") is not None:
+            try:
+                vals["x_c21_rates"] = float(unit["rates_quarterly"])
+            except (TypeError, ValueError):
+                pass
+        if unit.get("govt_rent_quarterly") is not None:
+            try:
+                vals["x_c21_govt_rent"] = float(unit["govt_rent_quarterly"])
+            except (TypeError, ValueError):
+                pass
 
     # Top-level rent fallback (asking_rent for pitching decks, rent_monthly for listings)
     if "x_c21_rent_net" not in vals:
@@ -615,6 +728,7 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
         ("aircon", "x_c21_aircon"),
         ("water_supply", "x_c21_water"),
         ("handover", "x_c21_handover"),
+        ("ceiling_height", "x_c21_ceiling_height"),
     ]:
         if raw.get(ai_key):
             vals[odoo_field] = str(raw[ai_key])
@@ -627,6 +741,10 @@ def _map_fields(state: DocumentState, doc_url: str | None, building_id: int | No
             vals["x_c21_mgmt_fee_psf"] = float(raw["management_fee_psf"])
         except (TypeError, ValueError):
             pass
+
+    # Total monthly management fee = psf × size — deterministic, no need to ask the LLM for it
+    if "x_c21_mgmt_fee_psf" in vals and "x_c21_size_sqft" in vals:
+        vals["x_c21_mgmt_fee"] = round(vals["x_c21_mgmt_fee_psf"] * vals["x_c21_size_sqft"], 2)
 
     date_received = _extract_date(state.file_name)
     if date_received:
