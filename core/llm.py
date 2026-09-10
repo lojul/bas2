@@ -17,4 +17,11 @@ def build_llm() -> ChatOpenAI:
         api_key=OPENROUTER_API_KEY,
         base_url="https://openrouter.ai/api/v1",
         temperature=0.3,
+        # Without an explicit cap, langchain.agents.create_agent's model_node
+        # auto-computes max_tokens to fill kimi-k2's remaining advertised
+        # context window (observed: 100352) — which exceeds what OpenRouter's
+        # Novita provider actually allows for this model (98304), so every
+        # single request failed with a 400 from the provider. Well under the
+        # ceiling; plenty for a property-search reply.
+        max_tokens=4000,
     )
