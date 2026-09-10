@@ -133,6 +133,12 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] JWT sessions extended to 30 days
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 - [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
+- [ ] **Report-generation rework queued 2026-09-10** (c21-leasing website, +
+      Slack/Teams if feasible) — this repo's `src/nodes/report_generator/`
+      (orphaned since `/api/chat/report` was removed) is a reference/
+      starting point only, not a working feature to just re-wire. Full plan
+      queued in `c21-leasing`'s CLAUDE.md "Pending" section — check there
+      first, this repo is not the primary owner of that work.
 - [ ] **Wire PDF image extraction to Odoo product photos** (requested 2026-09-03, not started).
       `ocr.py`'s `_extract_images_from_pdf()` already pulls embedded images via PyMuPDF and
       uploads them to blob (`state.ocr.image_urls`) — but that's a dead end today, nothing
