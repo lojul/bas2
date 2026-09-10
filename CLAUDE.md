@@ -147,6 +147,28 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 
 ---
 
+## Session Summary — 2026-09-03 (later): Reprocessing Overwrites Manual Edits + Duplicate Gallery Photos (found via a live Slack rerun test, fixed, deployed)
+
+### What happened
+Continuation of the same day's Connaught Marina test case (see the Session Summary directly below this one). After that session's fixes were deployed and the Odoo-side data was manually cleaned up (listing names shortened to "Connaught Marina 干諾中心 1/F"/"2/F", building link corrected — done from the `c21net.odoo.com` project, see its CLAUDE.md Decision 16), the exact same source PDF was deliberately re-sent through the **"Document Assistant" Slack bot** (this project's n8n-routed Slack channel — not to be confused with the separate **"C21 Property Chatbot"** Slack app, which lives in the unrelated `c21-property-chatbot` project and only does RAG-style Q&A via `/api/v1/chat`, no document ingestion) to verify the earlier fixes held under a real rerun.
+
+The building-dedup fix (root cause #4 below) **held** — the rerun correctly resolved back to the same existing building. But two further bugs surfaced that the earlier session's fix didn't cover:
+
+### Root causes
+6. **Every UPDATE unconditionally overwrote `x_name` and `x_c21_status`.** The vals dict built by `_map_fields()`/`_map_unit_fields()` always includes a freshly-rebuilt `x_name` and a hardcoded `x_c21_status: "active"`, with no distinction between create and update. A rerun of the same PDF reverted the manually-shortened listing name back to the verbose auto-generated form (`"Connaught Marina 干諾中心 1/F 1/F樓 (Fitted 附設裝修)"`), and would silently un-archive any listing staff had marked 撤盤/已租出 in Odoo — undoing the Odoo-side archive-on-withdraw automation built the same day.
+7. **`_sync_photos()`'s gallery sync had no dedup.** Every rerun re-extracted every embedded PDF image and unconditionally called `product.image.create()` for each, with no check for "already synced this page." Confirmed live: rerunning the same 2-unit PDF doubled the gallery image count on both products (5→10, 6→12).
+
+### Fixes applied (commit `2e0f432`, deployed to `c21net-bas-api-doc-pipeline-ea-prod` only — no Function App code touched this round)
+- New `_strip_manual_fields(vals)` helper strips `x_name`/`x_c21_status` from the write payload; applied at all 4 places the code writes to an *existing* `x_c21_listing` (`_sync_units`, `_sync_pitching_deck_units`, both update-paths in `_create_or_update`). Both fields are now only ever set on `create`, never on `write`.
+- `_sync_photos()`: before creating a product's gallery images, now deletes that product's previously auto-synced set first (matched by the pipeline's own `"p<page> 圖片 <n>"` naming convention — staff-curated images use different names and are left untouched), making reruns idempotent instead of additive.
+- Verified channel-agnostic: `odoo_sync` is a single shared LangGraph node for both WhatsApp and Slack (confirmed via `graph.py` — no per-channel branching), so this fix applies identically to both without any WhatsApp-specific handling needed.
+- Test suite: 47 passed / 7 pre-existing failures (unrelated `blob.py`/`ocr.py` import-path issues, confirmed via `git stash` to predate this change) — no new failures introduced.
+
+### Odoo data cleanup performed (data-only, no code)
+Re-fixed listing 122/123 and product 56/57 names back to the clean short form after the rerun test reverted them; deleted the 11 duplicate gallery `product.image` records the rerun created (ids 37–47), keeping the original clean set (ids 26–36).
+
+---
+
 ## Session Summary — 2026-09-03: Odoo API Key Renewal + Pitching-Deck Multi-Unit Sync Bugs (found, fixed, deployed)
 
 ### What happened
