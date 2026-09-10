@@ -248,9 +248,5 @@ def run_pipeline_job(payload: dict) -> None:
         logger.error("Pipeline job failed for '%s': %s", file_name, e)
         message = f"❌ 處理失敗：{file_name or '文字內容'}\n原因：{str(e)[:120]}"
 
-    if notify_user and notify_channel == "whatsapp":
-        from src.utils.whatsapp_notify import send_whatsapp
-        send_whatsapp(notify_user, message)
-    elif notify_user and notify_channel == "slack":
-        from src.utils.slack_notify import send_slack
-        send_slack(notify_user, message)
+    from src.utils.channel_notify import notify
+    notify(notify_channel, notify_user, message)

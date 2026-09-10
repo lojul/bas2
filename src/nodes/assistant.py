@@ -1,7 +1,17 @@
 """AI Assistant — LangGraph ReAct agent for content ingest.
 
 Handles Knowledge articles, Property Listings, and CRM leads (future).
-Channel-agnostic: same agent serves dashboard and WhatsApp.
+
+Channel-agnostic core: handle_message() and every fast path below make
+decisions purely from message shape (has a file? how long is the text? does
+it contain a URL?) — never from `channel`. `channel` exists only to know how
+to notify the user back (see src/utils/channel_notify.py) and to key session/
+file-cache storage. The one exception is transport-level text quirks (e.g.
+Slack's mrkdwn link encoding), normalized once via `_BODY_NORMALIZERS` before
+any of the shape-based logic runs. To add a new channel (e.g. Teams): give
+its adapter a `channel` string, register a notifier in channel_notify.py if
+it needs async completion pushes, and register a body normalizer here only if
+its transport encodes text unusually. No other changes needed.
 """
 
 import contextvars
@@ -72,10 +82,32 @@ STRICT RULES — you MUST follow these:
 - If the user says "reset" or "重新開始", show the menu again
 - NEVER use Markdown formatting. No bold, no italics, no headers. Plain text only."""
 
-_LANGUAGE_RULES = {
-    "whatsapp": "CRITICAL: Always reply in the same language the user writes in. If they write English, your reply MUST be in English. If they write Traditional Chinese (繁體中文), reply in Chinese. This applies to ALL your output including when presenting tool results — never paste tool output verbatim, always reformulate it in the user's language. Professional tone — clear and concise.",
-    "dashboard": "CRITICAL: Always reply in the same language the user writes in. If they write English, your reply MUST be in English. If they write Traditional Chinese (繁體中文), reply in Chinese. This applies to ALL your output including when presenting tool results — never paste tool output verbatim, always reformulate it in the user's language. Professional tone — clear and concise.",
+# Same rule for every channel — language behavior doesn't vary by transport.
+_LANGUAGE_RULE = "CRITICAL: Always reply in the same language the user writes in. If they write English, your reply MUST be in English. If they write Traditional Chinese (繁體中文), reply in Chinese. This applies to ALL your output including when presenting tool results — never paste tool output verbatim, always reformulate it in the user's language. Professional tone — clear and concise."
+
+# ── Channel input normalization ──────────────────────────────────────────────
+# Transport-specific quirks in how a channel encodes incoming text. This is the
+# ONLY place channel identity should affect message content before it reaches
+# the (channel-blind) core logic below. To add a new channel's quirk, register
+# a function here — don't add another `if channel == "..."` inline further down.
+
+def _normalize_slack_body(body: str) -> str:
+    """Slack sends links as mrkdwn <url> or <url|label> — normalize to a plain URL
+    so downstream URL detection/Tavily extraction/article generation see a clean link."""
+    import re as _re_slack_link
+    return _re_slack_link.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", body)
+
+
+_BODY_NORMALIZERS = {
+    "slack": _normalize_slack_body,
+    # whatsapp/dashboard/teams send plain text already — no normalizer needed.
 }
+
+
+def _normalize_body_for_channel(channel: str, body: str) -> str:
+    normalizer = _BODY_NORMALIZERS.get(channel)
+    return normalizer(body) if (normalizer and body) else body
+
 
 GREETING = """您好，我是 C21 文件助理。請選擇所需服務：
 
@@ -119,8 +151,7 @@ def _resolve_language(current_message: str, session_messages: list) -> str:
     return "zh"  # default
 
 
-def _build_system_prompt(channel: str, user_message: str = "", session_messages: list | None = None) -> str:
-    rule = _LANGUAGE_RULES.get(channel, _LANGUAGE_RULES["dashboard"])
+def _build_system_prompt(user_message: str = "", session_messages: list | None = None) -> str:
     # Hard language override — detect from the CURRENT message. For short numeric/emoji
     # replies ("2", "yes"), inherit from the most recent alphabetic user message in history.
     lang = _resolve_language(user_message, session_messages or [])
@@ -134,7 +165,7 @@ def _build_system_prompt(channel: str, user_message: str = "", session_messages:
             "MANDATORY LANGUAGE OVERRIDE: The user's current message is in Chinese. "
             "You MUST reply in Traditional Chinese (繁體中文) only."
         )
-    return override + "\n\n" + _SYSTEM_PROMPT_BASE.format(language_rule=rule)
+    return override + "\n\n" + _SYSTEM_PROMPT_BASE.format(language_rule=_LANGUAGE_RULE)
 
 
 def _build_llm():
@@ -244,12 +275,8 @@ def _dispatch_pipeline_async(
         except Exception as e:
             message = f"❌ 處理失敗：{file_name or '文字內容'}\n原因：{str(e)[:120]}"
 
-        if notify_user and notify_channel == "whatsapp":
-            from src.utils.whatsapp_notify import send_whatsapp
-            send_whatsapp(notify_user, message)
-        elif notify_user and notify_channel == "slack":
-            from src.utils.slack_notify import send_slack
-            send_slack(notify_user, message)
+        from src.utils.channel_notify import notify
+        notify(notify_channel, notify_user, message)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -653,12 +680,7 @@ def handle_message(
         _pending_file.set(None)
     _pending_media_url.set(media_url)
 
-    # Slack sends links as mrkdwn <url> or <url|label> — normalize to a plain URL so
-    # downstream URL detection/Tavily extraction/article generation see a clean link.
-    # (WhatsApp/Twilio already sends plain URLs, so this is a no-op there.)
-    if channel == "slack" and body:
-        import re as _re_slack_link
-        body = _re_slack_link.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", body)
+    body = _normalize_body_for_channel(channel, body)
 
     # Load session
     session = get_session(user_id, channel)
@@ -816,11 +838,13 @@ def handle_message(
         save_session(user_id, channel, session)
         return reply
 
-    # Fast path: WhatsApp URL message (body is a URL, or a short caption + URL).
+    # Fast path: bare URL message (body is a URL, or a short caption + URL).
     # Catches bare URLs like https://share.google/... AND short link-preview captions
-    # like "來源：on.cc https://..." where the WhatsApp card adds surrounding text.
-    # Auto-dispatch as news — pipeline fetches content via Tavily (with redirect following).
-    if channel in ("whatsapp", "slack") and not file_name and not media_url:
+    # like "來源：on.cc https://..." where a channel's link-preview card adds
+    # surrounding text. Auto-dispatch as news — pipeline fetches content via Tavily
+    # (with redirect following). Applies to every channel — a forwarded link is a
+    # forwarded link regardless of transport.
+    if not file_name and not media_url:
         import re as _re_url
         _body_s = body.strip()
         _has_url = bool(_re_url.search(r'https?://\S+', _body_s))
@@ -833,7 +857,7 @@ def handle_message(
             from src.state import DocumentType
             _dispatch_pipeline_async(
                 None, None, text=_body_s,
-                forced_type=DocumentType.NEWS,  # URLs forwarded on WhatsApp are always news articles
+                forced_type=DocumentType.NEWS,  # a forwarded URL is always a news article
                 notify_user=user_id, notify_channel=channel,
             )
             reply = _PROCESSING_REPLY
@@ -843,12 +867,13 @@ def handle_message(
             save_session(user_id, channel, session)
             return reply
 
-    # Fast path: WhatsApp text-only forwarded post (≥60 chars, no file).
-    # On WhatsApp, long text-only messages are almost always forwarded articles/ads.
-    # Dispatch directly — pipeline classifier decides news vs listing. Avoids the
-    # ReAct agent's 3-LLM-call chain which easily exceeds n8n's HTTP timeout.
-    # Dashboard users are NOT caught here (they use the chat UI and ask questions).
-    if channel in ("whatsapp", "slack") and not file_name and not media_url and len(body.strip()) >= 60:
+    # Fast path: text-only forwarded post (≥60 chars, no file).
+    # Long text-only messages are almost always forwarded articles/ads, on any
+    # channel. Dispatch directly — pipeline classifier decides news vs listing.
+    # Avoids the ReAct agent's 3-LLM-call chain, which easily exceeds proxy idle
+    # timeouts (n8n's HTTP timeout for WhatsApp/Slack; Azure's 60s idle timeout
+    # for everyone else).
+    if not file_name and not media_url and len(body.strip()) >= 60:
         _dispatch_pipeline_async(
             None, None, text=body.strip(),
             notify_user=user_id, notify_channel=channel,
@@ -945,7 +970,7 @@ def handle_message(
         if m.get("content") != _PROCESSING_REPLY
     ]
     history = _messages_to_lc(_clean_history)
-    input_messages = [SystemMessage(content=_build_system_prompt(channel, body, _clean_history))] + history + [HumanMessage(content=user_content)]
+    input_messages = [SystemMessage(content=_build_system_prompt(body, _clean_history))] + history + [HumanMessage(content=user_content)]
 
     try:
         llm = _build_llm()
