@@ -1,89 +1,72 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import { streamMessage, clearConversation, generateReport, submitFeedback } from "@/lib/api";
-import type { ChatMessage, Source } from "@/lib/api";
-import { ChatMessages } from "@/components/ChatMessages";
+import { useState, useCallback, useRef, useEffect } from "react";
+import { sendAssistantMessage, clearAssistantSession } from "@/lib/api";
 
-const SAMPLE_QUESTIONS = [
-  { en: "Office space for rent in Central?", zh: "中環有哪些寫字樓出租？" },
-  { en: "Retail shops available in Causeway Bay?", zh: "銅鑼灣有什麼零售舖位？" },
-  { en: "Market trend for commercial properties in 2025?", zh: "2025年商業樓市走勢如何？" },
-  { en: "Compare office rents in Quarry Bay vs Kwun Tong", zh: "鰂魚涌與觀塘辦公室租金比較" },
-];
+interface AssistantMessage {
+  role: "user" | "assistant";
+  content: string;
+  fileName?: string;
+}
 
-function getOrCreateThreadId(): string {
-  let tid = localStorage.getItem("thread_id");
-  if (!tid) {
-    tid = crypto.randomUUID();
-    localStorage.setItem("thread_id", tid);
+function decodeUserId(): string {
+  if (typeof window === "undefined") return "dashboard-user";
+  const token = localStorage.getItem("token");
+  if (token) {
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      if (payload?.sub) return String(payload.sub);
+    } catch {
+      // fall through to generated id
+    }
   }
-  return tid;
+  let id = localStorage.getItem("assistant_user_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("assistant_user_id", id);
+  }
+  return id;
 }
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
-  const [streaming, setStreaming] = useState(false);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [threadId, setThreadId] = useState<string>(() =>
-    typeof window !== "undefined" ? getOrCreateThreadId() : ""
-  );
-  const abortRef = useRef<(() => void) | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
+  const [userId, setUserId] = useState("dashboard-user");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const sendQuestion = useCallback((question: string) => {
-    if (!question.trim() || streaming) return;
+  useEffect(() => {
+    setUserId(decodeUserId());
+  }, []);
+
+  useEffect(() => {
+    scrollRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const handleSend = useCallback(async () => {
+    const body = input.trim();
+    if ((!body && !file) || sending) return;
 
     setInput("");
-    setStreaming(true);
+    const sentFile = file;
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    setSending(true);
 
-    setMessages((prev) => [...prev, { role: "user", content: question }]);
-    setMessages((prev) => [...prev, { role: "assistant", content: "", streaming: true }]);
+    setMessages((prev) => [...prev, { role: "user", content: body, fileName: sentFile?.name }]);
 
-    const abort = streamMessage(
-      question,
-      threadId,
-      (chunk) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: last.content + chunk };
-          }
-          return updated;
-        });
-      },
-      (sources: Source[], finalThreadId: string) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, streaming: false, sources };
-          }
-          return updated;
-        });
-        localStorage.setItem("thread_id", finalThreadId);
-        setThreadId(finalThreadId);
-        setStreaming(false);
-      },
-      (err) => {
-        setMessages((prev) => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === "assistant") {
-            updated[updated.length - 1] = { ...last, content: `Error: ${err}`, streaming: false };
-          }
-          return updated;
-        });
-        setStreaming(false);
-      },
-    );
-    abortRef.current = abort;
-  }, [streaming, threadId]);
-
-  const handleSend = useCallback(() => {
-    sendQuestion(input.trim());
-  }, [input, sendQuestion]);
+    try {
+      const { reply } = await sendAssistantMessage(userId, body, sentFile ?? undefined);
+      setMessages((prev) => [...prev, { role: "assistant", content: reply }]);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Assistant error";
+      setMessages((prev) => [...prev, { role: "assistant", content: `⚠️ ${msg}` }]);
+    } finally {
+      setSending(false);
+    }
+  }, [input, file, sending, userId]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -93,43 +76,9 @@ export default function ChatPage() {
   }
 
   async function handleClear() {
-    if (streaming) abortRef.current?.();
-    await clearConversation(threadId).catch(() => {});
-    const newId = crypto.randomUUID();
-    localStorage.setItem("thread_id", newId);
-    setThreadId(newId);
+    await clearAssistantSession(userId).catch(() => {});
     setMessages([]);
-    setStreaming(false);
   }
-
-  const allSources: Source[] = messages
-    .filter((m) => m.role === "assistant" && m.sources && m.sources.length > 0)
-    .flatMap((m) => m.sources!);
-
-  const hasCompletedResponse = messages.some((m) => m.role === "assistant" && !m.streaming);
-
-  const handleGenerateReport = useCallback(async () => {
-    setReportLoading(true);
-    try {
-      const blob = await generateReport(allSources);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "property_report.pdf";
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "Report generation failed");
-    } finally {
-      setReportLoading(false);
-    }
-  }, [allSources]);
-
-  const handleFeedback = useCallback((messageIndex: number, rating: "up" | "down") => {
-    const answer = messages[messageIndex]?.content ?? "";
-    const question = messages[messageIndex - 1]?.content ?? "";
-    submitFeedback(threadId, question, answer, rating, messageIndex).catch(() => {});
-  }, [messages, threadId]);
 
   const isEmpty = messages.length === 0;
 
@@ -137,71 +86,103 @@ export default function ChatPage() {
     <div className="flex flex-col h-full bg-gray-50">
       <header className="flex items-center justify-between px-4 lg:px-6 py-3 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-sm font-medium text-gray-700 truncate">Chat / 搜尋助手</span>
+          <span className="text-sm font-medium text-gray-700 truncate">Chat / 文件助手</span>
           <span className="hidden sm:inline text-xs text-gray-400 shrink-0">Powered by Llama 3.3 70B</span>
         </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {allSources.length > 0 && (
-            <button
-              onClick={handleGenerateReport}
-              disabled={reportLoading}
-              className="text-xs sm:text-sm text-blue-600 hover:text-blue-800 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-40"
-            >
-              {reportLoading ? "生成中…" : <><span className="hidden sm:inline">生成報告 </span>PDF</>}
-            </button>
-          )}
-          <button
-            onClick={handleClear}
-            className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
-          >
-            <span className="hidden sm:inline">New chat / </span>新對話
-          </button>
-        </div>
+        <button
+          onClick={handleClear}
+          className="text-xs sm:text-sm text-gray-500 hover:text-gray-700 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors shrink-0"
+        >
+          <span className="hidden sm:inline">New chat / </span>新對話
+        </button>
       </header>
 
       {isEmpty ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-4 gap-8">
-          <div className="text-center space-y-1">
-            <h2 className="text-xl font-semibold text-gray-800">Property Intelligence Assistant</h2>
-            <p className="text-sm text-gray-500">香港商業物業搜尋助手 · Ask in English or 中文</p>
-          </div>
-
-          <div className="w-full max-w-2xl grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {SAMPLE_QUESTIONS.map((q, i) => (
-              <button
-                key={i}
-                onClick={() => sendQuestion(q.zh)}
-                disabled={streaming}
-                className="text-left px-4 py-3 bg-white border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors group disabled:opacity-40"
-              >
-                <p className="text-sm font-medium text-gray-800 group-hover:text-blue-700">{q.zh}</p>
-                <p className="text-xs text-gray-400 mt-0.5">{q.en}</p>
-              </button>
-            ))}
-          </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-4 gap-3 text-center">
+          <h2 className="text-xl font-semibold text-gray-800">Document Assistant</h2>
+          <p className="text-sm text-gray-500 max-w-md">
+            與 WhatsApp / Slack 上的同一個助手 · Same assistant as WhatsApp &amp; Slack
+          </p>
+          <p className="text-xs text-gray-400 max-w-md">
+            貼上樓盤資料或新聞連結，或上傳 PDF / 圖片，助手會幫你建立 Odoo 盤源或知識文章。
+            <br />
+            Paste listing text or a news link, or attach a PDF/image — the assistant will triage it into an Odoo listing or knowledge article.
+          </p>
         </div>
       ) : (
-        <ChatMessages messages={messages} onFeedback={handleFeedback} />
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div className="max-w-2xl mx-auto space-y-4">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+                    m.role === "user" ? "bg-blue-600 text-white" : "bg-white border border-gray-200 text-gray-800"
+                  }`}
+                >
+                  {m.fileName && (
+                    <div className={`text-xs mb-1 ${m.role === "user" ? "text-blue-100" : "text-gray-400"}`}>
+                      📎 {m.fileName}
+                    </div>
+                  )}
+                  {m.content || <span className="opacity-50">…</span>}
+                </div>
+              </div>
+            ))}
+            {sending && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] rounded-2xl px-4 py-3 text-sm bg-white border border-gray-200 text-gray-400">
+                  …
+                </div>
+              </div>
+            )}
+            <div ref={scrollRef} />
+          </div>
+        </div>
       )}
 
       <div className="shrink-0 px-4 pb-4 pt-2 bg-white border-t border-gray-200">
-        <div className="max-w-3xl mx-auto flex gap-3 items-end">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="用中文或英文提問… Enter 發送，Shift+Enter 換行"
-            rows={1}
-            className="flex-1 resize-none border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-h-32 overflow-y-auto"
-            disabled={streaming}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!input.trim() || streaming}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl px-5 py-3 text-sm font-medium transition-colors shrink-0"
-          >
-            {streaming ? "…" : "發送"}
-          </button>
+        <div className="max-w-2xl mx-auto space-y-2">
+          {file && (
+            <div className="flex items-center gap-2 text-xs text-gray-600 bg-gray-100 rounded-lg px-3 py-1.5 w-fit">
+              📎 {file.name}
+              <button onClick={() => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }} className="text-gray-400 hover:text-gray-700">
+                ✕
+              </button>
+            </div>
+          )}
+          <div className="flex gap-3 items-end">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png,.docx,.pptx"
+              className="hidden"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending}
+              title="Attach file"
+              className="shrink-0 border border-gray-300 rounded-xl px-3 py-3 text-gray-500 hover:bg-gray-50 disabled:opacity-40"
+            >
+              📎
+            </button>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="用中文或英文提問… Enter 發送，Shift+Enter 換行"
+              rows={1}
+              className="flex-1 resize-none border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-h-32 overflow-y-auto"
+              disabled={sending}
+            />
+            <button
+              onClick={handleSend}
+              disabled={(!input.trim() && !file) || sending}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl px-5 py-3 text-sm font-medium transition-colors shrink-0"
+            >
+              {sending ? "…" : "發送"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
