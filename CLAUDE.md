@@ -427,10 +427,17 @@ now-deleted `chatbot.py`.
   directly (never 2nd-person "you"/"您" toward the lead).
 - Deployed: App Service `c21net-bas-api-property-chatbot-ea-prod` (core API)
   + Function App `c21net-bas-func-chatbot-slack-ea-prod` (Slack adapter),
-  both in RG `c21net-bas-property-chatbot-ea-prod`. Slack integration fully
-  live — real Slack App registered ("C21 Property Chatbot"), installed to
-  the whole workspace (available to every member automatically, no
-  per-person setup), real bot replying in real DMs.
+  both in RG `c21net-bas-property-chatbot-ea-prod`. Slack App "C21 Property
+  Chatbot" is registered and installed workspace-wide (visible under Agents
+  and apps for every member, no per-person setup). **2026-09-10: found
+  completely broken** (every request 500'd — `langchain.agents.create_agent`
+  auto-computed a `max_tokens` that exceeded OpenRouter's Novita provider
+  cap for kimi-k2) since the `ce0bac5` migration commit, unused/unnoticed
+  until then; fixed (`max_tokens` capped explicitly) and **confirmed live
+  and replying correctly end-to-end in Slack**, including real
+  `search_properties` results. Has a real daily cap (20/user, 300 global,
+  see `core/rate_limit.py`) — document-processor's own assistant does not.
+  See memory `reference-org-chatbot-map.md` for the full org picture.
 
 ### Reusable gotchas found (apply to any future Azure work in this org)
 1. **Azure Storage Queue messages need `TextBase64EncodePolicy()`** when sent
