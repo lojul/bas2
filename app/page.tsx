@@ -2,13 +2,14 @@ import {
   Sparkles,
   MessageSquareMore,
   FileScan,
-  Search,
+  Layers,
   BookOpenText,
   ContactRound,
   Languages,
   ArrowRight,
   ArrowDown,
-  Building2,
+  FileText,
+  CheckCircle2,
 } from "lucide-react";
 
 const SIGN_IN_URL = "/login";
@@ -26,11 +27,6 @@ function Wordmark() {
 }
 
 function ChatPreview() {
-  const listings = [
-    { name: "Prosperity Tower 嘉兆商業大廈", size: "1,280 sq ft", rent: "HK$48/ft²" },
-    { name: "The Center 中環中心", size: "2,050 sq ft", rent: "HK$55/ft²" },
-    { name: "Nexxus Building 協成行中心", size: "860 sq ft", rent: "HK$41/ft²" },
-  ];
   return (
     <div className="relative">
       <div className="absolute -top-10 -right-8 size-40 rounded-full bg-genie-green/20 blur-3xl" aria-hidden />
@@ -49,7 +45,10 @@ function ChatPreview() {
         <div className="mt-4 space-y-3 text-sm leading-relaxed">
           <div className="flex justify-end">
             <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-genie-accent px-4 py-2.5 text-genie-accent-fg">
-              <p className="font-noto-tc">中環有咩寫字樓出租？</p>
+              <div className="flex items-center gap-2 rounded-lg bg-genie-card/70 px-2.5 py-2">
+                <FileText className="size-4 shrink-0" />
+                <span className="truncate text-[13px] font-medium font-noto-tc">商舖市況報告.pdf</span>
+              </div>
               <p className="mt-1 text-right text-[10px] text-genie-accent-fg/60">10:42 ✓✓</p>
             </div>
           </div>
@@ -59,29 +58,13 @@ function ChatPreview() {
               <Sparkles className="size-3.5" />
             </span>
             <div className="max-w-[85%] space-y-2.5 rounded-2xl rounded-tl-sm bg-[#f1efe6] px-4 py-3 text-genie-ink">
-              <p>Found 3 offices for lease in Central — here are the top matches:</p>
-
-              <div className="space-y-2">
-                {listings.map((l) => (
-                  <div
-                    key={l.name}
-                    className="flex items-center gap-3 rounded-xl border border-genie-border bg-genie-card px-3 py-2.5"
-                  >
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-genie-accent text-genie-accent-fg">
-                      <Building2 className="size-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-[13px] font-semibold font-noto-tc">{l.name}</p>
-                      <p className="text-xs text-genie-muted">
-                        {l.size} · {l.rent}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+              <div className="flex items-center gap-2 text-genie-green-deep">
+                <CheckCircle2 className="size-4 shrink-0" />
+                <p className="font-medium">Got it — classified as market research.</p>
               </div>
-
+              <p>Saved as a searchable knowledge article. Send a listing or a name card next time and Genie will file it differently, automatically.</p>
               <p className="text-xs text-genie-muted">
-                Sample preview only — not real client data. Want details on any of these?
+                Sample preview only — illustrative, not real client data.
               </p>
               <p className="text-right text-[10px] text-genie-muted">10:42</p>
             </div>
@@ -119,9 +102,9 @@ const features = [
     body: "Drop in a PDF, photo, or forwarded listing and Genie OCRs, classifies, and extracts the structured data automatically.",
   },
   {
-    icon: Search,
-    title: "Natural-language property search",
-    body: "Ask in plain Chinese or English — “中環有咩寫字樓出租？” — and get real, grounded results back, powered by semantic search.",
+    icon: Layers,
+    title: "Classifies as it goes",
+    body: "Genie tells a property listing from a news clipping from a business card automatically — no folders, no manual sorting, no setup per document type.",
   },
   {
     icon: BookOpenText,
@@ -168,15 +151,16 @@ export default function Home() {
           <div>
             <span className="inline-flex items-center gap-1.5 rounded-full border border-genie-border bg-genie-card px-3.5 py-1.5 text-xs font-semibold tracking-wide text-genie-green-deep">
               <Sparkles className="size-3.5" />
-              AI for property businesses
+              A knowledge base built from whatever you upload
             </span>
             <h1 className="mt-6 text-5xl leading-[1.05] font-bold tracking-tight sm:text-6xl">
               One AI assistant for every way your business{" "}
               <em className="font-serif italic text-genie-green-deep">talks</em>
             </h1>
             <p className="mt-6 max-w-lg text-lg leading-relaxed text-genie-muted">
-              Genie ingests documents and answers property questions over WhatsApp, Slack, and the
-              web — one shared AI assistant, always in sync.
+              Genie reads whatever you send it — listings, news, name cards, reports, anything —
+              and turns it into an organized, searchable knowledge base. Works over WhatsApp,
+              Slack, and the web, one shared assistant always in sync.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <a
@@ -193,7 +177,7 @@ export default function Home() {
               </a>
             </div>
             <p className="mt-8 text-sm text-genie-muted">
-              Built for real-estate teams · <span className="font-noto-tc">繁體中文</span>{" "}
+              Built for teams of any kind · <span className="font-noto-tc">繁體中文</span>{" "}
               &amp; English
             </p>
           </div>
@@ -234,7 +218,7 @@ export default function Home() {
             Features
           </p>
           <h2 className="mt-3 max-w-2xl text-3xl font-bold tracking-tight sm:text-4xl">
-            Everything your property business <em className="font-serif italic text-genie-green-deep">wishes</em> for
+            Everything your business <em className="font-serif italic text-genie-green-deep">wishes</em> for
           </h2>
 
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
