@@ -133,6 +133,18 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] JWT sessions extended to 30 days
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 - [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
+- [ ] **Move the web dashboard to `genie.infiniduo.com`** (decided
+      2026-09-11, not started). Currently on Vercel at
+      `nextjs-dashboard-kappa-one-24.vercel.app` (see `nextjs-dashboard/`).
+      This is the dashboard's domain move ONLY — `c21-leasing`'s public
+      site (`www.c21net.com`) is explicitly NOT part of this and is not
+      moving (a domain-move item was briefly, incorrectly listed under
+      `c21-leasing`'s CLAUDE.md on 2026-09-10 — corrected 2026-09-11). Will
+      need: custom domain added in Vercel project settings, DNS record(s)
+      on infiniduo.com pointed at Vercel, and likely `CORS_ORIGIN`/
+      `FRONTEND_URL` app settings on `c21net-bas-api-doc-pipeline-ea-prod`
+      updated to the new origin (see the CORS gotcha from the 2026-09-10
+      session — the API only allowlists one hardcoded origin at a time).
 - [ ] **Report-generation rework queued 2026-09-10** (c21-leasing website, +
       Slack/Teams if feasible) — this repo's `src/nodes/report_generator/`
       (orphaned since `/api/chat/report` was removed) is a reference/
