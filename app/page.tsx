@@ -255,24 +255,24 @@ export default function Home() {
       </section>
 
       <section className="px-5 pb-24">
-        <div className="mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] bg-genie-ink px-6 py-16 text-center text-white shadow-[0_2px_4px_rgba(22,36,28,0.05),0_24px_64px_-20px_rgba(22,36,28,0.22)] sm:py-20">
-          <Sparkles className="mx-auto size-8 text-genie-green" />
-          <h2 className="mx-auto mt-5 max-w-xl text-3xl font-bold tracking-tight sm:text-4xl">
+        <div className="mx-auto max-w-6xl overflow-hidden rounded-[2.5rem] border border-genie-border bg-genie-accent px-6 py-16 text-center shadow-[0_2px_4px_rgba(22,36,28,0.05),0_24px_64px_-20px_rgba(22,36,28,0.14)] sm:py-20">
+          <Sparkles className="mx-auto size-8 text-genie-green-deep" />
+          <h2 className="mx-auto mt-5 max-w-xl text-3xl font-bold tracking-tight text-genie-ink sm:text-4xl">
             Ready to put Genie to work?
           </h2>
-          <p className="mx-auto mt-4 max-w-md text-white/70">
+          <p className="mx-auto mt-4 max-w-md text-genie-muted">
             One assistant across every channel — your team can start today.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-4">
             <a
               href={SIGN_IN_URL}
-              className="inline-flex items-center gap-2 rounded-full bg-genie-card px-7 py-3.5 text-sm font-medium text-genie-ink transition-colors hover:bg-genie-bg"
+              className="inline-flex items-center gap-2 rounded-full bg-genie-ink px-7 py-3.5 text-sm font-medium text-white shadow-sm transition-all hover:bg-genie-green-deep hover:shadow-md"
             >
               Sign in <ArrowRight className="size-4" />
             </a>
             <a
               href={CONTACT_URL}
-              className="text-sm font-medium text-white/80 underline-offset-4 transition-colors hover:text-white hover:underline"
+              className="text-sm font-medium text-genie-ink/80 underline-offset-4 transition-colors hover:text-genie-ink hover:underline"
             >
               Contact us
             </a>
