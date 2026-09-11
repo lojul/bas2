@@ -157,6 +157,38 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
       old URL is effectively retired, not actively maintained going forward.
       Verified end-to-end: logged in fresh at `genie.infiniduo.com/chat/`
       and got a real assistant reply.
+- [x] **Marketing landing page at the root** (completed 2026-09-11). Root
+      `/` previously hard-redirected straight to `/chat` (`app/page.tsx` was
+      just `redirect("/chat")`) — the domain had no actual front page, only
+      the login-gated app. Built a real one promoting Genie's actual shipped
+      features (multi-channel ingest, OCR/extraction, natural-language
+      property search, knowledge capture, business-card scanning, bilingual
+      support) — no invented/roadmap features.
+      **How it was built:** drafted first in Lovable (`create_project`,
+      workspace `julianlau's Lovable`, project id
+      `c415b9c8-3901-411b-97a6-dade75086674`, display name "Genie: Your
+      Property AI") using `https://postcraft.infiniduo.com`
+      (`soshio-landing` repo) as the style/structure reference — warm cream
+      background, bold headline with one italic accent word, pill nav CTA,
+      mock chat-preview panel, numbered "How it works", feature grid, final
+      CTA, minimal footer. The Lovable draft is left as-is (private, not
+      published) — it was a design reference, not the deployed artifact.
+      **Ported into this repo directly** (`app/page.tsx`, plus new fonts in
+      `app/layout.tsx` — Instrument Serif italic for the accent word, Noto
+      Sans TC for Chinese — and a `genie-*` color palette added to
+      `app/globals.css`) rather than cross-hosting a second app under the
+      same domain — kept everything on one deploy, no extra CORS/domain
+      surface. Added `lucide-react` for icons (only page in this repo that
+      uses it). The chat-preview mock data ("中環有咩寫字樓出租？" → 3 sample
+      listings) is explicitly labeled "Sample preview only — not real
+      client data" in the UI — do not swap in real listings without keeping
+      an equivalent disclaimer.
+      **The app itself is untouched** — `/login`, `/chat`, `/admin/*` etc.
+      all work exactly as before; they're just no longer what `/` shows
+      automatically. "Sign in" buttons on the landing page link to `/login`.
+      Verified end-to-end in production: `https://genie.infiniduo.com/`
+      loads the landing page, and clicking "Sign in" reaches the real login
+      page.
 - [ ] **Report-generation rework queued 2026-09-10** (c21-leasing website, +
       Slack/Teams if feasible) — this repo's `src/nodes/report_generator/`
       (orphaned since `/api/chat/report` was removed) is a reference/
