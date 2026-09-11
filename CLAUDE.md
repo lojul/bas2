@@ -133,18 +133,30 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] JWT sessions extended to 30 days
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 - [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
-- [ ] **Move the web dashboard to `genie.infiniduo.com`** (decided
-      2026-09-11, not started). Currently on Vercel at
-      `nextjs-dashboard-kappa-one-24.vercel.app` (see `nextjs-dashboard/`).
-      This is the dashboard's domain move ONLY — `c21-leasing`'s public
-      site (`www.c21net.com`) is explicitly NOT part of this and is not
-      moving (a domain-move item was briefly, incorrectly listed under
-      `c21-leasing`'s CLAUDE.md on 2026-09-10 — corrected 2026-09-11). Will
-      need: custom domain added in Vercel project settings, DNS record(s)
-      on infiniduo.com pointed at Vercel, and likely `CORS_ORIGIN`/
-      `FRONTEND_URL` app settings on `c21net-bas-api-doc-pipeline-ea-prod`
-      updated to the new origin (see the CORS gotcha from the 2026-09-10
-      session — the API only allowlists one hardcoded origin at a time).
+- [x] **Move the web dashboard to `genie.infiniduo.com`** (decided and
+      completed 2026-09-11). `www.c21net.com` (`c21-leasing`) was explicitly
+      NOT part of this and did not move (a domain-move item was briefly,
+      incorrectly listed under `c21-leasing`'s CLAUDE.md on 2026-09-10 —
+      corrected 2026-09-11).
+      **How it was done:** `infiniduo.com`'s nameservers are Vercel's own
+      (`ns1/ns2.vercel-dns.com` — confirmed via `dig NS infiniduo.com`), and
+      the domain is registered under the same Vercel account/team
+      (`lojuls-projects`) this dashboard's project lives in — so the whole
+      move was one command, no external registrar/DNS step needed: `cd
+      nextjs-dashboard && vercel domains add genie.infiniduo.com` (run from
+      inside the project dir so it infers the target project). Routing was
+      live within seconds since Vercel manages both ends.
+      **The one extra step that's easy to miss:** the backend's CORS
+      allowlist only holds one hardcoded origin (`DOC_PIPELINE_CORS_ORIGIN`
+      / `FRONTEND_URL` app settings on `c21net-bas-api-doc-pipeline-ea-prod`
+      — see the 2026-09-10 CORS gotcha above) — updating it to
+      `https://genie.infiniduo.com` triggers the same App Service restart +
+      ~1-2 min propagation delay seen before. This also means the OLD
+      `nextjs-dashboard-kappa-one-24.vercel.app` URL still loads (Vercel
+      doesn't remove prior URLs) but its chat feature now fails CORS — that
+      old URL is effectively retired, not actively maintained going forward.
+      Verified end-to-end: logged in fresh at `genie.infiniduo.com/chat/`
+      and got a real assistant reply.
 - [ ] **Report-generation rework queued 2026-09-10** (c21-leasing website, +
       Slack/Teams if feasible) — this repo's `src/nodes/report_generator/`
       (orphaned since `/api/chat/report` was removed) is a reference/
