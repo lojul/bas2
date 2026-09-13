@@ -144,6 +144,7 @@ def odoo_sync(state: DocumentState) -> DocumentState:
                 state.file_bytes = None
                 return state
             _sync_photos(models, uid, api_key, state, pdf_bytes, ids)
+            _sync_to_bas_index(models, uid, api_key, ids)
             state.odoo_record_id = ",".join(map(str, ids))
             state.odoo_sync_status = "synced"
             logger.info(
@@ -165,6 +166,7 @@ def odoo_sync(state: DocumentState) -> DocumentState:
                 state.file_bytes = None
                 return state
             _sync_photos(models, uid, api_key, state, pdf_bytes, ids)
+            _sync_to_bas_index(models, uid, api_key, ids)
             state.odoo_record_id = ",".join(map(str, ids))
             state.odoo_sync_status = "synced"
             logger.info(
@@ -181,6 +183,7 @@ def odoo_sync(state: DocumentState) -> DocumentState:
         unmapped = _extract_unmapped(raw)
         _sync_extra_fields(models, uid, api_key, odoo_id, unmapped)
         _sync_photos(models, uid, api_key, state, pdf_bytes, [odoo_id])
+        _sync_to_bas_index(models, uid, api_key, [odoo_id])
 
         state.odoo_record_id = str(odoo_id)
         state.odoo_sync_status = "synced"
@@ -988,6 +991,28 @@ def _map_fields(
 # ---------------------------------------------------------------------------
 # Create or update Odoo record
 # ---------------------------------------------------------------------------
+
+def _sync_to_bas_index(models: Any, uid: int, api_key: str, listing_ids: list[int]) -> None:
+    """Immediately embed + upsert these listings into BAS's properties-index (demo
+    requirement, 2026-09-12 — previously this only happened via the separate daily
+    odoo-bas-sync job). Only flips x_c21_published=True for IDs that actually
+    succeeded; anything that fails here is left False, so the daily job (still
+    running, now purely a reconciliation pass for direct Odoo edits) retries it on
+    its own next run. Fully non-blocking, matching this module's own design — never
+    let a BAS-sync failure affect the Odoo sync result.
+    """
+    try:
+        from src.utils.bas_index_sync import sync_listings_to_bas
+        succeeded = sync_listings_to_bas(models, uid, api_key, listing_ids)
+        if succeeded:
+            models.execute_kw(ODOO_DB, uid, api_key, ODOO_MODEL, "write",
+                               [succeeded, {"x_c21_published": True}])
+        failed = [lid for lid in listing_ids if lid not in succeeded]
+        if failed:
+            logger.warning("Odoo sync: BAS index sync failed for %s, left x_c21_published=False for daily retry", failed)
+    except Exception as e:
+        logger.warning("Odoo sync: BAS index sync step failed entirely: %s", e)
+
 
 def _create_or_update(models: Any, uid: int, api_key: str, existing_id: str, vals: dict) -> int:
     """Update existing Odoo record or create a new one. Returns the record ID."""

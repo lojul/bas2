@@ -17,7 +17,27 @@ LangGraph + LangSmith document processor.
 > project's `properties-index` on the same search service — see memory
 > `project-odoo-to-bas-sync.md` for the migration plan.
 
+> **UPDATE (2026-09-13, WORK IN PROGRESS — see Session Summary below):** A third
+> channel, **Microsoft Teams**, is being added alongside WhatsApp/Slack
+> (`api/routes/teams.py`, `src/utils/teams_notify.py`,
+> `src/utils/teams_conversations.py`, `teams-app-package/`) via a real Bot Framework
+> integration — **not** the same thing as `bas-stacks`' separate "C21net Property AI
+> Agent (ALT)" Teams bot (property search, unrelated codebase/app registration). As of
+> this writing all of this is **local and uncommitted** (`git status` shows modified
+> `doc_pipeline_main.py`/`assistant.py`/`odoo_sync.py`/`channel_notify.py` +
+> untracked new Teams files) — **not deployed**. There is also a known **open bug**:
+> Teams file-share cards (SharePoint/OneDrive "shared a file" attachments) arrive with
+> `activity.attachments` empty — `_download_attachment()` in `teams.py` only handles
+> the file-consent-download and inline-image shapes, so a shared-file-card upload may
+> silently produce `file_bytes=None` while still showing a "已收到" success message
+> (that confirmation only checks `file_name`, not `file_bytes` — see
+> `assistant.py` ~line 744). Diagnostic-only unconditional logging was added
+> 2026-09-12 to capture the real activity shape; the actual fix is not yet written.
+> Do not assume a Teams test that returns a normal-looking pipeline reply actually
+> processed real file content until this is resolved and verified against Odoo.
+
 - **Document pipeline:** WhatsApp/Slack → n8n → `POST /api/assistant/message` → LangGraph → Odoo
+- **Teams (in progress, not yet deployed):** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same `handle_message()` core → async completion via `teams_notify.py`
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
 
 ## Product Design Philosophy
@@ -57,6 +77,10 @@ langgraph/
 │       ├── file_cache.py      # Blob-backed pending-file cache (WhatsApp confirmations)
 │       ├── di_guard.py        # Document Intelligence daily cost guard
 │       ├── whatsapp_notify.py # WhatsApp send via n8n notify webhook
+│       ├── slack_notify.py    # Slack send via Bot token
+│       ├── channel_notify.py  # Single dispatch point: channel name -> notify fn (whatsapp/slack/teams)
+│       ├── teams_notify.py    # (WIP, uncommitted) Teams proactive-message send via Bot Framework REST
+│       ├── teams_conversations.py # (WIP, uncommitted) Persists Teams ConversationReference for async notify
 │       └── session_storage.py # Assistant session persistence (Table Storage)
 ├── api/
 │   ├── main.py         # FastAPI app entry point
@@ -64,7 +88,8 @@ langgraph/
 │   └── routes/
 │       ├── chat.py     # /api/chat (stream, report)
 │       ├── search.py   # /api/search
-│       └── admin.py    # /api/admin (triage, upload, process, vector, history)
+│       ├── admin.py    # /api/admin (triage, upload, process, vector, history)
+│       └── teams.py    # (WIP, uncommitted) Bot Framework /api/messages endpoint for Teams ingest
 ├── tests/              # Mirror src structure
 ├── function_app.py     # Azure Functions (timer + HTTP)
 └── .env                # Local secrets (never commit)
@@ -235,6 +260,77 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
       pages → unit via the same floor/unit boundaries the extractor already detects, and add
       this as a step in (or right after) `odoo_sync.py` so it runs on every future document,
       not just this one-off. See Session Summary below for full detail.
+
+---
+
+## Session Summary — 2026-09-13: Teams Channel Audit (investigated, not fixed/deployed this session)
+
+### What happened
+User asked "is this fixed?" after screenshotting a Teams conversation with "C21 Document
+Assistant" processing a PDF. Investigated because this repo's own docs/README had **zero**
+mention of Teams as a channel — turned out real work exists but was previously undocumented
+and is still local/uncommitted.
+
+### Findings
+- **Teams integration is real, not a stray bot registration.** `api/routes/teams.py` +
+  `src/utils/teams_notify.py` + `src/utils/teams_conversations.py` +
+  `teams-app-package/manifest.json` mirror the WhatsApp/Slack architecture properly: Bot
+  Framework `CloudAdapter` auth, every inbound turn calls the same channel-agnostic
+  `handle_message()`, and completion notification is async (proactive message via Bot
+  Connector REST, since the pipeline takes 1-3 min and can't reply in the same turn) — same
+  pattern as `whatsapp_notify.py`/`slack_notify.py`, now unified behind
+  `src/utils/channel_notify.py`'s single dispatch table.
+- **This is a different bot from `bas-stacks`' Teams agent.** That one
+  (`business-automation-system/teams-agent`) is "C21net Property AI Agent (ALT)" — property
+  search + lead qualification, `supportsFiles: false`, unrelated app registration/codebase.
+  This repo's Teams bot is document ingest (OCR + Odoo sync), matching its WhatsApp/Slack
+  sibling. Do not conflate the two — see memory `reference-org-chatbot-map.md`.
+- **None of it is committed or deployed.** `git status` showed modified
+  `doc_pipeline_main.py` (registers `teams_router`), `assistant.py`, `odoo_sync.py`,
+  `channel_notify.py`, `requirements-api.txt` (adds `botbuilder-*` deps), plus untracked
+  `api/routes/teams.py`, `src/utils/teams_notify.py`, `src/utils/teams_conversations.py`,
+  `src/utils/bas_index_sync.py`, `teams-app-package/`. `MICROSOFT_APP_ID/PASSWORD/TENANT_ID`
+  are present in local `.env` only — never confirmed as Azure App Service settings.
+- **The exact bug in the user's screenshot is already fixed in code, just not deployed.**
+  `_PROCESSING_REPLY` in `assistant.py` used to hardcode "完成後會**透過 WhatsApp**通知您" —
+  wrong for Slack and (now) Teams users. Local `assistant.py` already has a channel-neutral
+  fix ("完成後會**在此**通知您"), with a comment dated 2026-09-12 noting this was found while
+  testing Teams. The screenshot still showing the old WhatsApp-specific text is consistent
+  with it being the currently-deployed (older) build.
+- **A second, more serious bug is still open and NOT yet fixed** (diagnostic-only so far):
+  Teams file-share cards (SharePoint/OneDrive "shared a file" attachments — exactly what the
+  screenshot's "CKKCC - Leasing Particul..." card is) may arrive with `activity.attachments`
+  empty. `_download_attachment()` in `teams.py` only handles two shapes — the Teams
+  file-consent download-info card, and inline images — not a share-link card. An
+  unconditional diagnostic log (`logger.warning("Teams activity dump: ...")`, dated
+  2026-09-12) was added to `on_message_activity` specifically to capture the real activity
+  shape (text/entities/channelData) once it's seen live, but the actual parsing fix was never
+  written. **Important:** the bot's "已收到 {file_name}" receipt-confirmation message
+  (`assistant.py` ~line 744, `if file_name and not body.strip()`) only requires `file_name`
+  to be truthy — not `file_bytes` — so a normal-looking successful reply does **not** prove
+  the file's actual content reached the pipeline. This needs verifying against a real Odoo
+  record (or the App Service log stream for that diagnostic dump line) before trusting any
+  Teams test as fully working.
+
+### Not done this session (deliberately — investigation only, user didn't ask for a fix/deploy)
+- No code changes made.
+- No commit, no `./deploy.sh` run.
+- Did not confirm whether the CKKCC test document actually created/updated a real Odoo
+  record — next session should check that directly (Odoo `x_c21_listing` search, or the
+  App Service log stream for the `teams.py` diagnostic dump) before declaring Teams ingest
+  functional end-to-end.
+
+### Next steps (not started)
+1. Read the diagnostic log output from a real share-card test to see the actual
+   attachments/entities/channelData shape, then extend `_download_attachment()` (or add a
+   new resolution path) to handle it.
+2. Commit the already-written fixes (channel-neutral reply text, `channel_notify.py` Teams
+   entry, `bas_index_sync.py` immediate-BAS-sync addition) and run `./deploy.sh` — nothing
+   currently local reaches Azure without it.
+3. Confirm `MICROSOFT_APP_ID`/`MICROSOFT_APP_PASSWORD`/`MICROSOFT_APP_TENANT_ID` are set as
+   Azure App Service settings on `c21net-bas-api-doc-pipeline-ea-prod`, not just local `.env`.
+4. Update this file's Project Structure / channel docs once Teams is verified working and
+   deployed (this session added stub entries only — mark them non-WIP once confirmed live).
 
 ---
 

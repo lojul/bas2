@@ -22,9 +22,15 @@ def _slack(target: str, message: str) -> bool:
     return send_slack(target, message)
 
 
+def _teams(target: str, message: str) -> bool:
+    from src.utils.teams_notify import send_teams
+    return send_teams(target, message)
+
+
 _NOTIFIERS = {
     "whatsapp": _whatsapp,
     "slack": _slack,
+    "teams": _teams,
 }
 
 

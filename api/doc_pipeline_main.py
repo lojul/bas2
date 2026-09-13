@@ -17,6 +17,7 @@ from fastapi.responses import RedirectResponse
 from api.auth import LoginRequest, TokenResponse, login_with_rate_limit
 from api.routes.admin import router as admin_router
 from api.routes.assistant import router as assistant_router
+from api.routes.teams import router as teams_router
 
 # ── Startup warmup ────────────────────────────────────────────────────────────
 
@@ -62,6 +63,7 @@ app.add_middleware(
 
 app.include_router(admin_router, prefix="/api")
 app.include_router(assistant_router, prefix="/api")
+app.include_router(teams_router, prefix="/api")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 

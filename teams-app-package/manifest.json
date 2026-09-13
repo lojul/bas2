@@ -1,0 +1,35 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "ea53eacc-d209-44b6-8d1d-2dcf0a7a7b80",
+  "developer": {
+    "name": "C21 New Era",
+    "websiteUrl": "https://www.century21.com",
+    "privacyUrl": "https://www.century21.com",
+    "termsOfUseUrl": "https://www.century21.com"
+  },
+  "icons": {
+    "color": "color.png",
+    "outline": "outline.png"
+  },
+  "name": {
+    "short": "C21 Document Assistant",
+    "full": "C21 Document Assistant - Ingest Bot"
+  },
+  "description": {
+    "short": "Upload property listings, news, and name cards for OCR + Odoo sync.",
+    "full": "Internal document ingest assistant for the Century 21 Hong Kong team. Send a property listing PDF/image, a news article, or a name card in a 1:1 chat and it runs OCR, classification, and extraction, then syncs the result to Odoo. Same assistant already available via WhatsApp and Slack (\"Document Assistant\") - this is the Teams channel. Not a property search tool - document upload only."
+  },
+  "accentColor": "#0B2A4A",
+  "bots": [
+    {
+      "botId": "9b990610-a1cb-419f-8d13-bab0c3214c97",
+      "scopes": ["personal"],
+      "supportsFiles": true,
+      "isNotificationOnly": false
+    }
+  ],
+  "permissions": ["identity"],
+  "validDomains": []
+}

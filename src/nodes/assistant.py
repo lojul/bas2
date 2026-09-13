@@ -213,7 +213,11 @@ _NEWS_DUP_MARKER = "⚠️ 此內容似乎已建立過文章"
 
 _PROCESSING_REPLY = (
     "✅ 已收到，正在後台處理（OCR → 分類 → 提取 → 索引 → 同步 Odoo），通常需要 1-3 分鐘。\n\n"
-    "完成後會透過 WhatsApp 通知您處理結果及分類。您現在可以繼續傳送其他內容。"
+    # Channel-neutral wording — the completion notify pushes back into whichever
+    # conversation the user is already in (WhatsApp/Slack/Teams), so naming one
+    # channel here was simply wrong for the other two (found 2026-09-12 testing
+    # Teams: the reply claimed "WhatsApp" even in a Teams chat).
+    "完成後會在此通知您處理結果及分類。您現在可以繼續傳送其他內容。"
 )
 
 def _dispatch_pipeline_async(
