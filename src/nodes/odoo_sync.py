@@ -795,10 +795,10 @@ def _sync_pitching_deck_units(
             continue
         vals = _map_fields(state, doc_url, building_id, unit=unit)
 
-        # Dedup key MUST match what _map_fields actually stores in x_c21_floor_unit
-        # (floor, falling back to unit — not both joined) or an existing record with
-        # only one of the two populated will never be found, creating a duplicate.
-        floor_unit = str(unit.get("floor") or unit.get("unit") or "")
+        # Dedup key MUST match what _map_fields actually stores in x_c21_floor_unit —
+        # floor+unit joined, not OR (an OR collapses distinct same-floor units, e.g.
+        # "29/F" 29A vs 29B, into one record whenever their specs differ).
+        floor_unit = " ".join(str(x) for x in (unit.get("floor"), unit.get("unit")) if x)
         existing_id = _find_unit_record(models, uid, api_key, building, address, floor_unit)
         vals["x_c21_published"] = False
 
@@ -909,9 +909,12 @@ def _map_fields(
     if unit is None and units and isinstance(units, list):
         unit = units[0]
     if isinstance(unit, dict):
-        floor_unit = unit.get("floor") or unit.get("unit")
+        # Join floor+unit (not OR) — same-floor units with different letters (e.g.
+        # "29/F" 29A vs 29B) previously collided into one x_c21_floor_unit value
+        # under an OR, silently dropping one unit whenever their specs differed.
+        floor_unit = " ".join(str(x) for x in (unit.get("floor"), unit.get("unit")) if x)
         if floor_unit:
-            vals["x_c21_floor_unit"] = str(floor_unit)
+            vals["x_c21_floor_unit"] = floor_unit
         rent = unit.get("rent_monthly")
         if rent is not None:
             try:
