@@ -6,7 +6,9 @@ LangGraph + LangSmith document processor.
 > **ARCHITECTURE NOTE (2026-07-28, verified against live code):** The pipeline is now a
 > **v2 Odoo-ingest service** — see `src/graph.py` docstring, the source of truth. Single
 > entry point `process_file_from_bytes()`. Documents arrive from WhatsApp/Slack (via n8n)
-> only. **No OneDrive timer, no Azure AI Search writes from this repo.** The RAG chatbot
+> only [**UPDATE 2026-09-15: OneDrive is now a fourth channel, see below — this
+> "no OneDrive timer" line is stale, kept for context on why the OLD v1 timer/full-listing
+> approach was removed**]. **No Azure AI Search writes from this repo.** The RAG chatbot
 > (`src/nodes/chatbot.py`), `/api/chat`, `/api/search`, and the `prop-chat` App Service
 > are **removed/stopped** — sections below describing them (Graph 2, chat routes, Next.js
 > Chat/Search pages) are historical and do not reflect what's deployed. Only two routers
@@ -40,8 +42,52 @@ LangGraph + LangSmith document processor.
 > Service, which is why the bug was easy to miss) — the completion message now
 > actually reaches the user back in Teams.
 
-- **Document pipeline:** WhatsApp/Slack/Teams → n8n (WhatsApp/Slack) or Bot Framework (Teams) → `handle_message()` → LangGraph → Odoo
+> **UPDATE (2026-09-15): OneDrive is now a fourth live ingest channel**, added as a
+> Function App timer trigger — `onedrive_sync` (`function_app.py`, every 10 min) —
+> feeding into the **same** `enqueue_pipeline_job()` → `pipeline_job_worker` → LangGraph
+> → Odoo path every other channel uses (`source="onedrive"` in `DocumentState`, no new
+> pipeline logic). New files dropped in `MS_GRAPH_INBOX_FOLDER` (`/Document Processor/In`)
+> get picked up automatically; **no notification is sent back per-file** (there's no
+> WhatsApp/Slack sender to reply to) — see the daily digest below instead.
+>
+> **Delta-based, not the old v1 full-folder-listing approach** — `src/utils/graph_client.py`
+> (Microsoft Graph `/delta` API) + `src/utils/onedrive_delta_store.py` (persisted delta
+> link in Table Storage, table `OneDriveSyncState`). This is the key safety property: the
+> timer only ever asks Graph "what changed since this token", so the **existing backlog is
+> never reprocessed** — verified live, the one-time baseline (`scripts/onedrive_baseline_delta.py`,
+> run 2026-09-15) found and discarded **29 existing files** in `/In` before saving the
+> baseline token; only files added after that point will ever be picked up. The old,
+> since-deleted `src/nodes/onedrive.py` (full listing + move-to-`/Processed`) is NOT what
+> this reuses — recoverable via `git show a16b49a:src/nodes/onedrive.py` for reference only,
+> do not resurrect that pattern.
+>
+> **Guards, all live:** hard-stops (raises, alerts, no silent full resync) if the delta link
+> is ever missing or Graph returns 410 expired — mirrors the same incident-driven guard in
+> the sibling `bas-stacks` project's `onedrive-sync` Function App (see that repo's
+> `RUNBOOK-backfill.md` for the "re-OCR the whole drive" incident this pattern avoids).
+> `ONEDRIVE_SYNC_MAX_AGE_DAYS` (90) bounds a legitimate delta response; `SUPPORTED_FORMATS`
+> + `ONEDRIVE_MAX_FILE_MB` (25) filter before enqueueing; the existing DI daily-page guard
+> (`di_guard.py`, unchanged) still applies automatically since this is the same
+> `process_file_from_bytes()` call — **the DI cap is shared across all four channels, not
+> per-channel**, worth watching if OneDrive volume turns out to be high. Master off-switch
+> `ONEDRIVE_SYNC_ENABLED` — **currently `true`** (flipped on 2026-09-15 after baseline).
+>
+> **New daily digest** — `daily_processing_summary` (`function_app.py`, cron
+> `0 55 15 * * *` = 15:55 UTC = 23:55 HKT; Linux Function Apps run cron in UTC regardless
+> of `WEBSITE_TIME_ZONE`, so the HKT offset is baked into the cron expression itself, not
+> left to app settings — got this wrong once already this session, fixed same day) posts a
+> daily rollup (`count_runs_today()` in `table_storage.py` + `di_guard.get_usage_today()`)
+> to Slack channel `#doc-processor-alerts` (`ADMIN_SLACK_CHANNEL=C0C1HJDUJR5`, C21net
+> workspace — **not** `#all-c21net`, and not the same as any per-document completion
+> reply). **Always sends, even with zero activity** — deliberate, a missing message is
+> itself the signal the schedule/app has stopped, not just "quiet day."
+>
+> Commits: `f0daad0` (feature), `8ec3c5b` (timezone fix). Both deployed via
+> `./deploy.sh --func-only` — no App Service changes were needed for either.
+
+- **Document pipeline:** WhatsApp/Slack/Teams/OneDrive → n8n (WhatsApp/Slack), Bot Framework (Teams), or the `onedrive_sync` timer → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
+- **OneDrive:** `onedrive_sync` timer (Function App, every 10 min) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
 
 ## Product Design Philosophy
@@ -161,6 +207,12 @@ nextjs-dashboard/       # Next.js frontend (primary UI)
 - [x] Permanent Processing History (Azure Table Storage — survives LangSmith 14-day expiry)
 - [x] Ingest Page with AI Triage (multi-format upload; AI identifies doc type before processing; unsupported files logged)
 - [x] JWT sessions extended to 30 days
+- [x] **OneDrive delta-sync as a fourth ingest channel** (2026-09-15) — see UPDATE note
+      above. Delta-based (Graph `/delta`), baseline established (29 existing files
+      skipped), guards live (DI daily cap, age/size/format filters, hard-stop on
+      missing/expired delta link), `ONEDRIVE_SYNC_ENABLED=true` deployed. Daily Slack
+      digest (`#doc-processor-alerts`) added alongside it for visibility since there's
+      no per-file WhatsApp/Slack reply target for this channel.
 - [ ] Manual Data Editor (edit extracted_data via form UI in Admin tab)
 - [ ] Pipeline support for non-PDF formats (DOCX, PPTX, JPG ingested but pipeline currently OCRs as-is)
 - [x] **Move the web dashboard to `genie.infiniduo.com`** (decided and
@@ -1123,9 +1175,16 @@ Any imports here cause `fitz` (PyMuPDF) to be loaded at startup → Azure App Se
 
 | Trigger | Schedule | Purpose |
 |---------|----------|---------|
-| Timer | every 5 min | Process 7 files per batch from OneDrive /In + poison-queue watchdog |
-| Queue | `pipeline-jobs` | Durable pipeline job worker (WhatsApp/dashboard dispatch) |
+| Queue | `pipeline-jobs` | `pipeline_job_worker` — durable pipeline job worker (WhatsApp/Slack/Teams/OneDrive dispatch) |
+| Timer | every 10 min | `onedrive_sync` — Graph delta check on `MS_GRAPH_INBOX_FOLDER`, enqueues new files only (see UPDATE 2026-09-15 note above) |
+| Timer | `0 55 15 * * *` (15:55 UTC = 23:55 HKT) | `daily_processing_summary` — Slack digest to `#doc-processor-alerts` |
 | HTTP GET | `/api/health` | Health check (anonymous) |
+
+**Corrected 2026-09-15:** the row previously here ("Timer, every 5 min, process 7 files per
+batch from OneDrive /In") described the OLD v1 timer (`src/nodes/onedrive.py`, full folder
+listing + move-to-`/Processed`) — that code was removed in the 2026-07-28 ingest-only pivot
+and this table was never updated to match. `onedrive_sync` above is its intentionally
+different replacement (delta-based, no move-to-processed), not a restoration of the old one.
 
 **Production:** `c21net-bas-func-doc-pipeline-ea-prod.azurewebsites.net`
 **Resource group:** `c21net-bas-document-processor-ea-prod` | **Subscription:** `c21net-business-automation-stack`
@@ -1209,6 +1268,15 @@ WhatsApp user → Twilio → n8n "WhatsApp Twilio Integration" (2KEkDoOvwKB7Y6Ml
 | `DI_DAILY_PAGE_LIMIT` | both (optional) | OCR daily page ceiling, default 200 |
 | `AZURE_BLOB_READ_SAS`, `AZURE_TABLE_SAS`, `ODOO_API_KEY` | Function App | Were missing/stale — queue worker needs them |
 | `TAVILY_API_KEY` (added 2026-08-04) | both | Used by `src/utils/url_fetcher.py` to enrich short OCR text containing URLs (e.g. `share.google` news forwards) before classify/extract. **Reused from `c21-property-chatbot`'s key, not dedicated** — shared free-tier quota, see memory `project-tavily-key-shared.md` |
+
+### Env vars added 2026-09-15 (OneDrive sync)
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `ONEDRIVE_SYNC_ENABLED` | Function App | Master off-switch for `onedrive_sync`. `false` unless baseline established — currently `true` |
+| `ONEDRIVE_SYNC_MAX_AGE_DAYS` | Function App (optional) | Bounds a legitimate delta response, default 90 |
+| `ONEDRIVE_MAX_FILE_MB` | Function App (optional) | Skip oversized files before enqueueing, default 25 |
+| `ADMIN_SLACK_CHANNEL` | Function App | `#doc-processor-alerts` channel ID (`C0C1HJDUJR5`, C21net workspace) for the daily digest — reuses existing `SLACK_BOT_TOKEN` |
+| `MS_GRAPH_DRIVE_ID`, `MS_GRAPH_INBOX_FOLDER` | Function App | Already existed (leftover from the v1 pipeline) — reused as-is, no new Graph app registration needed |
 
 ## Ingest & Triage
 
