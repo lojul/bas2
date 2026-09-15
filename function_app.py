@@ -141,9 +141,17 @@ def onedrive_sync(timer: func.TimerRequest) -> None:
     logging.info("OneDrive sync complete — enqueued: %d, skipped: %d", enqueued, skipped)
 
 
-@app.timer_trigger(schedule="0 55 23 * * *", arg_name="timer", run_on_startup=False)
+@app.timer_trigger(schedule="0 55 15 * * *", arg_name="timer", run_on_startup=False)
 def daily_processing_summary(timer: func.TimerRequest) -> None:
     """Post a once-daily rollup of today's processing volume to Slack.
+
+    Schedule is 15:55 UTC = 23:55 Hong Kong time — Linux Function Apps run
+    cron schedules in UTC regardless of WEBSITE_TIME_ZONE, so the HKT offset
+    is baked into the cron expression itself, not left to app settings.
+
+    Always sends, even when nothing processed today — that's the point: a
+    missing message is itself the signal that the schedule (or the app) has
+    stopped running, not just "nothing happened."
 
     No per-document notification exists for OneDrive-triggered files (there's
     no WhatsApp/Slack sender to reply to), so this is the visibility
