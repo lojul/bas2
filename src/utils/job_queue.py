@@ -118,6 +118,7 @@ def enqueue_pipeline_job(
     notify_user: str | None = None,
     notify_channel: str = "",
     sender_number: str = "",
+    source: str = "assistant",
 ) -> bool:
     """Persist the job and enqueue it. Returns False if queue is unavailable
     (caller should fall back to in-process execution)."""
@@ -143,6 +144,7 @@ def enqueue_pipeline_job(
             "notify_user": notify_user or "",
             "notify_channel": notify_channel,
             "sender_number": sender_number,
+            "source": source,
         }
         try:
             queue.create_queue()
@@ -216,6 +218,7 @@ def run_pipeline_job(payload: dict) -> None:
     notify_user = payload.get("notify_user", "")
     notify_channel = payload.get("notify_channel", "")
     sender_number = payload.get("sender_number", "")
+    source = payload.get("source") or "assistant"
 
     try:
         if blob_name:
@@ -225,7 +228,7 @@ def run_pipeline_job(payload: dict) -> None:
             # content. Use it as precomputed OCR (skips Azure DI; image kept for Odoo).
             pre_ocr = OCRResult(text=text) if text and len(text.strip()) >= 60 else None
             final = process_file_from_bytes(
-                file_bytes, file_name, "assistant",
+                file_bytes, file_name, source,
                 precomputed_ocr=pre_ocr,
                 forced_type=forced_type, skip_duplicate_check=skip_dup,
                 whatsapp_number=sender_number,
@@ -238,7 +241,7 @@ def run_pipeline_job(payload: dict) -> None:
             from datetime import datetime, timezone
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             final = process_file_from_bytes(
-                text.encode("utf-8"), f"whatsapp-news-{stamp}.txt", "assistant",
+                text.encode("utf-8"), f"whatsapp-news-{stamp}.txt", source,
                 precomputed_ocr=OCRResult(text=text),
                 forced_type=forced_type, skip_duplicate_check=skip_dup,
                 whatsapp_number=sender_number,

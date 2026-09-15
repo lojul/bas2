@@ -117,6 +117,30 @@ def log_unsupported(file_name: str, ext: str) -> None:
     )
 
 
+def count_runs_today() -> dict[str, int]:
+    """Return {"success": N, "error": N, "unsupported": N} for today (UTC)."""
+    counts = {"success": 0, "error": 0, "unsupported": 0}
+    try:
+        client = _client()
+        if client is None:
+            return counts
+
+        now = datetime.now(timezone.utc)
+        partition_key = now.strftime("%Y-%m")
+        today_prefix = now.strftime("%Y%m%d")
+        entities = client.query_entities(f"PartitionKey eq '{partition_key}'")
+        for e in entities:
+            if not str(e.get("RowKey", "")).startswith(today_prefix):
+                continue
+            status = e.get("status", "")
+            if status in counts:
+                counts[status] += 1
+        return counts
+    except Exception as e:
+        logger.error("Failed to count today's runs from Table Storage: %s", e)
+        return counts
+
+
 def list_runs(months: int = 3, top: int = 500, hours: int | None = None) -> list[dict]:
     """Return recent runs from ProcessingHistory, newest first.
 
