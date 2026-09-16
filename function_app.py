@@ -165,9 +165,11 @@ def daily_processing_summary(timer: func.TimerRequest) -> None:
 
     No per-document notification exists for OneDrive-triggered files (there's
     no WhatsApp/Slack sender to reply to), so this is the visibility
-    mechanism: how many documents ran today, across every channel, and how
-    close to the DI daily page cap. Reads existing Table Storage data — adds
-    no new tracking.
+    mechanism: how many documents ran today, broken down by source (manual
+    WhatsApp/Slack/Teams upload vs. OneDrive schedule), and how close to the
+    DI daily page cap. The manual/OneDrive split depends on DocumentState's
+    `source` field being persisted per run — see
+    src/utils/table_storage.py:log_run().
     """
     channel = os.environ.get("ADMIN_SLACK_CHANNEL", "")
     if not channel:
@@ -196,6 +198,8 @@ def daily_processing_summary(timer: func.TimerRequest) -> None:
     lines = [
         f"📊 Document Processor — 今日處理摘要（{run_kind}）",
         f"成功：{counts.get('success', 0)} | 失敗：{counts.get('error', 0)} | 不支援：{counts.get('unsupported', 0)}",
+        f"　人手上傳（WhatsApp/Slack/Teams）：成功 {counts.get('manual_success', 0)} | 失敗 {counts.get('manual_error', 0)}",
+        f"　OneDrive 排程：成功 {counts.get('onedrive_success', 0)} | 失敗 {counts.get('onedrive_error', 0)}",
         f"OCR 頁數：{pages_used}/{di_limit}",
     ]
     send_slack(channel, "\n".join(lines))

@@ -25,17 +25,25 @@ def test_count_runs_today_counts_only_todays_rows(monkeypatch):
     yesterday_stamp = (now - timedelta(days=1)).strftime("%Y%m%dT%H%M%S")
 
     rows = [
-        {"RowKey": f"{today_stamp}_aaa", "status": "success"},
-        {"RowKey": f"{today_stamp}_bbb", "status": "success"},
-        {"RowKey": f"{today_stamp}_ccc", "status": "error"},
-        {"RowKey": f"{yesterday_stamp}_ddd", "status": "success"},  # excluded
+        {"RowKey": f"{today_stamp}_aaa", "status": "success", "source": "assistant"},
+        {"RowKey": f"{today_stamp}_bbb", "status": "success", "source": "onedrive"},
+        {"RowKey": f"{today_stamp}_ccc", "status": "error", "source": ""},  # legacy row, no source
+        {"RowKey": f"{yesterday_stamp}_ddd", "status": "success", "source": "assistant"},  # excluded
     ]
     monkeypatch.setattr(table_storage, "_client", lambda: _FakeTableClient(rows))
 
     counts = table_storage.count_runs_today()
-    assert counts == {"success": 2, "error": 1, "unsupported": 0}
+    assert counts == {
+        "success": 2, "error": 1, "unsupported": 0,
+        "manual_success": 1, "manual_error": 1,
+        "onedrive_success": 1, "onedrive_error": 0,
+    }
 
 
 def test_count_runs_today_fails_open_without_table_sas(monkeypatch):
     monkeypatch.setattr(table_storage, "_client", lambda: None)
-    assert table_storage.count_runs_today() == {"success": 0, "error": 0, "unsupported": 0}
+    assert table_storage.count_runs_today() == {
+        "success": 0, "error": 0, "unsupported": 0,
+        "manual_success": 0, "manual_error": 0,
+        "onedrive_success": 0, "onedrive_error": 0,
+    }

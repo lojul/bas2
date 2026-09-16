@@ -294,6 +294,7 @@ def process_file_from_bytes(
         extracted_data=extracted,
         error_message=final.error_message if is_error else None,
         index_id=final.index_id,
+        source=final.source,
     )
 
     return final

@@ -29,6 +29,7 @@ def log_run(
     extracted_data: dict | None = None,
     error_message: str | None = None,
     index_id: str | None = None,
+    source: str = "",      # DocumentState.source, e.g. "assistant" (WhatsApp/Slack/Teams), "onedrive"
 ) -> None:
     """Write one processing run record to ProcessingHistory table."""
     try:
@@ -53,6 +54,7 @@ def log_run(
             "extracted_data": json.dumps(extracted_data or {}, ensure_ascii=False),
             "error_message": error_message or "",
             "index_id": index_id or "",
+            "source": source or "",
         }
         client.create_entity(entity)
     except Exception as e:
@@ -118,8 +120,20 @@ def log_unsupported(file_name: str, ext: str) -> None:
 
 
 def count_runs_today() -> dict[str, int]:
-    """Return {"success": N, "error": N, "unsupported": N} for today (UTC)."""
-    counts = {"success": 0, "error": 0, "unsupported": 0}
+    """Return today's (UTC) run counts, split by source:
+
+    {"success": N, "error": N, "unsupported": N,           # totals, all sources
+     "manual_success": N, "manual_error": N,               # WhatsApp/Slack/Teams
+     "onedrive_success": N, "onedrive_error": N}            # onedrive_sync
+
+    Rows logged before source-tracking existed (empty "source") count as
+    "manual" — every channel before OneDrive was a human-initiated upload.
+    """
+    counts = {
+        "success": 0, "error": 0, "unsupported": 0,
+        "manual_success": 0, "manual_error": 0,
+        "onedrive_success": 0, "onedrive_error": 0,
+    }
     try:
         client = _client()
         if client is None:
@@ -133,8 +147,11 @@ def count_runs_today() -> dict[str, int]:
             if not str(e.get("RowKey", "")).startswith(today_prefix):
                 continue
             status = e.get("status", "")
-            if status in counts:
+            if status in ("success", "error", "unsupported"):
                 counts[status] += 1
+            if status in ("success", "error"):
+                bucket = "onedrive" if e.get("source") == "onedrive" else "manual"
+                counts[f"{bucket}_{status}"] += 1
         return counts
     except Exception as e:
         logger.error("Failed to count today's runs from Table Storage: %s", e)
