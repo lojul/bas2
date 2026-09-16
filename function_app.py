@@ -71,10 +71,10 @@ def onedrive_sync(timer: func.TimerRequest) -> None:
 
     from datetime import datetime as dt, timedelta, timezone
 
-    from api.common import SUPPORTED_FORMATS
     from src.utils.graph_client import DeltaLinkExpiredError, GraphClient
     from src.utils.job_queue import enqueue_pipeline_job
     from src.utils.onedrive_delta_store import load_delta_link, save_delta_link
+    from src.utils.supported_formats import SUPPORTED_FORMATS
 
     delta_link = load_delta_link()
     if delta_link is None:

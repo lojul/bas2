@@ -5,7 +5,7 @@ import os
 import httpx
 from msal import ConfidentialClientApplication
 
-SUPPORTED_FORMATS = {"pdf", "jpg", "jpeg", "png", "docx", "pptx"}
+from src.utils.supported_formats import SUPPORTED_FORMATS  # re-exported for existing callers
 
 _CONFIG_BLOB = "config/settings.json"
 _DEFAULT_CONFIG = {
