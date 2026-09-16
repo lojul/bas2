@@ -112,6 +112,56 @@ LangGraph + LangSmith document processor.
 > succeeded!" message proves the code shipped, not that it runs correctly.** This session
 > caught both issues that way, not by inspection alone.
 
+> **Addendum 2 (2026-09-16, same day): watched folder was wrong; source-tracking added;
+> a real n8n bug found; one more deploy gotcha.**
+>
+> **Folder repointed — `Document Processor/In` was the wrong target.** That folder
+> (`admin@c21net.com`'s own OneDrive) turned out to be a dormant leftover from the v1
+> pipeline — only 29 stale files, no real activity. The sibling `bas-stacks` project
+> already proved the *actual* live folder: Stephen Wong's OneDrive,
+> `Building_Folder/BD_Commercial` (confirmed by resolving both Graph item IDs directly —
+> they're the same folder `bas-stacks`' ETL watches). Repointed there via two new
+> dedicated env vars, `ONEDRIVE_SYNC_DRIVE_ID` / `ONEDRIVE_SYNC_FOLDER_PATH` — **not**
+> reusing `MS_GRAPH_DRIVE_ID`/`MS_GRAPH_INBOX_FOLDER`, which `scripts/process_inbox.py`,
+> `scripts/check_onedrive.py`, and the admin config route also read; repointing those
+> globally would have silently affected unrelated legacy code paths. Re-baselined against
+> the new folder: **7,099 existing files found and confirmed discarded** (not the ~29 from
+> before) — a manual `onedrive_sync` invocation immediately after found exactly 0 changed
+> files against that real backlog, and `DI_pages_used_today` stayed at 0 throughout, so no
+> AI cost was incurred re-scanning it. This session's own app registration (same
+> `MS_GRAPH_CLIENT_ID`) already had read access to Stephen Wong's drive with zero new
+> consent/permission changes — Graph application permissions are tenant-wide by design.
+>
+> **n8n "Slack Integration" workflow (`DJkAX2NYNHcncFis`) had a real bug**, found when
+> inviting the bot to the new `#doc-processor-alerts` channel triggered a false "⏳ 正在處理"
+> + greeting-menu response with no actual message sent. Root cause: the `Is Human Message?`
+> filter node only excluded `bot_message`/`message_changed` subtypes — a `channel_join`
+> system event (bot_id empty, subtype neither excluded value) passed straight through as if
+> it were real content. Fixed by adding `channel_join`/`channel_leave`/`channel_topic`/
+> `channel_purpose`/`channel_name` to the exclusion list and publishing the new version —
+> matters because this bot watches the whole workspace (`watchWorkspace: true`), so it will
+> get invited to channels again in the future.
+>
+> **`ProcessingHistory` never recorded which channel processed a document, for any channel,
+> since the table was first built (2026-07-17)** — not a regression, a field that simply
+> never existed until now. Added `source` to `log_run()` (`table_storage.py`) and threaded
+> `DocumentState.source` through in `graph.py` (the one call site missing it);
+> `count_runs_today()` now also returns `manual_success`/`manual_error` (WhatsApp/Slack/
+> Teams) and `onedrive_success`/`onedrive_error`, bucketing pre-existing rows with no stored
+> source as "manual" (accurate — OneDrive is the only channel that didn't already exist).
+> The daily digest now shows this split as two extra lines.
+>
+> **Deploy gotcha, new this session:** a package swap completing (confirmed via
+> `packagename.txt` updating) is **not sufficient on its own** — a live test right after a
+> `--all` deploy still returned the *old* digest format (no breakdown lines) even though the
+> new package had already swapped in seconds earlier. The Python worker process needed an
+> explicit `az functionapp restart` before it actually picked up the new code. Add this to
+> the existing "don't trust deploy success at face value" lesson above: **verify behavior
+> with a real invocation after a deploy, and if it doesn't match, try a restart before
+> assuming the deploy itself failed.**
+>
+> Commits: `77b15bb` (folder repoint), `a647306` (source-tracking + digest breakdown).
+
 - **Document pipeline:** WhatsApp/Slack/Teams/OneDrive → n8n (WhatsApp/Slack), Bot Framework (Teams), or the `onedrive_sync` timer → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
 - **OneDrive:** `onedrive_sync` timer (Function App, once daily 07:00 HKT) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead
@@ -1303,7 +1353,17 @@ WhatsApp user → Twilio → n8n "WhatsApp Twilio Integration" (2KEkDoOvwKB7Y6Ml
 | `ONEDRIVE_SYNC_MAX_AGE_DAYS` | Function App (optional) | Bounds a legitimate delta response, default 90 |
 | `ONEDRIVE_MAX_FILE_MB` | Function App (optional) | Skip oversized files before enqueueing, default 25 |
 | `ADMIN_SLACK_CHANNEL` | Function App | `#doc-processor-alerts` channel ID (`C0C1HJDUJR5`, C21net workspace) for the daily digest — reuses existing `SLACK_BOT_TOKEN` |
-| `MS_GRAPH_DRIVE_ID`, `MS_GRAPH_INBOX_FOLDER` | Function App | Already existed (leftover from the v1 pipeline) — reused as-is, no new Graph app registration needed |
+
+### Env vars added 2026-09-16 (folder repoint — supersede the pair below)
+| Setting | Where | Purpose |
+|---------|-------|---------|
+| `ONEDRIVE_SYNC_DRIVE_ID` | Function App | Stephen Wong's OneDrive (`stephenwong@c21net.com`), drive `b!WQGaAOw2aUefyqasQw331EB7h2cpTQFDmJwEqF5UC-L2jKz1LwTGS7SgLqPDhGLx` — same drive `bas-stacks`' onedrive-sync watches |
+| `ONEDRIVE_SYNC_FOLDER_PATH` | Function App | `Building_Folder/BD_Commercial` — the real, actively-used folder; replaces the dormant `admin@c21net.com` / `Document Processor/In` originally used on 2026-09-15 |
+
+~~`MS_GRAPH_DRIVE_ID`, `MS_GRAPH_INBOX_FOLDER`~~ — no longer used by `onedrive_sync` as of the
+2026-09-16 repoint (still used by the unrelated legacy `scripts/process_inbox.py`,
+`scripts/check_onedrive.py`, and the admin config route — deliberately left alone, not
+part of this feature's scope).
 
 ## Ingest & Triage
 
