@@ -43,7 +43,7 @@ LangGraph + LangSmith document processor.
 > actually reaches the user back in Teams.
 
 > **UPDATE (2026-09-15): OneDrive is now a fourth live ingest channel**, added as a
-> Function App timer trigger — `onedrive_sync` (`function_app.py`, every 10 min) —
+> Function App timer trigger — `onedrive_sync` (`function_app.py`, once daily 23:00 UTC / 07:00 HKT — was every 10 min during initial testing, see 2026-09-16 addendum below) —
 > feeding into the **same** `enqueue_pipeline_job()` → `pipeline_job_worker` → LangGraph
 > → Odoo path every other channel uses (`source="onedrive"` in `DocumentState`, no new
 > pipeline logic). New files dropped in `MS_GRAPH_INBOX_FOLDER` (`/Document Processor/In`)
@@ -84,10 +84,37 @@ LangGraph + LangSmith document processor.
 >
 > Commits: `f0daad0` (feature), `8ec3c5b` (timezone fix). Both deployed via
 > `./deploy.sh --func-only` — no App Service changes were needed for either.
+>
+> **Addendum (2026-09-16):** two more real issues found and fixed same day, both via direct
+> Application Insights queries against `c21net-bas-func-doc-pipeline-ea-prod`, not
+> assumption:
+> 1. **`onedrive_sync` crashed on every single run** (`ModuleNotFoundError: No module named
+>    'api'`) — it imported `SUPPORTED_FORMATS` from `api.common`, but `.funcignore`
+>    deliberately excludes the entire `api/` package from the Function App deployment
+>    (keeps FastAPI/heavy deps out of it, pre-existing rule, not new this session). Moved
+>    the constant to `src/utils/supported_formats.py` (not excluded, used by both services);
+>    `api/common.py` now just re-exports it. Fixed in `61bd485`, verified live: the first
+>    execution on the corrected package (`2026-09-16T02:00:14Z`) shows `Succeeded` in App
+>    Insights, vs. `Failed` on every prior run.
+> 2. **Cadence changed from every 10 min to once daily** (`0 0 23 * * *` = 23:00 UTC =
+>    07:00 HKT) at the user's request — OneDrive doesn't need WhatsApp/Slack/Teams-level
+>    responsiveness. Matches the sibling `bas-stacks` project's own `onedrive-sync`
+>    schedule (`0 0 7 * * *` there) in intent, but **not** in mechanism: bas-stacks relies
+>    on `WEBSITE_TIME_ZONE=Asia/Singapore` to make `7` mean 7am local, which this session
+>    could not empirically confirm actually works (couldn't locate that Function App's
+>    execution logs in the time spent); this repo's own Function App has no
+>    `WEBSITE_TIME_ZONE` set and was directly proven to run cron in raw UTC (see the
+>    timezone-fix note above) — so the HKT offset is baked into the cron expression itself
+>    here, not left to an app setting that may or may not be honored.
+>
+> Both lessons generalize: **query Application Insights to verify a Function App change
+> actually took effect and actually works — a successful `./deploy.sh` / "Remote build
+> succeeded!" message proves the code shipped, not that it runs correctly.** This session
+> caught both issues that way, not by inspection alone.
 
 - **Document pipeline:** WhatsApp/Slack/Teams/OneDrive → n8n (WhatsApp/Slack), Bot Framework (Teams), or the `onedrive_sync` timer → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
-- **OneDrive:** `onedrive_sync` timer (Function App, every 10 min) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead
+- **OneDrive:** `onedrive_sync` timer (Function App, once daily 07:00 HKT) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
 
 ## Product Design Philosophy
@@ -1176,7 +1203,7 @@ Any imports here cause `fitz` (PyMuPDF) to be loaded at startup → Azure App Se
 | Trigger | Schedule | Purpose |
 |---------|----------|---------|
 | Queue | `pipeline-jobs` | `pipeline_job_worker` — durable pipeline job worker (WhatsApp/Slack/Teams/OneDrive dispatch) |
-| Timer | every 10 min | `onedrive_sync` — Graph delta check on `MS_GRAPH_INBOX_FOLDER`, enqueues new files only (see UPDATE 2026-09-15 note above) |
+| Timer | `0 0 23 * * *` (23:00 UTC = 07:00 HKT) | `onedrive_sync` — Graph delta check on `MS_GRAPH_INBOX_FOLDER`, enqueues new files only (see UPDATE 2026-09-15 note above) |
 | Timer | `0 55 15 * * *` (15:55 UTC = 23:55 HKT) | `daily_processing_summary` — Slack digest to `#doc-processor-alerts` |
 | HTTP GET | `/api/health` | Health check (anonymous) |
 

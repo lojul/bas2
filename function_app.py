@@ -51,10 +51,20 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
     )
 
 
-@app.timer_trigger(schedule="0 */10 * * * *", arg_name="timer", run_on_startup=False)
+@app.timer_trigger(schedule="0 0 23 * * *", arg_name="timer", run_on_startup=False)
 def onedrive_sync(timer: func.TimerRequest) -> None:
     """Pick up new files dropped in the watched OneDrive folder and feed them
     into the same pipeline queue WhatsApp/Slack/Teams use.
+
+    Once daily (23:00 UTC = 07:00 HKT) — matches the sibling bas-stacks
+    project's onedrive-sync cadence (`0 0 7 * * *` there, but with
+    WEBSITE_TIME_ZONE=Asia/Singapore instead of the UTC offset baked into
+    the cron itself; this Function App has no WEBSITE_TIME_ZONE set and
+    Linux Function Apps run cron in raw UTC, confirmed the hard way when the
+    daily digest below first fired at the wrong hour — so the offset is
+    baked in here too, not left to an app setting). OneDrive doesn't need
+    WhatsApp/Slack/Teams-level responsiveness, so a daily check is enough;
+    was every 10 minutes during initial testing.
 
     Delta-based (Microsoft Graph /delta), not a folder listing — only ever
     processes files added/changed since the last saved delta link, so the
