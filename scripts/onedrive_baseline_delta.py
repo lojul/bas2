@@ -1,7 +1,8 @@
 """One-time manual step: establish the OneDrive delta-sync baseline.
 
-Run this BEFORE setting ONEDRIVE_SYNC_ENABLED=true. It does a full traversal
-of the watched folder (MS_GRAPH_INBOX_FOLDER), but DISCARDS every item it
+Run this BEFORE setting ONEDRIVE_SYNC_ENABLED=true, and again any time the
+watched drive/folder changes (ONEDRIVE_SYNC_DRIVE_ID / ONEDRIVE_SYNC_FOLDER_PATH).
+It does a full traversal of the watched folder, but DISCARDS every item it
 finds — it only saves the resulting delta link. That sets the baseline to
 "now", so the onedrive_sync timer function will only ever pick up files
 added/changed after this point. The existing backlog is never touched.
@@ -41,8 +42,8 @@ def main() -> None:
             print("Aborted.")
             return
 
-    drive_id = os.environ["MS_GRAPH_DRIVE_ID"]
-    inbox_folder = os.environ["MS_GRAPH_INBOX_FOLDER"]
+    drive_id = os.environ["ONEDRIVE_SYNC_DRIVE_ID"]
+    inbox_folder = os.environ["ONEDRIVE_SYNC_FOLDER_PATH"]
 
     graph = GraphClient()
     print(f"Resolving folder '{inbox_folder}'...")

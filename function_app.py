@@ -94,7 +94,7 @@ def onedrive_sync(timer: func.TimerRequest) -> None:
         )
         raise RuntimeError("OneDrive sync halted: no delta link and full re-sync is disabled.")
 
-    drive_id = os.environ["MS_GRAPH_DRIVE_ID"]
+    drive_id = os.environ["ONEDRIVE_SYNC_DRIVE_ID"]
     graph = GraphClient()
     max_age_days = int(os.environ.get("ONEDRIVE_SYNC_MAX_AGE_DAYS", "90"))
     max_file_mb = float(os.environ.get("ONEDRIVE_MAX_FILE_MB", "25"))
@@ -173,6 +173,8 @@ def daily_processing_summary(timer: func.TimerRequest) -> None:
     if not channel:
         return
 
+    from datetime import datetime as dt, timezone
+
     from src.utils.di_guard import get_usage_today
     from src.utils.slack_notify import send_slack
     from src.utils.table_storage import count_runs_today
@@ -181,8 +183,18 @@ def daily_processing_summary(timer: func.TimerRequest) -> None:
     pages_used = get_usage_today()
     di_limit = int(os.environ.get("DI_DAILY_PAGE_LIMIT", "200"))
 
+    # No reliable "was this a manual admin-API invocation" flag on a Python
+    # timer trigger — approximate it by checking whether we actually fired
+    # near the scheduled 15:55 UTC slot. Lets a manual test run (e.g. to
+    # verify Slack delivery without waiting for the schedule) be told apart
+    # from the real nightly run in the message itself.
+    now = dt.now(timezone.utc)
+    scheduled_minutes = 15 * 60 + 55
+    now_minutes = now.hour * 60 + now.minute
+    run_kind = "定時排程 Scheduled" if abs(now_minutes - scheduled_minutes) <= 5 else "手動觸發 Manual/test run"
+
     lines = [
-        "📊 Document Processor — 今日處理摘要",
+        f"📊 Document Processor — 今日處理摘要（{run_kind}）",
         f"成功：{counts.get('success', 0)} | 失敗：{counts.get('error', 0)} | 不支援：{counts.get('unsupported', 0)}",
         f"OCR 頁數：{pages_used}/{di_limit}",
     ]
