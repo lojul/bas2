@@ -93,3 +93,24 @@ def test_iter_delta_changes_uses_existing_delta_link_verbatim(client, monkeypatc
     client.iter_delta_changes("drive1", "item1", delta_link="https://saved-delta-link")
 
     assert seen_urls == ["https://saved-delta-link"]
+
+
+def test_iter_new_files_recurses_and_filters_by_since():
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock
+    from src.utils.graph_client import GraphClient
+
+    g = GraphClient.__new__(GraphClient)
+    pages = {
+        "root": {"value": [
+            {"id": "sub", "folder": {}, "lastModifiedDateTime": "2026-10-06T10:00:00Z"},
+            {"id": "stale", "folder": {}, "lastModifiedDateTime": "2026-01-01T00:00:00Z"},
+            {"id": "old", "file": {}, "lastModifiedDateTime": "2026-01-01T00:00:00Z"},
+        ]},
+        "stale": {"value": [{"id": "bad", "file": {}, "lastModifiedDateTime": "2026-10-06T10:00:00Z"}]},
+        "sub": {"value": [{"id": "new", "file": {}, "lastModifiedDateTime": "2026-10-06T10:00:00Z"}]},
+    }
+    g.get = MagicMock(side_effect=lambda url: pages["stale" if "/items/stale/" in url else "sub" if "/items/sub/" in url else "root"])
+    got = g.iter_new_files("d", "root", datetime(2026, 10, 1, tzinfo=timezone.utc))
+    assert [i["id"] for i in got] == ["new"]  # stale folder never opened
+    assert not any("/items/stale/" in c.args[0] for c in g.get.call_args_list)

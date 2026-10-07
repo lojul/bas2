@@ -79,41 +79,58 @@ def onedrive_sync(timer: func.TimerRequest) -> None:
     if os.environ.get("ONEDRIVE_SYNC_ENABLED", "false").lower() != "true":
         return
 
-    from datetime import datetime as dt, timedelta, timezone
+    from datetime import datetime as dt, timezone
 
-    from src.utils.graph_client import DeltaLinkExpiredError, GraphClient
+    from src.utils.graph_client import GraphClient
     from src.utils.job_queue import enqueue_pipeline_job
-    from src.utils.onedrive_delta_store import load_delta_link, save_delta_link
+    from src.utils.onedrive_delta_store import (
+        load_delta_state, load_watermark, save_watermark,
+    )
     from src.utils.supported_formats import SUPPORTED_FORMATS
 
-    delta_link = load_delta_link()
-    if delta_link is None:
-        logging.error(
-            "onedrive_resync_blocked reason=no_delta_link — refusing to full-resync; "
-            "run scripts/onedrive_baseline_delta.py to establish the baseline deliberately."
-        )
-        raise RuntimeError("OneDrive sync halted: no delta link and full re-sync is disabled.")
+    # ONEDRIVE_SYNC_FORCE_SINCE: one-shot override of the stored watermark (unset after use).
+    watermark = os.environ.get("ONEDRIVE_SYNC_FORCE_SINCE") or load_watermark()
+    if watermark is None:
+        # One-time seed so the existing backlog is never reprocessed: explicit
+        # ONEDRIVE_SYNC_SINCE, else the last successful run of the old delta sync.
+        seed = os.environ.get("ONEDRIVE_SYNC_SINCE") or (load_delta_state() or {}).get("timestamp")
+        if not seed:
+            logging.error("onedrive_resync_blocked reason=no_watermark — set ONEDRIVE_SYNC_SINCE.")
+            raise RuntimeError("OneDrive sync halted: no watermark and no seed; refusing to full-resync.")
+        watermark = seed if isinstance(seed, str) else seed.isoformat()
+        logging.warning("OneDrive sync: seeding watermark at %s", watermark)
+    since = dt.fromisoformat(watermark.replace("Z", "+00:00"))
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
 
     drive_id = os.environ["ONEDRIVE_SYNC_DRIVE_ID"]
-    graph = GraphClient()
-    max_age_days = int(os.environ.get("ONEDRIVE_SYNC_MAX_AGE_DAYS", "90"))
     max_file_mb = float(os.environ.get("ONEDRIVE_MAX_FILE_MB", "25"))
-    since = dt.now(timezone.utc) - timedelta(days=max_age_days)
+    graph = GraphClient()
+    folder_id = graph.get_item_id_by_path(drive_id, os.environ["ONEDRIVE_SYNC_FOLDER_PATH"])
+    items = graph.iter_new_files(drive_id, folder_id, since)
+    items.sort(key=lambda i: i["lastModifiedDateTime"])
 
-    try:
-        items, new_delta_link = graph.iter_delta_changes(drive_id, "", delta_link, since=since)
-    except DeltaLinkExpiredError:
-        logging.error(
-            "onedrive_resync_blocked reason=delta_link_expired — refusing to full-resync; "
-            "re-baseline via scripts/onedrive_baseline_delta.py deliberately."
-        )
-        raise RuntimeError(
-            "OneDrive sync halted: delta link expired (410) and full re-sync is disabled."
-        ) from None
+    # Blast-radius guard: if more files than expected show up, process NONE and
+    # leave the watermark untouched, so an unexpected backlog is never ingested.
+    max_files = int(os.environ.get("ONEDRIVE_SYNC_MAX_FILES", "20"))
+    if len(items) > max_files:
+        names = "; ".join(f'{i.get("name", "?")} @ {i["lastModifiedDateTime"]}' for i in items[:10])
+        msg = (f"⛔ OneDrive sync aborted: {len(items)} files found since {since.isoformat()} "
+               f"(cap {max_files}). Nothing processed. First: {names}")
+        logging.error(msg)
+        admin = os.environ.get("ADMIN_SLACK_CHANNEL", "")
+        if admin:
+            from src.utils.slack_notify import send_slack
+            send_slack(admin, msg)
+        raise RuntimeError(msg)
+
+    notify_slack = os.environ.get("ONEDRIVE_NOTIFY_SLACK", "false").lower() == "true"
+    slack_target = os.environ.get("ADMIN_SLACK_CHANNEL", "") if notify_slack else ""
 
     logging.info("OneDrive sync: found %d changed file(s).", len(items))
 
     enqueued, skipped = 0, 0
+    first_failed = None
     for item in items:
         name = item.get("name", "")
         ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
@@ -131,23 +148,29 @@ def onedrive_sync(timer: func.TimerRequest) -> None:
             download_url = item.get("@microsoft.graph.downloadUrl") or graph.get_download_url(
                 drive_id, item["id"]
             )
-            if not download_url:
-                logging.warning("OneDrive sync: no download URL for %s — skipping.", name)
-                skipped += 1
-                continue
-            file_bytes = graph.download(download_url)
-            enqueue_pipeline_job(
-                file_bytes, name,
-                notify_channel="", notify_user="",
-                source="onedrive",
+            file_bytes = (
+                graph.download(download_url) if download_url
+                else graph.download_item(drive_id, item["id"])
             )
+            if not enqueue_pipeline_job(
+                file_bytes, name,
+                notify_channel="slack" if slack_target else "", notify_user=slack_target,
+                source="onedrive",
+            ):
+                raise RuntimeError("queue unavailable")
             enqueued += 1
         except Exception as exc:
             logging.error("OneDrive sync: failed to enqueue %s: %s", name, exc)
+            first_failed = first_failed or item
 
-    # Only advance the delta link once every returned item has been handled —
+    # Only advance the watermark once every returned item has been handled —
     # a partial failure here must not silently skip files on the next run.
-    save_delta_link(new_delta_link)
+    # Never advance past a failed file — it is retried on the next run.
+    done = items[: items.index(first_failed)] if first_failed else items
+    if done:
+        save_watermark(done[-1]["lastModifiedDateTime"])
+    elif not items:
+        save_watermark(since.isoformat())
     logging.info("OneDrive sync complete — enqueued: %d, skipped: %d", enqueued, skipped)
 
 

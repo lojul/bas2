@@ -237,16 +237,26 @@ def _upload_to_documents(models: Any, uid: int, api_key: str, state: DocumentSta
         ODOO_DB, uid, api_key, "documents.document", "search",
         [[["name", "=", state.file_name], ["folder_id", "=", DOCUMENTS_FOLDER_ID]]],
     )
+    # Odoo saas-19.3 removed `datas` from documents.document: the file now lives on
+    # the linked ir.attachment, so write/create it there and link it by attachment_id.
     if existing:
         doc_id = existing[0]
-        models.execute_kw(ODOO_DB, uid, api_key, "documents.document", "write",
-                          [[doc_id], {"datas": datas}])
+        att = models.execute_kw(ODOO_DB, uid, api_key, "documents.document", "read",
+                                [[doc_id], ["attachment_id"]])
+        att_id = att[0]["attachment_id"][0] if att and att[0].get("attachment_id") else None
+        if att_id:
+            models.execute_kw(ODOO_DB, uid, api_key, "ir.attachment", "write",
+                              [[att_id], {"datas": datas}])
     else:
-        doc_id = models.execute_kw(ODOO_DB, uid, api_key, "documents.document", "create", [{
+        att_id = models.execute_kw(ODOO_DB, uid, api_key, "ir.attachment", "create", [{
             "name": state.file_name,
             "datas": datas,
-            "folder_id": DOCUMENTS_FOLDER_ID,
             "mimetype": "application/pdf",
+        }])
+        doc_id = models.execute_kw(ODOO_DB, uid, api_key, "documents.document", "create", [{
+            "name": state.file_name,
+            "attachment_id": att_id,
+            "folder_id": DOCUMENTS_FOLDER_ID,
             "access_via_link": "view",
         }])
 
@@ -463,6 +473,9 @@ def _address_overlap(ai_address: str, als_address: str, minlen: int = 2) -> bool
     """
     if not ai_address or not als_address:
         return True  # nothing to cross-check against — don't block on missing data
+    # Strip generic words that appear in nearly every HK address — otherwise "香港" alone
+    # makes any two addresses "overlap" (e.g. Wan Chai 188 matched 中港城 in Tsim Sha Tsui).
+    ai_address = re.sub(r"香港特別行政區|香港|九龍|新界|號|樓|層|舖|鋪|地下|高層|低層|中層", " ", ai_address)
     tokens = re.findall(r"[一-鿿]+", ai_address)
     for token in tokens:
         for length in range(len(token), minlen - 1, -1):
@@ -486,6 +499,16 @@ def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> i
     """
     building_name = (raw.get("building_name") or raw.get("project_name") or "").strip()
     if not building_name:
+        # Street-level flyers (e.g. a ground-floor shop) often name no building — the
+        # extractor's own convention is to use the street address as the building name.
+        building_name = (raw.get("address") or "").strip()
+        # Name the building by the street address only, not the shop/unit part
+        # ("…灣仔道188 號高層地下F舖" → "…灣仔道188 號").
+        building_name = re.sub(r"(號).*$", r"\1", building_name) if "號" in building_name else building_name
+        if building_name:
+            logger.info("_get_or_create_building: no building name, using address '%s'", building_name)
+    if not building_name:
+        logger.info("_get_or_create_building: no building name or address — skipping building link")
         return None
 
     try:
@@ -515,6 +538,7 @@ def _get_or_create_building(models: Any, uid: int, api_key: str, raw: dict) -> i
             [[["x_name", "ilike", search_name]]],
         )
         if found:
+            logger.info("_get_or_create_building: matched existing building id=%s for '%s'", found[0], building_name)
             return found[0]
 
         # Fallback: search by x_name_en too — x_name alone misses a building whose

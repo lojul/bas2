@@ -159,12 +159,15 @@ def upload_image(image_bytes: bytes, filename: str) -> str | None:
         return None
     try:
         encoded = base64.b64encode(image_bytes).decode()
-        doc_id = _exec("documents.document", "create", [{
+        # Odoo saas-19.3 removed `datas` from documents.document — the file lives on
+        # the linked ir.attachment (same fix as odoo_sync._upload_to_documents).
+        att_id = _exec("ir.attachment", "create", [{"name": filename, "datas": encoded}])
+        _exec("documents.document", "create", [{
             "name": filename,
             "folder_id": DOCUMENTS_FOLDER_ID,
-            "datas": encoded,
+            "attachment_id": att_id,
         }])
-        return f"{ODOO_URL}/web/content/documents.document/{doc_id}/datas/{filename}"
+        return f"{ODOO_URL}/web/content/{att_id}/{filename}"
     except Exception as e:
         print(f"[upload_image] FAILED for {filename}: {e}")
         return None

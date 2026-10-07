@@ -162,6 +162,44 @@ LangGraph + LangSmith document processor.
 >
 > Commits: `77b15bb` (folder repoint), `a647306` (source-tracking + digest breakdown).
 
+> **Addendum 3 (2026-10-07): OneDrive sync rewritten off `/delta`; Odoo 19.3 upload fix; building
+> matching fixed. First verified end-to-end run: `灣仔道188號F舖 .pdf` → building 37 + listing 146.**
+>
+> - **`/delta` on the `BD_Commercial` subfolder silently missed new files** (Graph delta is only
+>   reliable at the drive root for OneDrive for Business) — the daily digest showed 0 for days.
+>   `onedrive_sync` now uses a **timestamp watermark** (`OneDriveSyncState` row `highWaterMark`) and
+>   `GraphClient.iter_new_files()`: lists `BD_Commercial`'s top-level folders and only descends into
+>   those whose own `lastModifiedDateTime` is after the watermark (a full walk of the ~hundreds of
+>   building folders exceeds the 10-min function timeout). **Known limitation:** a file added to an
+>   OLD building folder does not bump that folder's timestamp, so it is NOT detected — only new
+>   building folders are. Fix idea: Graph delta on the drive ROOT (`?token=latest`), filtered to
+>   `BD_Commercial` paths. Not built.
+> - **Guards:** `ONEDRIVE_SYNC_MAX_FILES` (default 20, set to 5) — if more files are found, the run
+>   aborts, posts to `#doc-processor-alerts`, processes NOTHING and leaves the watermark alone. The
+>   watermark only advances to the last successfully queued file (a failed file is retried). Seed for
+>   a missing watermark: `ONEDRIVE_SYNC_SINCE`, else the old delta row's timestamp. One-shot override
+>   `ONEDRIVE_SYNC_FORCE_SINCE` replaces the stored watermark on every run while set — **always delete
+>   it after use**. Files with no `downloadUrl` are fetched via `/items/{id}/content`.
+> - **Slack per file:** `ONEDRIVE_NOTIFY_SLACK=true` sends the normal completion message to
+>   `ADMIN_SLACK_CHANNEL` for each OneDrive file.
+> - **Graph timestamps are UTC; the OneDrive web UI showed US-Pacific-looking times** ("Sunday 10:18 PM"
+>   was 05:18Z). Use real `lastModifiedDateTime` values when picking a seed, not the UI.
+> - **Odoo saas-19.3 removed `datas` from `documents.document`** (`KeyError: 'datas'`) — every upload
+>   was failing. `odoo_sync._upload_to_documents` and `knowledge_writer.upload_image` now create an
+>   `ir.attachment` first and link it via `attachment_id`.
+> - **Building resolution:** with no `building_name`, `_get_or_create_building` now falls back to the
+>   street address (cut at 號). `_address_overlap` now strips generic words (香港/九龍/號/地下…) — before,
+>   "香港" alone matched Wan Chai 188 to 中港城 (Tsim Sha Tsui). Logs now say whether a building was
+>   matched/created. Unmatched buildings are created with ALS data (`x_needs_review=False` when ALS confirms).
+> - **Deploy lessons:** `func azure functionapp publish` hung 16 min once — kill and retry. After any
+>   app-setting change the host restarts, which **interrupts an in-flight `pipeline_job_worker`** (queue
+>   redelivers it ~10 min later) — don't touch settings while a job runs. `admin/functions/<name>`
+>   (POST, master key) triggers a timer on demand; right after a settings change it can hit the old
+>   process, so restart and wait for the "Job host started" trace first. `wwwroot` only holds `host.json`
+>   (run-from-package), so verify a deploy by behaviour in App Insights, not by listing files.
+> - **Open:** deleted test listings 144/145 may linger in BAS `properties-index` (`odoo-listing-144/145`);
+>   the `odoo-bas-sync` job only upserts and never deletes.
+
 - **Document pipeline:** WhatsApp/Slack/Teams/OneDrive → n8n (WhatsApp/Slack), Bot Framework (Teams), or the `onedrive_sync` timer → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
 - **OneDrive:** `onedrive_sync` timer (Function App, once daily 07:00 HKT) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead

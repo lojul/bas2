@@ -75,6 +75,16 @@ class GraphClient:
             resp.raise_for_status()
             return resp.content
 
+    def download_item(self, drive_id: str, item_id: str) -> bytes:
+        """Download via the authenticated /content endpoint (302 to a pre-signed URL).
+        Fallback for items where Graph omits @microsoft.graph.downloadUrl."""
+        with httpx.Client(timeout=120, follow_redirects=True) as client:
+            resp = client.get(
+                f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/content", headers=self._headers()
+            )
+            resp.raise_for_status()
+            return resp.content
+
     def iter_delta_changes(
         self,
         drive_id: str,
@@ -135,6 +145,44 @@ class GraphClient:
             )
 
         return items, new_delta_link
+
+    def iter_new_files(self, drive_id: str, folder_id: str, since: datetime) -> list[dict]:
+        """List files under a folder modified strictly after `since`, descending only into
+        top-level subfolders whose own timestamp is after `since`.
+
+        Replaces /delta for the live sync: Graph delta is only reliable on the
+        drive root for OneDrive for Business, and silently missed new files in
+        a subfolder. Plain children listing has no such restriction.
+        """
+        found: list[dict] = []
+        stack = [(folder_id, True)]
+        while stack:
+            current, is_top = stack.pop()
+            url = (
+                f"{GRAPH_BASE}/drives/{drive_id}/items/{current}/children"
+                f"?$top=200&$select={_DELTA_SELECT},size"
+            )
+            while url:
+                data = self.get(url)
+                for item in data.get("value", []):
+                    if "folder" in item:
+                        # Top-level folders are the unit of change (one per building):
+                        # skip any not created/modified since the watermark, so we never
+                        # walk the whole backlog. Inside a changed folder, walk fully.
+                        if is_top:
+                            f_mod = item.get("lastModifiedDateTime")
+                            if not f_mod or datetime.fromisoformat(f_mod.replace("Z", "+00:00")) <= since:
+                                continue
+                        stack.append((item["id"], False))
+                    elif "file" in item:
+                        modified_at = item.get("lastModifiedDateTime")
+                        if not modified_at:
+                            continue
+                        modified = datetime.fromisoformat(modified_at.replace("Z", "+00:00"))
+                        if modified > since:
+                            found.append(item)
+                url = data.get("@odata.nextLink")
+        return found
 
     def get_item_id_by_path(self, drive_id: str, folder_path: str) -> str:
         """Resolve a folder path (e.g. '/Document Processor/In') to its item ID.

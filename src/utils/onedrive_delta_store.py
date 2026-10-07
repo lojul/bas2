@@ -84,3 +84,30 @@ def delete_delta_link() -> None:
             logger.warning("OneDrive delta link deleted — re-baseline before re-enabling the sync.")
     except Exception:
         pass  # already gone
+
+
+_WATERMARK_ROW_KEY = "highWaterMark"
+
+
+def load_watermark() -> str | None:
+    """ISO timestamp of the newest file already handled, or None if unset."""
+    try:
+        client = _client()
+        if client is None:
+            return None
+        return client.get_entity(partition_key=_PARTITION_KEY, row_key=_WATERMARK_ROW_KEY).get("value") or None
+    except Exception:
+        return None
+
+
+def save_watermark(iso_timestamp: str) -> None:
+    if not iso_timestamp or not iso_timestamp.strip():
+        raise ValueError("Refusing to persist an empty OneDrive watermark.")
+    client = _client()
+    if client is None:
+        raise RuntimeError("AZURE_TABLE_SAS not set — cannot persist OneDrive watermark.")
+    client.upsert_entity({
+        "PartitionKey": _PARTITION_KEY,
+        "RowKey": _WATERMARK_ROW_KEY,
+        "value": iso_timestamp,
+    })
