@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+local.settings.json
+__pycache__/
+.venv/
+node_modules/
+.next/
+.vercel/
