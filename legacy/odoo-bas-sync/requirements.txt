@@ -1,0 +1,10 @@
+# Azure Functions
+azure-functions>=1.17.0
+
+# Managed identity auth (no keys) — Azure OpenAI + Azure AI Search
+azure-identity>=1.15
+azure-search-documents>=11.4
+openai>=1.0
+
+# Local dev only
+python-dotenv>=1.0
