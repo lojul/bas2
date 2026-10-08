@@ -1,0 +1,347 @@
+{
+  "name": "C21 Property Intelligence RAG v1.0",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "c21-property-rag",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Access-Control-Allow-Origin",
+                "value": "*"
+              },
+              {
+                "name": "Access-Control-Allow-Methods",
+                "value": "POST, OPTIONS"
+              },
+              {
+                "name": "Access-Control-Allow-Headers",
+                "value": "Content-Type, Authorization"
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        5216,
+        1248
+      ],
+      "id": "2e609cab-61c7-4c07-a617-cb158e2ecb32",
+      "name": "Webhook",
+      "webhookId": "c21-property-rag",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "52XgByrQwHmQwjn5",
+          "name": "RAG API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        5216,
+        1456
+      ],
+      "id": "d6462957-227b-419a-a023-840244441dd7",
+      "name": "Chat Trigger",
+      "webhookId": "c21-property-chat"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize input from both triggers\nconst inputData = $input.first().json;\nlet question = '';\nlet sessionId = '';\nlet source = 'webhook';\n\nif (inputData.body && inputData.body.question) {\n  question = inputData.body.question;\n  sessionId = inputData.body.session_id || 'webhook_' + Date.now();\n  source = 'webhook';\n} else if (inputData.chatInput) {\n  question = inputData.chatInput;\n  sessionId = inputData.sessionId || 'chat_' + Date.now();\n  source = 'chat';\n} else {\n  question = 'What properties are available?';\n  sessionId = 'default_' + Date.now();\n}\n\nreturn {\n  json: {\n    question,\n    sessionId,\n    source\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5440,
+        1360
+      ],
+      "id": "d188d0b1-7081-4262-b4fe-3c84ece92bff",
+      "name": "Normalize Input"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/embeddings",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"baai/bge-m3\",\n  \"input\": \"{{ $json.question }}\",\n  \"dimensions\": 1024\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        5664,
+        1360
+      ],
+      "id": "da874d80-7c6c-4cc9-89fb-a73833b1ef8e",
+      "name": "Embed Question (OpenRouter)",
+      "credentials": {
+        "openRouterApi": {
+          "id": "zd0DOKon3TSQ6C6I",
+          "name": "OpenRouter account (admin@c21net.com)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const embedding = $json.data[0].embedding;\n\nreturn {\n  json: {\n    vectorQueries: [\n      {\n        kind: \"vector\",\n        vector: embedding,\n        fields: \"embedding\",\n        k: 5\n      }\n    ],\n    select: \"id, content, fileName, blobPath, pageNumber, chunkIndex, aiDocType, aiLanguage, propertyName, propertyNameCn, buildingName, district, floor, unit, propertyType, listingType, grossArea, netArea, askingRent, rentPerSqft, availableFrom, aiKeyTopics\",\n    top: 8\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5888,
+        1360
+      ],
+      "id": "2313e0fe-3a05-4e04-8c79-96e015ecfc3b",
+      "name": "Prepare Search Query"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ai-search-hk-free.search.windows.net/indexes/property-listing-vectors/docs/search?api-version=2023-11-01",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "api-key",
+              "value": "ksk4qqVJsAs11gAgjFcgdFzXRlolC1e7wdZ1NzMEXzAzSeCcnmGT"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6096,
+        1360
+      ],
+      "id": "8cc1a9c2-7aaa-4fdb-952c-7984b8a82430",
+      "name": "Search Listings Index"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get question from Normalize Input node\nvar question = $('Normalize Input').item.json.question;\nvar sessionId = $('Normalize Input').item.json.sessionId;\nvar source = $('Normalize Input').item.json.source;\n\n// Get search results from Listings\nvar listingDocs = $json.value || [];\n\n// Build context from listings\nvar context = \"\";\nfor (var i = 0; i < listingDocs.length; i++) {\n  var d = listingDocs[i];\n  context += `\\n---\\nDocument: ${d.fileName || 'Unknown'}\\nPage: ${d.pageNumber || 'N/A'}\\nProperty: ${d.propertyName || ''} ${d.propertyNameCn ? '(' + d.propertyNameCn + ')' : ''}\\nBuilding: ${d.buildingName || ''}\\nDistrict: ${d.district || ''}\\nFloor/Unit: ${d.floor || ''} ${d.unit || ''}\\nProperty Type: ${d.propertyType || ''}\\nListing Type: ${d.listingType || ''}\\nGross Area: ${d.grossArea || ''} sqft\\nNet Area: ${d.netArea || ''} sqft\\nAsking Rent: HK$${d.askingRent || ''}\\nRent/sqft: HK$${d.rentPerSqft || ''}\\nAvailable From: ${d.availableFrom || ''}\\nKey Topics: ${Array.isArray(d.aiKeyTopics) ? d.aiKeyTopics.join(', ') : (d.aiKeyTopics || '')}\\n\\nContent:\\n${d.content || ''}\\n`;\n}\n\n// System Prompt\nvar systemPrompt = `You are a Property Intelligence Assistant for Century 21 Hong Kong - a helpful AI that answers questions about commercial property leasing.\n\n## Your Role\n- Answer questions about property listings, leasing proposals, and market information\n- Extract specific details like rent, area, terms, and conditions from documents\n- Summarize property information when asked\n- Compare properties if multiple are relevant\n\n## Rules\n1. Only use information from the provided document excerpts below\n2. If the answer cannot be found in the documents, say \"I couldn't find this information in the available documents. Please contact our team for more details.\"\n3. Never make up or hallucinate information\n4. Always cite the source document (fileName and page number) when providing information\n5. Language: Always respond in the same language as the user's question (Chinese if asked in Chinese, English if asked in English)\n\n## Response Format\n- Present information clearly and concisely\n- List properties with key details (name, location, area, rent)\n- Include source citations: \"(Source: filename, Page X)\"\n- Use bullet points for multiple pieces of information\n\n## Available Property Information\n${context}\n\n---\nAnswer the user's question based ONLY on the above information. Be helpful and accurate.`;\n\n// Build messages array for LLM\nvar messages = [\n  { role: \"system\", content: systemPrompt },\n  { role: \"user\", content: question }\n];\n\n// Extract sources for response\nvar sources = [];\nfor (var j = 0; j < listingDocs.length; j++) {\n  sources.push({ \n    fileName: listingDocs[j].fileName, \n    pageNumber: listingDocs[j].pageNumber,\n    propertyName: listingDocs[j].propertyName,\n    district: listingDocs[j].district \n  });\n}\n\nreturn {\n  json: {\n    messages: messages,\n    sources: sources,\n    question: question,\n    sessionId: sessionId,\n    source: source\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6320,
+        1360
+      ],
+      "id": "36c595cf-71f1-4e37-8825-882614b03750",
+      "name": "Prepare LLM Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openRouterApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "https://c21hk.com"
+            },
+            {
+              "name": "X-Title",
+              "value": "C21 Property Intelligence"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"meta-llama/llama-3.3-70b-instruct\",\n  \"messages\": {{ JSON.stringify($json.messages) }},\n  \"temperature\": 0.5,\n  \"max_tokens\": 2000\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6544,
+        1360
+      ],
+      "id": "e2edce68-5a71-4b47-a2a7-dd28d3077db7",
+      "name": "Call Llama via OpenRouter",
+      "credentials": {
+        "openRouterApi": {
+          "id": "zd0DOKon3TSQ6C6I",
+          "name": "OpenRouter account (admin@c21net.com)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const answer = $json.choices[0].message.content;\nconst promptData = $('Prepare LLM Prompt').item.json;\nconst model = $json.model || 'llama-3.3-70b-instruct';\n\nreturn {\n  json: {\n    success: true,\n    answer: answer,\n    question: promptData.question,\n    documents: promptData.sources,\n    model: model,\n    sessionId: promptData.sessionId,\n    source: promptData.source,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6768,
+        1360
+      ],
+      "id": "8cee87eb-4abf-4a22-87f4-15fc47d75699",
+      "name": "Format Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        6976,
+        1360
+      ],
+      "id": "70c16e35-df18-46ce-a741-cd94929c5b6a",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Embed Question (OpenRouter)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Embed Question (OpenRouter)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Search Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Search Query": {
+      "main": [
+        [
+          {
+            "node": "Search Listings Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Listings Index": {
+      "main": [
+        [
+          {
+            "node": "Prepare LLM Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare LLM Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call Llama via OpenRouter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Llama via OpenRouter": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "0d39a457-f31a-466f-9ae1-fe6bf54425cf",
+  "meta": {
+    "instanceId": "9e058b7018fc63d1a4f91d0af9b1514ff622445c8e185854eb48b31fca23132c"
+  },
+  "id": "mvJfnDIn0Cjez0oJ",
+  "tags": []
+}

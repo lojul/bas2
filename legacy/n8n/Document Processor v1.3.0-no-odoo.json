@@ -1,0 +1,1048 @@
+{
+  "name": "Document Processor v1.3.0 (No Odoo)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "watchFolder": true,
+        "folderId": {
+          "__rl": true,
+          "value": "01TIECOOFJGGETSABB65EKHF45BMOHSRCC",
+          "mode": "id"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftOneDriveTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3184,
+        512
+      ],
+      "id": "a3b3f3b7-137f-4b37-a4db-25318c265f60",
+      "name": "OneDrive Trigger",
+      "credentials": {
+        "microsoftOneDriveOAuth2Api": {
+          "id": "76edZRPxqnysTDPL",
+          "name": "Microsoft Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "{\n  \"AZURE_DOC_INTEL_KEY\": \"REDACTED\",\n  \"AZURE_DOC_INTEL_ENDPOINT\": \"https://doc-intel-hk.cognitiveservices.azure.com\",\n  \"AZURE_BLOB_ACCOUNT\": \"blobhk04472\",\n  \"AZURE_BLOB_CONTAINER\": \"property-pdf\",\n  \"AZURE_BLOB_READ_SAS\": \"REDACTED\",\n  \"AZURE_OPENAI_ENDPOINT\": \"https://swedencentral.api.cognitive.microsoft.com\",\n  \"AZURE_OPENAI_KEY\": \"REDACTED\",\n  \"AZURE_SEARCH_ENDPOINT\": \"https://ai-search-hk-free.search.windows.net\",\n  \"AZURE_SEARCH_LISTING_INDEX\": \"property-listing-vectors\",\n  \"AZURE_SEARCH_NEWS_INDEX\": \"property-news-vectors\",\n  \"AZURE_SEARCH_API_KEY\": \"REDACTED\",\n  \"OPENROUTER_API_KEY\": \"REDACTED\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2976,
+        512
+      ],
+      "id": "f2a8c73c-416a-4e57-bf4e-0b81b14bb558",
+      "name": "Config (API Keys)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filter supported document files (PDF + Images) and merge with config\nconst config = $('Config (API Keys)').item.json;\nconst triggerItems = $('OneDrive Trigger').all();\nconst supportedExtensions = ['.pdf', '.jpg', '.jpeg', '.png', '.bmp', '.tiff'];\n\nconst items = triggerItems.filter(item => {\n  const name = (item.json.name || '').toLowerCase();\n  return supportedExtensions.some(ext => name.endsWith(ext));\n});\n\nif (items.length === 0) {\n  throw new Error('No supported files found (PDF, JPG, PNG, BMP, TIFF)');\n}\n\nreturn items.map(item => ({ \n  json: { \n    ...item.json, \n    _config: config,\n    _fileType: (item.json.name || '').toLowerCase().endsWith('.pdf') ? 'pdf' : 'image'\n  } \n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2752,
+        512
+      ],
+      "id": "13491d24-80d8-4958-929b-c36cdd2cc490",
+      "name": "Filter Documents (PDF + Images)"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.microsoftOneDrive",
+      "typeVersion": 1.1,
+      "position": [
+        -2528,
+        512
+      ],
+      "id": "c1db2e63-02f0-4fd0-bc95-5f579edc6b7f",
+      "name": "Download File",
+      "credentials": {
+        "microsoftOneDriveOAuth2Api": {
+          "id": "76edZRPxqnysTDPL",
+          "name": "Microsoft Drive OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -2304,
+        512
+      ],
+      "id": "62f5ee5a-ec3d-46b9-9e53-5ee454046e77",
+      "name": "Process One by One"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare blob path and upload metadata\nconst config = $('Config (API Keys)').item.json;\nconst originalFileName = $input.item.binary?.data?.fileName || $json.name || 'document';\nconst fileType = $('Filter Documents (PDF + Images)').item.json._fileType;\nconst now = new Date();\n\nconst ext = originalFileName.toLowerCase().split('.').pop();\nconst timestamp = now.getTime().toString(36);\nconst safeFileName = originalFileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || `doc_${timestamp}.${ext}`;\nconst fileName = originalFileName;\n\nconst blobFolder = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;\nconst blobPath = `${blobFolder}/${safeFileName}`;\nconst encodedBlobPath = `${blobFolder}/${encodeURIComponent(safeFileName)}`;\n\nconst safeBinary = JSON.parse(JSON.stringify($input.item.binary || {}));\nif (safeBinary.data && safeBinary.data.fileName) {\n  safeBinary.data.fileName = safeFileName;\n}\n\nconst contentTypes = {\n  'pdf': 'application/pdf',\n  'jpg': 'image/jpeg',\n  'jpeg': 'image/jpeg',\n  'png': 'image/png',\n  'bmp': 'image/bmp',\n  'tiff': 'image/tiff'\n};\nconst contentType = contentTypes[ext] || 'application/octet-stream';\n\nreturn { \n  json: { \n    fileName, \n    blobFolder, \n    blobPath, \n    encodedBlobPath, \n    fileType,\n    contentType,\n    _config: config \n  }, \n  binary: safeBinary \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2096,
+        512
+      ],
+      "id": "456d9993-faa8-4ff4-a709-14ee8d682d9f",
+      "name": "Prepare Upload"
+    },
+    {
+      "parameters": {
+        "resource": "blob",
+        "operation": "create",
+        "container": {
+          "__rl": true,
+          "value": "property-pdf",
+          "mode": "list"
+        },
+        "blobCreate": "={{ $json.encodedBlobPath }}",
+        "options": {},
+        "requestOptions": {}
+      },
+      "type": "n8n-nodes-base.azureStorage",
+      "typeVersion": 1,
+      "position": [
+        -1872,
+        512
+      ],
+      "id": "46cf4ceb-da74-4b08-a23b-716abd32d802",
+      "name": "Upload to Azure Blob",
+      "credentials": {
+        "azureStorageSharedKeyApi": {
+          "id": "WZ9E43yxwUxwumMO",
+          "name": "Azure Storage Shared Key account blobhk04472"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Prepare Upload').item.json._config.AZURE_DOC_INTEL_ENDPOINT }}/formrecognizer/documentModels/prebuilt-layout:analyze?api-version=2023-07-31",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Ocp-Apim-Subscription-Key",
+              "value": "={{ $('Prepare Upload').item.json._config.AZURE_DOC_INTEL_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { urlSource: `https://${$('Prepare Upload').item.json._config.AZURE_BLOB_ACCOUNT}.blob.core.windows.net/${$('Prepare Upload').item.json._config.AZURE_BLOB_CONTAINER}/${$('Prepare Upload').item.json.encodedBlobPath}?${$('Prepare Upload').item.json._config.AZURE_BLOB_READ_SAS}` } }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -1648,
+        512
+      ],
+      "id": "061829e4-5659-4d33-bdde-45b0de586dcc",
+      "name": "Submit OCR"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $('Prepare Upload').item.json._config;\nconst meta = $('Prepare Upload').item.json;\nconst operationUrl = $('Submit OCR').item.json.headers['operation-location'];\nconst sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));\n\n// n8n Cloud has 60s limit - use 15 attempts x 3s = 45s max\nfor (let attempt = 0; attempt < 15; attempt++) {\n  await sleep(3000);\n  const result = await this.helpers.httpRequest({ \n    method: 'GET', \n    url: operationUrl, \n    headers: { 'Ocp-Apim-Subscription-Key': config.AZURE_DOC_INTEL_KEY }, \n    json: true \n  });\n  if (result.status === 'succeeded') {\n    return { json: { ...result, _config: config, _meta: meta } };\n  }\n  if (result.status === 'failed') {\n    throw new Error('OCR failed: ' + JSON.stringify(result.error));\n  }\n}\nthrow new Error('OCR timeout - document may be too large for Cloud processing');"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1424,
+        512
+      ],
+      "id": "b4ea204f-00c4-436f-9ff4-a7fd23d88237",
+      "name": "Poll OCR Result"
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = $json._config;\nconst meta = $json._meta;\nconst ocr = $json.analyzeResult || {};\nconst text = ocr.content || '';\nconst pages = ocr.pages || [];\n\nconst pageSpans = [];\nlet offset = 0;\nfor (let i = 0; i < pages.length; i++) {\n  const len = pages[i].spans?.reduce((s, sp) => s + (sp.length || 0), 0) || 0;\n  pageSpans.push({ pageNumber: i + 1, start: offset, end: offset + len });\n  offset += len;\n}\n\nconst tables = (ocr.tables || []).map((t, idx) => {\n  const rows = {};\n  for (const cell of (t.cells || [])) { \n    if (!rows[cell.rowIndex]) rows[cell.rowIndex] = []; \n    rows[cell.rowIndex][cell.columnIndex] = cell.content || ''; \n  }\n  const content = Object.keys(rows).sort((a,b) => a-b).map(r => rows[r].filter(c => c !== undefined).join(' | ')).join('\\n');\n  return { content, pageNumber: t.boundingRegions?.[0]?.pageNumber || 1 };\n});\n\nconst figures = [];\nfor (let i = 0; i < (ocr.figures || []).length; i++) {\n  const fig = ocr.figures[i];\n  const caption = fig.caption?.content || '';\n  const pageNumber = fig.boundingRegions?.[0]?.pageNumber || 1;\n  if (caption) figures.push({ caption, pageNumber });\n}\n\nreturn { \n  json: { \n    text, \n    pageSpans, \n    tables, \n    figures, \n    fileName: meta.fileName, \n    blobPath: meta.blobPath, \n    encodedBlobPath: meta.encodedBlobPath,\n    fileType: meta.fileType,\n    stats: { \n      textLength: text.length, \n      pageCount: pages.length, \n      tableCount: tables.length, \n      figureCount: figures.length \n    }, \n    _config: config \n  } \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1216,
+        512
+      ],
+      "id": "c7baeba9-2427-4255-ae7c-c68bc4c1a004",
+      "name": "Extract Text & Structure"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AI Classification: Determine if document is LISTING, LISTING_LIST, NEWS, or CONTACT\nconst data = $json;\nconst config = data._config;\nconst tableContent = data.tables.map((t, i) => `[Table ${i+1}]:\\n${t.content}`).join('\\n\\n');\n\nconst textStart = data.text.slice(0, 4000);\nconst textEnd = data.text.slice(-2000);\nconst fullContent = (textStart + '\\n...\\n' + textEnd + '\\n\\n' + tableContent).slice(0, 8000);\n\nconst classifyPrompt = `Analyze this Hong Kong property document and classify it.\n\nDocument: ${data.fileName}\nFile Type: ${data.fileType}\nPage Count: ${data.stats.pageCount}\nText Length: ${data.stats.textLength} characters\nTable Count: ${data.stats.tableCount}\n\nContent (start and end of document):\n${fullContent}\n\n---\nClassify as ONE of:\n\n1. LISTING_LIST - Multi-property listing document (IMPORTANT - check this first):\n   - Contains MULTIPLE numbered property entries (1), 2), 3)... or 1. 2. 3...)\n   - Table format with repeated rows for different properties\n   - Multiple 樓盤編號 (property IDs) in the document\n   - Broker listing sheets with many properties\n   - Keywords: 旺舖出租精選, 物業列表, 精選推介\n   - Usually has columns: 地址, 面積, 租金, etc. for EACH property\n   - More than 3 distinct properties in the document\n\n2. LISTING - Single property for rent/sale:\n   - ONE specific property only\n   - Has asking rent or sale price for ONE property\n   - Agent contact info\n   - Keywords: 招租, 出售, For Lease, For Sale, Subject to Contract\n   - Property particulars with area, floor, unit details\n   - Leasing proposal, sales brochure, tenancy terms\n\n3. NEWS - Market news, transaction report, or media article:\n   - Completed transaction (成交, 售出, transaction)\n   - News source, newspaper section\n   - Reporter/journalist byline\n   - Historical prices, profit/loss analysis\n\n4. CONTACT - Business card or contact information:\n   - Person's name prominently displayed\n   - Job title / position\n   - Company name\n   - Phone numbers, mobile, email address\n   - Usually a single page/image with minimal text\n   - NO property details, NO asking rent\n\nIMPORTANT: If you see multiple properties in a table format with different addresses and prices, classify as LISTING_LIST, not LISTING.\n\nReturn ONLY valid JSON:\n{\"classification\": \"listing\" or \"listing_list\" or \"news\" or \"contact\", \"confidence\": 0.0-1.0, \"reasoning\": \"Brief explanation\", \"propertyCount\": number or null}`;\n\nconst response = await this.helpers.httpRequest({\n  method: 'POST',\n  url: 'https://openrouter.ai/api/v1/chat/completions',\n  headers: {\n    'Authorization': 'Bearer ' + config.OPENROUTER_API_KEY,\n    'Content-Type': 'application/json'\n  },\n  body: {\n    model: 'meta-llama/llama-3.3-70b-instruct',\n    messages: [\n      { role: 'system', content: 'You are a Hong Kong property document classifier. Return only valid JSON. Pay special attention to multi-property listing documents.' },\n      { role: 'user', content: classifyPrompt }\n    ],\n    temperature: 0.1\n  },\n  json: true\n});\n\nlet classification = { classification: 'listing', confidence: 0.5, propertyCount: 1 };\ntry {\n  let content = response.choices[0].message.content;\n  content = content.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) classification = JSON.parse(jsonMatch[0]);\n} catch (e) {\n  classification.error = e.message;\n}\n\n// Auto-detect listing_list if multiple tables with property data\nif (data.stats.tableCount >= 2 && data.stats.pageCount >= 2 && classification.classification === 'listing') {\n  // Check if tables look like property listings\n  const allTableContent = data.tables.map(t => t.content).join(' ').toLowerCase();\n  const hasMultiplePropertyIndicators =\n    (allTableContent.match(/樓盤編號/g) || []).length >= 3 ||\n    (allTableContent.match(/vacant|已吉|現吉/gi) || []).length >= 3 ||\n    (allTableContent.match(/\\d{2,3},\\d{3}/g) || []).length >= 5;  // Multiple rent amounts\n\n  if (hasMultiplePropertyIndicators) {\n    classification.classification = 'listing_list';\n    classification.confidence = 0.85;\n    classification.reasoning = 'Auto-detected as listing_list: multiple property entries in tables';\n  }\n}\n\n// Auto-detect contact if image file with short text\nif (data.fileType === 'image' && data.stats.textLength < 500 && data.stats.pageCount === 1) {\n  const textLower = data.text.toLowerCase();\n  const hasContactIndicators =\n    (textLower.includes('@') || textLower.includes('email')) &&\n    (textLower.includes('mobile') || textLower.includes('tel') || /\\+?\\d{2,3}[\\s-]?\\d{4}[\\s-]?\\d{4}/.test(data.text));\n\n  if (hasContactIndicators && classification.classification !== 'contact') {\n    classification.classification = 'contact';\n    classification.confidence = 0.85;\n    classification.reasoning = 'Auto-detected as contact: image file with email/phone pattern';\n  }\n}\n\nreturn {\n  json: {\n    ...data,\n    classification: classification.classification || 'listing',\n    classificationConfidence: classification.confidence || 0.5,\n    classificationReasoning: classification.reasoning || '',\n    estimatedPropertyCount: classification.propertyCount || 1\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -992,
+        512
+      ],
+      "id": "99b7b734-85a9-4f39-9e9c-49cdff96a8d7",
+      "name": "AI Document Classifier"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "is-listing",
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "listing",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -768,
+        512
+      ],
+      "id": "a2c38895-c175-4e0a-9e0b-8a539ab98d72",
+      "name": "Is Listing?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "is-news",
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "news",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        672
+      ],
+      "id": "7ff991cd-8d51-4e1d-94c5-4b0b70aac6a2",
+      "name": "Is News?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare extraction prompt for LISTING documents\nconst data = $json;\nconst tableContent = data.tables.map((t, i) => `[Table ${i+1}]:\\n${t.content}`).join('\\n\\n');\n\nconst textStart = data.text.slice(0, 6000);\nconst textEnd = data.text.slice(-4000);\nconst fullContent = (textStart + '\\n...\\n' + textEnd + '\\n\\n' + tableContent).slice(0, 12000);\n\nreturn {\n  json: {\n    ...data,\n    extractionPrompt: `Document: ${data.fileName}\\n\\nContent:\\n${fullContent}`\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        480
+      ],
+      "id": "83b52c74-627a-416e-8d27-4b506df93bc9",
+      "name": "Prepare Listing Prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.extractionPrompt }}",
+        "options": {
+          "systemMessage": "You are a Hong Kong property data extraction expert. Extract structured information from property LISTING documents.\n\nIMPORTANT: Return ONLY valid JSON, no markdown, no explanation. The JSON must match this schema:\n{\n  \"docType\": \"leasing_proposal|sales_brochure|tenancy_agreement|floor_plan|valuation_report|other\",\n  \"language\": \"en|zh-hant|zh-hans|mixed\",\n  \"confidence\": 0.0-1.0,\n  \"name\": \"English name for listing\",\n  \"name_cn\": \"Chinese name\",\n  \"building_name\": \"Building name in English\",\n  \"address\": \"Street address if available\",\n  \"district\": \"central|admiralty|wan_chai|causeway_bay|north_point|quarry_bay|taikoo|wong_chuk_hang|sheung_wan|sai_ying_pun|tsim_sha_tsui|jordan|mong_kok|kowloon_bay|kwun_tong|lam_tin|san_po_kong|cheung_sha_wan|kwai_chung|tsuen_wan|sha_tin|fo_tan|tuen_mun|yuen_long|tai_po|other\",\n  \"floor\": \"Floor level\",\n  \"unit\": \"Unit/Shop number\",\n  \"listing_type\": \"leasing|coworking\",\n  \"property_type\": \"office|retail|industrial\",\n  \"building_grade\": \"grade_a|grade_b|grade_c|null\",\n  \"business_type\": \"dining|cafe|beauty|retail_shop|convenience|medical|education|other|null\",\n  \"gross_area\": number or null,\n  \"net_area\": number or null,\n  \"asking_rent\": number or null (monthly rent in HKD),\n  \"rent_per_sqft\": number or null,\n  \"asking_rent_text\": \"Original rent terms as stated\",\n  \"management_fee_psf\": number or null,\n  \"promotional_levy_psf\": number or null,\n  \"security_deposit_months\": number or null,\n  \"fitting_out_deposit\": number or null,\n  \"rent_free_period\": \"e.g. 1 month fit-out\",\n  \"turnover_rent_pct\": number or null (percentage),\n  \"lease_terms\": \"Deposit and lease terms\",\n  \"service_charge_text\": \"Service charge info\",\n  \"available_from\": \"YYYY-MM-DD or null\",\n  \"available_from_text\": \"Availability as stated\",\n  \"handover_condition\": \"As-is|Fitted|Shell|Bare shell|other\",\n  \"ac_hours\": \"e.g. 10am-10pm\",\n  \"agent_name\": \"Contact person name\",\n  \"agent_phone\": \"Phone number\",\n  \"agent_company\": \"Company name\",\n  \"description_en\": \"English summary\",\n  \"description_cn\": \"Chinese summary\"\n}\n\nDistrict mapping: 藍田 = lam_tin, 長沙灣 = cheung_sha_wan, 尖沙咀 = tsim_sha_tsui"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        16,
+        480
+      ],
+      "id": "91c6e8d1-40df-4cd9-acba-5941e6070097",
+      "name": "AI Listing Extractor"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        16,
+        672
+      ],
+      "id": "f5d3946d-d191-442b-87b4-e0d2c8b47262",
+      "name": "Llama 3.3 (Listing)",
+      "credentials": {
+        "openRouterApi": {
+          "id": "zd0DOKon3TSQ6C6I",
+          "name": "OpenRouter account (admin@c21net.com)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $('AI Listing Extractor').item.json.output || $('AI Listing Extractor').item.json.text || '{}';\nconst originalData = $('Prepare Listing Prompt').item.json;\n\nlet propertyData = {};\ntry {\n  let rawContent = aiOutput;\n  rawContent = rawContent.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) rawContent = jsonMatch[0];\n  propertyData = JSON.parse(rawContent);\n} catch (e) {\n  propertyData = { error: e.message, rawResponse: aiOutput.slice(0, 500) };\n}\n\nreturn {\n  json: {\n    text: originalData.text,\n    pageSpans: originalData.pageSpans,\n    tables: originalData.tables,\n    figures: originalData.figures,\n    fileName: originalData.fileName,\n    blobPath: originalData.blobPath,\n    encodedBlobPath: originalData.encodedBlobPath,\n    fileType: originalData.fileType,\n    stats: originalData.stats,\n    classification: 'listing',\n    _config: originalData._config,\n    propertyData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        480
+      ],
+      "id": "c9096b89-5799-4597-81e8-3123e54aa29e",
+      "name": "Parse Listing JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst config = data._config;\nconst prop = data.propertyData || {};\nconst CHUNK_SIZE = 600;\nconst OVERLAP = 150;\n\nconst keyTopics = [];\nif (prop.building_name) keyTopics.push(prop.building_name);\nif (prop.name_cn) keyTopics.push(prop.name_cn);\nif (prop.district) keyTopics.push(prop.district);\nif (prop.property_type) keyTopics.push(prop.property_type);\n\nconst validDistricts = ['central','admiralty','wan_chai','causeway_bay','north_point','quarry_bay','taikoo','wong_chuk_hang','sheung_wan','sai_ying_pun','kennedy_town','happy_valley','tin_hau','fortress_hill','chai_wan','tsim_sha_tsui','jordan','mong_kok','prince_edward','yau_ma_tei','kowloon_city','kowloon_bay','kwun_tong','lam_tin','san_po_kong','cheung_sha_wan','sham_shui_po','whampoa','hung_hom','kai_tak','to_kwa_wan','kwai_chung','tsuen_wan','sha_tin','fo_tan','tuen_mun','yuen_long','po_lam','tai_po','fanling','sheung_shui','tseung_kwan_o','ma_on_shan','tin_shui_wai','tung_chung','other'];\nconst district = validDistricts.includes(prop.district) ? prop.district : 'other';\n\nconst chunks = [];\nconst getPage = (offset) => { \n  for (const ps of data.pageSpans) \n    if (offset >= ps.start && offset < ps.end) return ps.pageNumber; \n  return 1; \n};\n\nfor (let i = 0; i < data.text.length; i += CHUNK_SIZE - OVERLAP) {\n  const chunk = data.text.substring(i, i + CHUNK_SIZE);\n  if (chunk.trim().length > 50) {\n    chunks.push({ content: chunk, chunkType: 'text', pageNumber: getPage(i) });\n  }\n}\n\ndata.tables.forEach((t, i) => { \n  if (t.content?.trim().length > 20) \n    chunks.push({ content: `[Table ${i+1}]\\n${t.content}`, chunkType: 'table', pageNumber: t.pageNumber }); \n});\n\ndata.figures.forEach((f, i) => { \n  if (f.caption?.trim().length > 10) \n    chunks.push({ content: `[Figure ${i+1}]: ${f.caption}`, chunkType: 'figure', pageNumber: f.pageNumber }); \n});\n\nconst embedResult = await this.helpers.httpRequest({ \n  method: 'POST', \n  url: `${config.AZURE_OPENAI_ENDPOINT}/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-02-01`, \n  headers: { 'api-key': config.AZURE_OPENAI_KEY, 'Content-Type': 'application/json' }, \n  body: { input: chunks.map(c => c.content), dimensions: 1024 }, \n  json: true \n});\nconst embeddings = embedResult.data || [];\n\nconst stableHash = (s) => { \n  let h = 5381; \n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; \n  return h.toString(16).padStart(8, '0'); \n};\nconst fileHash = stableHash(data.fileName.toLowerCase());\n\nconst docs = chunks.map((chunk, idx) => ({\n  '@search.action': 'upload',\n  id: `${fileHash}_${idx}_${stableHash(chunk.content.slice(0, 100))}`,\n  content: chunk.content,\n  fileName: data.fileName,\n  blobPath: data.blobPath,\n  chunkIndex: idx,\n  chunkType: chunk.chunkType,\n  pageNumber: chunk.pageNumber,\n  aiDocType: prop.docType || 'listing',\n  aiLanguage: prop.language || '',\n  aiConfidence: Number(prop.confidence || 0),\n  aiKeyTopics: keyTopics,\n  embedding: embeddings[idx]?.embedding || [],\n  isImage: false,\n  imageUrl: '',\n  propertyName: prop.name || '',\n  propertyNameCn: prop.name_cn || '',\n  buildingName: prop.building_name || '',\n  district: district,\n  floor: prop.floor || '',\n  unit: prop.unit || '',\n  propertyType: prop.property_type || '',\n  listingType: prop.listing_type || 'leasing',\n  grossArea: prop.gross_area ? Number(prop.gross_area) : null,\n  netArea: prop.net_area ? Number(prop.net_area) : null,\n  askingRent: prop.asking_rent ? Number(prop.asking_rent) : null,\n  rentPerSqft: prop.rent_per_sqft ? Number(prop.rent_per_sqft) : null,\n  availableFrom: prop.available_from || ''\n}));\n\nconst indexResult = await this.helpers.httpRequest({ \n  method: 'POST', \n  url: `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_LISTING_INDEX}/docs/index?api-version=2023-11-01`, \n  headers: { 'api-key': config.AZURE_SEARCH_API_KEY, 'Content-Type': 'application/json' }, \n  body: { value: docs }, \n  json: true \n});\n\nreturn { \n  json: { \n    fileName: data.fileName, \n    blobPath: data.blobPath,\n    encodedBlobPath: data.encodedBlobPath,\n    fileType: data.fileType,\n    stats: data.stats, \n    propertyData: prop, \n    classification: 'listing',\n    chunksIndexed: docs.length, \n    indexResult: indexResult.value?.length || 0, \n    indexName: config.AZURE_SEARCH_LISTING_INDEX,\n    _config: config \n  } \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        656,
+        480
+      ],
+      "id": "98d16b30-bf69-48fc-b2f2-282ca61778f6",
+      "name": "Listing: Chunk, Embed & Index"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst tableContent = data.tables.map((t, i) => `[Table ${i+1}]:\\n${t.content}`).join('\\n\\n');\nconst fullContent = (data.text + '\\n\\n' + tableContent).slice(0, 10000);\n\nreturn {\n  json: {\n    ...data,\n    extractionPrompt: `Document: ${data.fileName}\\n\\nContent:\\n${fullContent}`\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        944
+      ],
+      "id": "3c38c208-b9ba-4303-bd98-d353fc6afc98",
+      "name": "Prepare News Prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.extractionPrompt }}",
+        "options": {
+          "systemMessage": "You are a Hong Kong property NEWS extraction expert. Extract structured information from property news articles.\n\nIMPORTANT: Return ONLY valid JSON, no markdown. The JSON must match this schema:\n{\n  \"articleType\": \"transaction|market_report|development|investment|other\",\n  \"language\": \"en|zh-hant|zh-hans|mixed\",\n  \"confidence\": 0.0-1.0,\n  \"headline\": \"Main headline\",\n  \"headline_en\": \"English translation\",\n  \"source\": \"Newspaper/media name\",\n  \"reporter\": \"Reporter name\",\n  \"publish_date\": \"YYYY-MM-DD or null\",\n  \"property_name\": \"Property name\",\n  \"property_name_cn\": \"Chinese name\",\n  \"address\": \"Full address\",\n  \"district\": \"central|admiralty|wan_chai|tsim_sha_tsui|other\",\n  \"property_type\": \"office|retail|industrial|residential|other\",\n  \"transaction_price\": number or null,\n  \"transaction_price_text\": \"Original text\",\n  \"price_per_sqft\": number or null,\n  \"transaction_date\": \"YYYY-MM-DD or null\",\n  \"gross_area\": number or null,\n  \"seller\": \"Seller name\",\n  \"buyer\": \"Buyer name\",\n  \"profit_loss\": number or null,\n  \"profit_loss_text\": \"Original text\",\n  \"key_facts\": [\"Array of facts\"],\n  \"market_sentiment\": \"positive|neutral|negative\",\n  \"summary_en\": \"English summary\",\n  \"summary_cn\": \"Chinese summary\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -80,
+        944
+      ],
+      "id": "8e0d433f-763c-444f-8fc9-435452f0a087",
+      "name": "AI News Extractor"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -80,
+        1120
+      ],
+      "id": "5c5f0611-e0d3-4c3d-af2b-4c1b5b183b85",
+      "name": "Llama 3.3 (News)",
+      "credentials": {
+        "openRouterApi": {
+          "id": "zd0DOKon3TSQ6C6I",
+          "name": "OpenRouter account (admin@c21net.com)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $('AI News Extractor').item.json.output || $('AI News Extractor').item.json.text || '{}';\nconst originalData = $('Prepare News Prompt').item.json;\n\nlet newsData = {};\ntry {\n  let rawContent = aiOutput;\n  rawContent = rawContent.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) rawContent = jsonMatch[0];\n  newsData = JSON.parse(rawContent);\n} catch (e) {\n  newsData = { error: e.message, rawResponse: aiOutput.slice(0, 500) };\n}\n\nreturn {\n  json: {\n    text: originalData.text,\n    pageSpans: originalData.pageSpans,\n    tables: originalData.tables,\n    figures: originalData.figures,\n    fileName: originalData.fileName,\n    blobPath: originalData.blobPath,\n    encodedBlobPath: originalData.encodedBlobPath,\n    fileType: originalData.fileType,\n    stats: originalData.stats,\n    classification: 'news',\n    _config: originalData._config,\n    newsData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        288,
+        944
+      ],
+      "id": "43f775b7-e6c8-49b1-80cc-c4b2291ebf74",
+      "name": "Parse News JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\nconst config = data._config;\nconst news = data.newsData || {};\nconst CHUNK_SIZE = 600;\nconst OVERLAP = 150;\n\nconst keyTopics = [];\nif (news.property_name) keyTopics.push(news.property_name);\nif (news.property_name_cn) keyTopics.push(news.property_name_cn);\nif (news.district) keyTopics.push(news.district);\n\nconst validDistricts = ['central','admiralty','wan_chai','causeway_bay','north_point','quarry_bay','taikoo','wong_chuk_hang','sheung_wan','tsim_sha_tsui','jordan','mong_kok','kowloon_bay','kwun_tong','san_po_kong','kwai_chung','tsuen_wan','sha_tin','fo_tan','tuen_mun','yuen_long','other'];\nconst district = validDistricts.includes(news.district) ? news.district : 'other';\n\nconst chunks = [];\nconst getPage = (offset) => { \n  for (const ps of data.pageSpans) \n    if (offset >= ps.start && offset < ps.end) return ps.pageNumber; \n  return 1; \n};\n\nfor (let i = 0; i < data.text.length; i += CHUNK_SIZE - OVERLAP) {\n  const chunk = data.text.substring(i, i + CHUNK_SIZE);\n  if (chunk.trim().length > 50) {\n    chunks.push({ content: chunk, chunkType: 'text', pageNumber: getPage(i) });\n  }\n}\n\ndata.tables.forEach((t, i) => { \n  if (t.content?.trim().length > 20) \n    chunks.push({ content: `[Table ${i+1}]\\n${t.content}`, chunkType: 'table', pageNumber: t.pageNumber }); \n});\n\nconst embedResult = await this.helpers.httpRequest({ \n  method: 'POST', \n  url: `${config.AZURE_OPENAI_ENDPOINT}/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-02-01`, \n  headers: { 'api-key': config.AZURE_OPENAI_KEY, 'Content-Type': 'application/json' }, \n  body: { input: chunks.map(c => c.content), dimensions: 1024 }, \n  json: true \n});\nconst embeddings = embedResult.data || [];\n\nconst stableHash = (s) => { \n  let h = 5381; \n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; \n  return h.toString(16).padStart(8, '0'); \n};\nconst fileHash = stableHash(data.fileName.toLowerCase());\n\nconst docs = chunks.map((chunk, idx) => ({\n  '@search.action': 'upload',\n  id: `${fileHash}_${idx}_${stableHash(chunk.content.slice(0, 100))}`,\n  content: chunk.content,\n  fileName: data.fileName,\n  blobPath: data.blobPath,\n  chunkIndex: idx,\n  chunkType: chunk.chunkType,\n  pageNumber: chunk.pageNumber,\n  embedding: embeddings[idx]?.embedding || [],\n  articleType: news.articleType || 'other',\n  headline: news.headline || '',\n  headlineEn: news.headline_en || '',\n  source: news.source || '',\n  publishDate: news.publish_date || '',\n  propertyName: news.property_name || '',\n  propertyNameCn: news.property_name_cn || '',\n  district: district,\n  propertyType: news.property_type || '',\n  transactionPrice: news.transaction_price ? Number(news.transaction_price) : null,\n  grossArea: news.gross_area ? Number(news.gross_area) : null,\n  seller: news.seller || '',\n  buyer: news.buyer || '',\n  marketSentiment: news.market_sentiment || 'neutral',\n  summaryEn: news.summary_en || '',\n  summaryCn: news.summary_cn || ''\n}));\n\nconst indexResult = await this.helpers.httpRequest({ \n  method: 'POST', \n  url: `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_NEWS_INDEX}/docs/index?api-version=2023-11-01`, \n  headers: { 'api-key': config.AZURE_SEARCH_API_KEY, 'Content-Type': 'application/json' }, \n  body: { value: docs }, \n  json: true \n});\n\nreturn { \n  json: { \n    fileName: data.fileName, \n    blobPath: data.blobPath,\n    encodedBlobPath: data.encodedBlobPath,\n    fileType: data.fileType,\n    stats: data.stats, \n    newsData: news, \n    classification: 'news',\n    chunksIndexed: docs.length, \n    indexResult: indexResult.value?.length || 0, \n    indexName: config.AZURE_SEARCH_NEWS_INDEX,\n    _config: config \n  } \n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        944
+      ],
+      "id": "3c8b7cd2-29df-4a82-a22d-e16df10eb4d4",
+      "name": "News: Chunk, Embed & Index"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nreturn {\n  json: {\n    ...data,\n    extractionPrompt: `Business Card / Contact Information\\n\\nFile: ${data.fileName}\\n\\nExtracted Text:\\n${data.text}`\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -240,
+        1264
+      ],
+      "id": "1f126490-b5b7-4c2d-8b98-32215022a413",
+      "name": "Prepare Contact Prompt"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.extractionPrompt }}",
+        "options": {
+          "systemMessage": "You are a business card data extraction expert. Extract contact information.\n\nIMPORTANT: Return ONLY valid JSON:\n{\n  \"confidence\": 0.0-1.0,\n  \"name\": \"Full name in English\",\n  \"name_cn\": \"Chinese name\",\n  \"title\": \"Job title in English\",\n  \"title_cn\": \"Job title in Chinese\",\n  \"department\": \"Department name\",\n  \"company\": \"Company name in English\",\n  \"company_cn\": \"Company name in Chinese\",\n  \"mobile\": \"Mobile phone with country code\",\n  \"phone\": \"Office phone\",\n  \"email\": \"Email address\",\n  \"website\": \"Website URL\",\n  \"address\": \"Office address\",\n  \"city\": \"City name\",\n  \"country\": \"Country\"\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        -64,
+        1264
+      ],
+      "id": "92ac1f44-a31f-4318-b294-978a557f4492",
+      "name": "AI Contact Extractor"
+    },
+    {
+      "parameters": {
+        "model": "meta-llama/llama-3.3-70b-instruct",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenRouter",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        1440
+      ],
+      "id": "7d710aed-7b42-419b-a32c-916612b19c63",
+      "name": "Llama 3.3 (Contact)",
+      "credentials": {
+        "openRouterApi": {
+          "id": "zd0DOKon3TSQ6C6I",
+          "name": "OpenRouter account (admin@c21net.com)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const aiOutput = $('AI Contact Extractor').item.json.output || $('AI Contact Extractor').item.json.text || '{}';\nconst originalData = $('Prepare Contact Prompt').item.json;\n\nlet contactData = {};\ntry {\n  let rawContent = aiOutput;\n  rawContent = rawContent.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  const jsonMatch = rawContent.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) rawContent = jsonMatch[0];\n  contactData = JSON.parse(rawContent);\n} catch (e) {\n  contactData = { error: e.message, rawResponse: aiOutput.slice(0, 500) };\n}\n\nreturn {\n  json: {\n    fileName: originalData.fileName,\n    blobPath: originalData.blobPath,\n    encodedBlobPath: originalData.encodedBlobPath,\n    fileType: originalData.fileType,\n    stats: originalData.stats,\n    classification: 'contact',\n    contactData\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        256,
+        1264
+      ],
+      "id": "ed34ae5f-e66f-4168-bd97-732464a41116",
+      "name": "Parse Contact JSON"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $json;\n\nreturn {\n  json: {\n    status: 'completed',\n    fileName: data.fileName,\n    blobPath: data.blobPath,\n    fileType: data.fileType,\n    classification: data.classification,\n    stats: data.stats,\n    chunksIndexed: data.chunksIndexed || 0,\n    indexName: data.indexName || 'N/A',\n    extractedData: data.propertyData || data.newsData || data.contactData || data.listSummary || {},\n    processedAt: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        704
+      ],
+      "id": "beeb3c35-03de-4651-9340-bd085930d58b",
+      "name": "Processing Complete"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 1
+          },
+          "conditions": [
+            {
+              "id": "is-listing-list",
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "listing_list",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        400
+      ],
+      "id": "8d877878-3831-4e19-b1e6-a37e91fb16a0",
+      "name": "Is Listing List?"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse multi-property listing table into individual items\nconst data = $json;\nconst config = data._config;\n\n// District mapping from Chinese to Odoo keys\nconst districtMap = {\n  '中環': 'central',\n  '金鐘': 'admiralty',\n  '灣仔': 'wan_chai',\n  '銅鑼灣': 'causeway_bay',\n  '北角': 'north_point',\n  '鰂魚涌': 'quarry_bay',\n  '魚涌': 'quarry_bay',\n  '太古': 'taikoo',\n  '黃竹坑': 'wong_chuk_hang',\n  '上環': 'sheung_wan',\n  '西營盤': 'sai_ying_pun',\n  '西環': 'kennedy_town',\n  '堅尼地城': 'kennedy_town',\n  '跑馬地': 'happy_valley',\n  '天后': 'tin_hau',\n  '炮台山': 'fortress_hill',\n  '柴灣': 'chai_wan',\n  '尖沙咀': 'tsim_sha_tsui',\n  '佐敦': 'jordan',\n  '旺角': 'mong_kok',\n  '太子': 'prince_edward',\n  '油麻地': 'yau_ma_tei',\n  '九龍城': 'kowloon_city',\n  '九龍灣': 'kowloon_bay',\n  '觀塘': 'kwun_tong',\n  '藍田': 'lam_tin',\n  '新蒲崗': 'san_po_kong',\n  '長沙灣': 'cheung_sha_wan',\n  '深水埗': 'sham_shui_po',\n  '深水': 'sham_shui_po',\n  '黃埔': 'whampoa',\n  '紅磡': 'hung_hom',\n  '啟德': 'kai_tak',\n  '土瓜灣': 'to_kwa_wan',\n  '葵涌': 'kwai_chung',\n  '葵芳': 'kwai_chung',\n  '荃灣': 'tsuen_wan',\n  '沙田': 'sha_tin',\n  '火炭': 'fo_tan',\n  '屯門': 'tuen_mun',\n  '元朗': 'yuen_long',\n  '寶琳': 'po_lam',\n  '大埔': 'tai_po',\n  '粉嶺': 'fanling',\n  '上水': 'sheung_shui',\n  '將軍澳': 'tseung_kwan_o',\n  '馬鞍山': 'ma_on_shan',\n  '天水圍': 'tin_shui_wai',\n  '東涌': 'tung_chung',\n  '香港': 'other',\n  '九龍': 'other',\n  '新界': 'other'\n};\n\n// Function to detect district from address\nfunction detectDistrict(address) {\n  for (const [cn, key] of Object.entries(districtMap)) {\n    if (address.includes(cn)) return key;\n  }\n  return 'other';\n}\n\n// Function to extract property ID\nfunction extractPropertyId(text) {\n  const match = text.match(/樓盤編號[：:]*\\s*(\\d+)/);\n  return match ? match[1] : null;\n}\n\n// Function to parse rent amount\nfunction parseRent(rentText) {\n  if (!rentText) return null;\n  const cleaned = String(rentText).replace(/[^\\d]/g, '');\n  return cleaned ? parseInt(cleaned) : null;\n}\n\n// Function to parse area\nfunction parseArea(areaText) {\n  if (!areaText) return null;\n  const match = String(areaText).match(/([\\d,]+)/);\n  if (match) {\n    return parseInt(match[1].replace(/,/g, ''));\n  }\n  return null;\n}\n\n// Parse tables to extract property listings\nconst properties = [];\nlet currentIndex = 0;\n\nfor (const table of data.tables) {\n  const rows = table.content.split('\\n');\n\n  for (const row of rows) {\n    // Skip header rows\n    if (row.includes('物業地址') || row.includes('租客狀況') || row.includes('交吉情況')) {\n      continue;\n    }\n\n    // Look for numbered entries like \"1)\" or \"1.\" followed by address\n    const numberedMatch = row.match(/^(\\d+)[\\)\\.]\\s*(.+)/);\n    if (numberedMatch) {\n      currentIndex++;\n      const cols = row.split(' | ').map(c => c.trim());\n\n      // Extract property ID from the row or nearby text\n      const propertyId = extractPropertyId(row) || `LIST-${currentIndex}`;\n\n      // First column typically contains address\n      const addressPart = cols[0] || '';\n      const district = detectDistrict(addressPart);\n\n      // Look for area, rent in subsequent columns\n      let area = null;\n      let rent = null;\n      let vacancy = 'unknown';\n      let tenant = '';\n      let doorWidth = null;\n\n      for (const col of cols) {\n        if (col.match(/Vacant|已吉|現吉|商議|隨吉/i)) {\n          vacancy = col;\n        }\n        if (col.match(/\\d{1,2}\\.\\d/) && !area) {\n          // Likely door width (e.g., 12.0)\n          doorWidth = parseFloat(col);\n        }\n        if (col.match(/\\d{2,3},\\d{3}/) || col.match(/^\\d{4,6}$/)) {\n          // Likely rent (e.g., 50,000 or 50000)\n          const parsed = parseRent(col);\n          if (parsed && parsed > 10000 && parsed < 10000000) {\n            rent = parsed;\n          }\n        }\n        if (col.match(/\\d{3,4}\\s*G?$/i)) {\n          // Likely area (e.g., 1,800 G or 1800)\n          const parsed = parseArea(col);\n          if (parsed && parsed > 50 && parsed < 100000) {\n            area = parsed;\n          }\n        }\n        if (col.match(/\\(前\\)|餐|店|銀行|醫|茶|燒|粉|飯/)) {\n          tenant = col;\n        }\n      }\n\n      properties.push({\n        index: currentIndex,\n        propertyId,\n        address: addressPart.replace(/^\\d+[\\)\\.]\\s*/, '').trim(),\n        district,\n        tenant,\n        vacancy,\n        grossArea: area,\n        doorWidthFt: doorWidth,\n        askingRent: rent,\n        sourceFile: data.fileName,\n        sourcePage: table.pageNumber\n      });\n    }\n  }\n}\n\n// If no properties found via numbered parsing, try alternative parsing\nif (properties.length === 0) {\n  // Fallback: split by property ID pattern\n  const propIdMatches = data.text.matchAll(/樓盤編號[：:]*\\s*(\\d+)/g);\n  for (const match of propIdMatches) {\n    currentIndex++;\n    properties.push({\n      index: currentIndex,\n      propertyId: match[1],\n      address: '',\n      district: 'other',\n      tenant: '',\n      vacancy: '',\n      grossArea: null,\n      doorWidthFt: null,\n      askingRent: null,\n      sourceFile: data.fileName,\n      sourcePage: 1,\n      needsManualReview: true\n    });\n  }\n}\n\nreturn {\n  json: {\n    ...data,\n    listItems: properties,\n    listItemCount: properties.length,\n    parsingMethod: properties.length > 0 ? 'table' : 'fallback'\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        208
+      ],
+      "id": "f08b60ec-4e7f-4070-8678-5d9fe9ab4993",
+      "name": "Parse List Table"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Split list items into individual items for processing\nconst data = $json;\nconst items = data.listItems || [];\n\nif (items.length === 0) {\n  throw new Error('No properties found in list document');\n}\n\n// Return each item as a separate output\nreturn items.map((item, idx) => ({\n  json: {\n    ...item,\n    _batchInfo: {\n      totalItems: items.length,\n      currentIndex: idx + 1,\n      sourceFile: data.fileName,\n      blobPath: data.blobPath,\n      fileType: data.fileType\n    },\n    _config: data._config\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -112,
+        208
+      ],
+      "id": "934fb2a0-b4a7-4f37-9c17-591c7a1412d3",
+      "name": "Split Into Items"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        96,
+        208
+      ],
+      "id": "16d9eb28-4707-48e0-a615-37def4ce4d1d",
+      "name": "Loop List Items"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map list item to schema for indexing\nconst item = $json;\nconst config = item._config;\nconst batchInfo = item._batchInfo;\n\n// Valid districts\nconst validDistricts = [\n  'central', 'admiralty', 'wan_chai', 'causeway_bay', 'north_point',\n  'quarry_bay', 'taikoo', 'wong_chuk_hang', 'sheung_wan', 'sai_ying_pun',\n  'kennedy_town', 'happy_valley', 'tin_hau', 'fortress_hill', 'chai_wan',\n  'tsim_sha_tsui', 'jordan', 'mong_kok', 'prince_edward', 'yau_ma_tei',\n  'kowloon_city', 'kowloon_bay', 'kwun_tong', 'lam_tin', 'san_po_kong',\n  'cheung_sha_wan', 'sham_shui_po', 'whampoa', 'hung_hom', 'kai_tak', 'to_kwa_wan',\n  'kwai_chung', 'tsuen_wan', 'sha_tin', 'fo_tan', 'tuen_mun', 'yuen_long',\n  'po_lam', 'tai_po', 'fanling', 'sheung_shui', 'tseung_kwan_o',\n  'ma_on_shan', 'tin_shui_wai', 'tung_chung', 'other'\n];\n\nconst district = validDistricts.includes(item.district) ? item.district : 'other';\n\n// Generate name from address\nconst name = item.address ?\n  item.address.replace(/^(香港|九龍|新界)/, '').trim().slice(0, 100) :\n  `Property ${item.propertyId}`;\n\nreturn {\n  json: {\n    propertyData: {\n      name,\n      name_cn: item.address || name,\n      address: item.address,\n      district,\n      property_type: 'retail',\n      listing_type: 'leasing',\n      gross_area: item.grossArea,\n      asking_rent: item.askingRent\n    },\n    originalItem: item,\n    _batchInfo: batchInfo,\n    _config: config,\n    refCode: item.propertyId ? `MB-${item.propertyId}` : null\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        224
+      ],
+      "id": "e668e1a0-f1aa-4e69-a1bb-38b60203d9be",
+      "name": "List Item: Map to Schema"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Index list item to Azure Search\nconst data = $json;\nconst config = data._config;\nconst prop = data.propertyData || {};\nconst batchInfo = data._batchInfo;\n\nconst validDistricts = [\n  'central', 'admiralty', 'wan_chai', 'causeway_bay', 'north_point',\n  'quarry_bay', 'taikoo', 'wong_chuk_hang', 'sheung_wan', 'sai_ying_pun',\n  'kennedy_town', 'happy_valley', 'tin_hau', 'fortress_hill', 'chai_wan',\n  'tsim_sha_tsui', 'jordan', 'mong_kok', 'prince_edward', 'yau_ma_tei',\n  'kowloon_city', 'kowloon_bay', 'kwun_tong', 'lam_tin', 'san_po_kong',\n  'cheung_sha_wan', 'sham_shui_po', 'whampoa', 'hung_hom', 'kai_tak', 'to_kwa_wan',\n  'kwai_chung', 'tsuen_wan', 'sha_tin', 'fo_tan', 'tuen_mun', 'yuen_long',\n  'po_lam', 'tai_po', 'fanling', 'sheung_shui', 'tseung_kwan_o',\n  'ma_on_shan', 'tin_shui_wai', 'tung_chung', 'other'\n];\n\nconst district = validDistricts.includes(prop.district) ? prop.district : 'other';\n\n// Build content for embedding\nconst content = [\n  prop.name || '',\n  prop.name_cn || '',\n  prop.address || '',\n  prop.district || '',\n  prop.gross_area ? `${prop.gross_area} sqft` : '',\n  prop.asking_rent ? `HK$${prop.asking_rent}/month` : ''\n].filter(Boolean).join(' | ');\n\n// Generate stable hash for document ID\nconst stableHash = (s) => {\n  let h = 5381;\n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;\n  return h.toString(16).padStart(8, '0');\n};\n\nconst docId = `list_${stableHash(batchInfo.sourceFile)}_${batchInfo.currentIndex}`;\n\n// Get embedding from Azure OpenAI\nconst embedResult = await this.helpers.httpRequest({\n  method: 'POST',\n  url: `${config.AZURE_OPENAI_ENDPOINT}/openai/deployments/text-embedding-3-small/embeddings?api-version=2024-02-01`,\n  headers: { 'api-key': config.AZURE_OPENAI_KEY, 'Content-Type': 'application/json' },\n  body: { input: [content], dimensions: 1024 },\n  json: true\n});\n\nconst embedding = embedResult.data?.[0]?.embedding || [];\n\n// Build document for Azure Search\nconst doc = {\n  '@search.action': 'upload',\n  id: docId,\n  content: content,\n  fileName: batchInfo.sourceFile,\n  blobPath: batchInfo.blobPath || '',\n  chunkIndex: batchInfo.currentIndex - 1,\n  chunkType: 'list_item',\n  pageNumber: data.originalItem?.sourcePage || 1,\n  aiDocType: 'listing_list',\n  aiLanguage: 'mixed',\n  aiConfidence: 0.8,\n  aiKeyTopics: [prop.district, 'retail', 'leasing'].filter(Boolean),\n  embedding: embedding,\n  isImage: false,\n  imageUrl: '',\n  propertyName: prop.name || '',\n  propertyNameCn: prop.name_cn || '',\n  buildingName: '',\n  district: district,\n  floor: '',\n  unit: '',\n  propertyType: 'retail',\n  listingType: 'leasing',\n  grossArea: prop.gross_area ? Number(prop.gross_area) : null,\n  netArea: null,\n  askingRent: prop.asking_rent ? Number(prop.asking_rent) : null,\n  rentPerSqft: null,\n  availableFrom: ''\n};\n\n// Index to Azure Search\nconst indexResult = await this.helpers.httpRequest({\n  method: 'POST',\n  url: `${config.AZURE_SEARCH_ENDPOINT}/indexes/${config.AZURE_SEARCH_LISTING_INDEX}/docs/index?api-version=2023-11-01`,\n  headers: { 'api-key': config.AZURE_SEARCH_API_KEY, 'Content-Type': 'application/json' },\n  body: { value: [doc] },\n  json: true\n});\n\nreturn {\n  json: {\n    itemIndex: batchInfo.currentIndex,\n    totalItems: batchInfo.totalItems,\n    propertyData: prop,\n    indexResult: {\n      indexed: true,\n      docId: docId,\n      indexName: config.AZURE_SEARCH_LISTING_INDEX\n    },\n    sourceFile: batchInfo.sourceFile\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        576,
+        224
+      ],
+      "id": "bcfda622-7d07-4805-8415-149af783f9ee",
+      "name": "List Item: Index to Azure Search"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregate results from all list items\nconst items = $input.all();\n\nconst results = items.map(i => i.json);\nconst successful = results.filter(r => r.indexResult?.indexed);\nconst failed = results.filter(r => !r.indexResult?.indexed);\n\nreturn {\n  json: {\n    status: 'completed',\n    classification: 'listing_list',\n    totalItems: results.length,\n    indexed: successful.length,\n    failed: failed.length,\n    indexName: results[0]?.indexResult?.indexName || 'property-listing-vectors',\n    sourceFile: results[0]?.sourceFile || 'unknown',\n    listSummary: {\n      totalProperties: results.length,\n      indexedSuccessfully: successful.length\n    },\n    processedAt: new Date().toISOString()\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        32
+      ],
+      "id": "68898410-ef20-4059-8fb8-251461969416",
+      "name": "Aggregate List Results"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "OneDrive Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config (API Keys)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (API Keys)": {
+      "main": [
+        [
+          {
+            "node": "Filter Documents (PDF + Images)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Documents (PDF + Images)": {
+      "main": [
+        [
+          {
+            "node": "Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download File": {
+      "main": [
+        [
+          {
+            "node": "Process One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process One by One": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Prepare Upload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Upload": {
+      "main": [
+        [
+          {
+            "node": "Upload to Azure Blob",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to Azure Blob": {
+      "main": [
+        [
+          {
+            "node": "Submit OCR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit OCR": {
+      "main": [
+        [
+          {
+            "node": "Poll OCR Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll OCR Result": {
+      "main": [
+        [
+          {
+            "node": "Extract Text & Structure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text & Structure": {
+      "main": [
+        [
+          {
+            "node": "AI Document Classifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Document Classifier": {
+      "main": [
+        [
+          {
+            "node": "Is Listing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Listing?": {
+      "main": [
+        [
+          {
+            "node": "Is Listing List?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Is News?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is News?": {
+      "main": [
+        [
+          {
+            "node": "Prepare News Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Contact Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Listing Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Listing Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llama 3.3 (Listing)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Listing Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Listing Extractor": {
+      "main": [
+        [
+          {
+            "node": "Parse Listing JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Listing JSON": {
+      "main": [
+        [
+          {
+            "node": "Listing: Chunk, Embed & Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listing: Chunk, Embed & Index": {
+      "main": [
+        [
+          {
+            "node": "Processing Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare News Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI News Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llama 3.3 (News)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI News Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI News Extractor": {
+      "main": [
+        [
+          {
+            "node": "Parse News JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse News JSON": {
+      "main": [
+        [
+          {
+            "node": "News: Chunk, Embed & Index",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "News: Chunk, Embed & Index": {
+      "main": [
+        [
+          {
+            "node": "Processing Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Contact Prompt": {
+      "main": [
+        [
+          {
+            "node": "AI Contact Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Llama 3.3 (Contact)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Contact Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Contact Extractor": {
+      "main": [
+        [
+          {
+            "node": "Parse Contact JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Contact JSON": {
+      "main": [
+        [
+          {
+            "node": "Processing Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Processing Complete": {
+      "main": [
+        [
+          {
+            "node": "Process One by One",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Listing List?": {
+      "main": [
+        [
+          {
+            "node": "Parse List Table",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Listing Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse List Table": {
+      "main": [
+        [
+          {
+            "node": "Split Into Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Into Items": {
+      "main": [
+        [
+          {
+            "node": "Loop List Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop List Items": {
+      "main": [
+        [
+          {
+            "node": "Aggregate List Results",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "List Item: Map to Schema",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Item: Map to Schema": {
+      "main": [
+        [
+          {
+            "node": "List Item: Index to Azure Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Item: Index to Azure Search": {
+      "main": [
+        [
+          {
+            "node": "Loop List Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate List Results": {
+      "main": [
+        [
+          {
+            "node": "Processing Complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "simplified-no-odoo-v1",
+  "meta": {
+    "instanceId": "9e058b7018fc63d1a4f91d0af9b1514ff622445c8e185854eb48b31fca23132c"
+  },
+  "id": "GvLCPL9ElJziEKht-simplified",
+  "tags": []
+}
