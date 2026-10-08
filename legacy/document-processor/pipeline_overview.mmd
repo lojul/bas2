@@ -1,0 +1,74 @@
+graph TB
+    subgraph G1["Graph 1 — Document Processing (graph.py)"]
+        direction TB
+        S1([__start__]) --> N1
+
+        N1["🔗 get_download_url\nOneDrive → Microsoft Graph API\nReturns signed download URL"]
+        N1 --> N2
+
+        N2["📄 run_ocr\nPDF bytes downloaded\nLlamaParse → clean markdown text\nAzure Doc Intelligence → tables + figures + page count\nPyMuPDF → images → Azure Blob"]
+        N2 --> N3
+
+        N3["🏷️ classify\nOpenRouter Qwen 2.5 72B\nlisting / listing_list / pitching_deck / news / contact"]
+        N3 --> N4
+
+        N4["🔍 analyze\nRegex scan of OCR text\nDetects structure hints for adaptive extraction\n(page count, section headers, unit table patterns)"]
+        N4 --> N5
+
+        N5["⚙️ extract\nOpenRouter Qwen 2.5 72B\nStructured JSON per document type\nAnti-hallucination — null for missing fields"]
+        N5 --> N6
+
+        N6["🗄️ index\nAzure AI Search\ntext-embedding-3-small (1536 dims)\nSmart Merge — preserve existing data\nimage_urls stored in index"]
+        N6 --> E1([__end__])
+    end
+
+    subgraph G2["Graph 2 — RAG Chatbot (chatbot.py)"]
+        direction TB
+        S2([__start__]) --> R1
+
+        R1["🧭 route_query\nKeyword scoring → vector / web / hybrid\nChinese & English keywords"]
+        R1 --> R2
+        R1 --> R3
+
+        R2["🔎 search_documents\nAzure AI Search — all indexes\nprocessed-documents + c21net-intelligence-v2\nHybrid: vector similarity + BM25\nSemantic reranker"]
+
+        R3["🌐 web_search\nTavily API\nHong Kong property context injected\nMax 3 results"]
+
+        R2 --> R4
+        R3 --> R4
+
+        R4["📋 build_context\nMerge + deduplicate results\nFormat by doc type\n(listing / listing_list / news / web)"]
+        R4 --> R5
+
+        R5["🤖 call_llm\nOpenRouter Llama 3.3 70B\nConversation memory via MemorySaver\nHK property guardrails\nBilingual Chinese/English"]
+        R5 --> E2([__end__])
+    end
+
+    subgraph EXT["External Services"]
+        OD["☁️ OneDrive\n/Document Processor/In\n/Document Processor/Processed"]
+        AZ["🔵 Azure\nDoc Intelligence (OCR)\nBlob Storage (images, PDFs)\nAI Search (vector DB)\nOpenAI (embeddings)"]
+        OR["🟠 OpenRouter\nQwen 2.5 72B (classify/extract)\nLlama 3.3 70B (chatbot)"]
+        LP["🦙 LlamaParse\nCloud API\nMarkdown text extraction"]
+        TV["🕸️ Tavily\nWeb search"]
+        LS["📊 LangSmith\nAll traces → document-processor\nChatbot traces → property-chatbot"]
+    end
+
+    N1 -.->|Microsoft Graph| OD
+    N2 -.->|OCR API| AZ
+    N2 -.->|PDF parsing| LP
+    N2 -.->|image upload| AZ
+    N3 & N5 -.->|LLM calls| OR
+    N6 -.->|index + embed| AZ
+    R2 -.->|search + embed| AZ
+    R3 -.->|web search| TV
+    R5 -.->|LLM call| OR
+    G1 & G2 -.->|traces| LS
+
+    subgraph TRIGGER["Triggers"]
+        T1["⏱️ Azure Functions Timer\nevery 5 min — 7 files/batch"]
+        T2["🖥️ Dashboard\nProcess Now button\nAdmin → Upload tab"]
+        T3["🔌 REST API\nPOST /api/search\nExternal chatbot integration"]
+    end
+
+    T1 & T2 -->|trigger| G1
+    T3 -.->|search only| AZ

@@ -1,0 +1,46 @@
+graph TD
+    A[("💬 User Question")] --> B["route_query"]
+    
+    subgraph Router["Query Router"]
+        B --> C{"Type?"}
+        C -->|"市場趨勢"| D["WEB"]
+        C -->|"寫字樓出租"| E["VECTOR"]
+        C -->|"比較"| F["HYBRID"]
+    end
+    
+    subgraph Parallel["Parallel Retrieval"]
+        E --> G["multi_query_search"]
+        F --> G
+        D --> H["web_search"]
+        F --> H
+        
+        subgraph MQ["Multi-Query + Rerank"]
+            G --> G1["generate_variations"]
+            G1 -->|"DeepSeek"| G2["3-4 Queries"]
+            G2 --> G3["ThreadPool x4"]
+            G3 --> G4["search_documents"]
+            G4 -->|"Azure AI Search"| G5["Vector+Keyword"]
+            G5 --> G6["Deduplicate"]
+            G6 --> G7["rerank_documents"]
+            G7 -->|"DeepSeek"| G8["Top 5"]
+        end
+        
+        subgraph Web["Web Search"]
+            H --> H1["Tavily API"]
+            H1 --> H2["3 Results"]
+        end
+    end
+    
+    subgraph Context["Context"]
+        G8 --> I["build_context"]
+        H2 --> I
+    end
+    
+    subgraph LLM["Generation"]
+        I --> K["call_llm_stream"]
+        K -->|"Llama 3.3 70B"| L["Stream"]
+        L --> M["MemorySaver"]
+    end
+    
+    M --> N[("📝 Answer + Sources")]
+    N --> O[("📊 LangSmith")]

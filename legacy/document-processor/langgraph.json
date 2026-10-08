@@ -1,0 +1,9 @@
+{
+  "python_version": "3.12",
+  "dependencies": ["."],
+  "graphs": {
+    "document_processor": "./src/graph.py:app",
+    "chatbot": "./src/nodes/chatbot.py:chatbot_graph_studio"
+  },
+  "env": ".env"
+}
