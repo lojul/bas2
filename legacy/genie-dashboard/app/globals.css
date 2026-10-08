@@ -1,0 +1,41 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+
+  /* Genie landing page palette — warm cream, deep ink, genie-green accent */
+  --genie-bg: #f8f6ee;
+  --genie-card: #fdfcf7;
+  --genie-ink: #16241c;
+  --genie-muted: #6b7a70;
+  --genie-border: #16241c1f;
+  --genie-accent: #d7ecd9;
+  --genie-accent-fg: #16241c;
+  --genie-green: #3f8f5c;
+  --genie-green-deep: #24462f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-instrument-serif);
+  --font-noto-tc: var(--font-noto-sans-tc);
+  --color-genie-bg: var(--genie-bg);
+  --color-genie-card: var(--genie-card);
+  --color-genie-ink: var(--genie-ink);
+  --color-genie-muted: var(--genie-muted);
+  --color-genie-border: var(--genie-border);
+  --color-genie-accent: var(--genie-accent);
+  --color-genie-accent-fg: var(--genie-accent-fg);
+  --color-genie-green: var(--genie-green);
+  --color-genie-green-deep: var(--genie-green-deep);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
