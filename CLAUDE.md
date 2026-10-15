@@ -72,13 +72,13 @@ through the BAS MCP server. The customer's system stays the system of record.
 | Folder | What it is | Deploys to | Status | Retires at |
 |---|---|---|---|---|
 | `legacy/document-processor/` | Document ingest: WhatsApp / Slack / Teams / OneDrive → OCR → classify → extract → Odoo. Python, LangGraph. Has its own detailed `CLAUDE.md`. | App Service `c21net-bas-api-doc-pipeline-ea-prod` + Function App `c21net-bas-func-doc-pipeline-ea-prod` (`./deploy.sh`) | Live | End of BAS 2.0 phase 3 |
-| `legacy/genie-dashboard/` | Web dashboard at genie.infiniduo.com (Next.js, Vercel) | Vercel (currently built from the old GitHub repo, see Switch-over) | Live | Becomes `portal/` in phase 4 |
+| `legacy/genie-dashboard/` | Old web dashboard (Next.js static export). **Replaced by `portal/` at genie.infiniduo.com (decided 2026-10-15)**; C21 gets a workspace in the portal instead | — (Vercel project now builds `portal/`) | Retired | Delete once the portal is live |
 | `legacy/n8n/` | n8n workflow exports (WhatsApp/Slack glue). **Keys redacted** — see Secrets | n8n | Live | End of phase 3 |
 | `legacy/odoo-bas-sync/` | Daily Odoo `x_c21_listing` → BAS `properties-index` sync (Azure Function) | Azure Function App | Live | End of phase 1 |
 | `legacy/property-chatbot/` | Staff Slack bot: property search over `properties-index`, CRM leads, contacts | App Service + Function App (RG `c21net-bas-property-chatbot-ea-prod`) | Live | End of phase 1 |
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
 | `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |
-| `portal/` | Genie sign-up and workspace admin (Next.js 16 + Supabase Auth). See `portal/README.md`. | Vercel (temporary address until switch-over) | Step 2 in progress | — |
+| `portal/` | Genie sign-up and workspace admin (Next.js 16 + Supabase Auth). See `portal/README.md`. | Vercel project `nextjs-dashboard` (team Infinity Duo Technology) → **genie.infiniduo.com**, Root Directory `portal` | Step 2 in progress | — |
 | `sync/`, `documents/`, `outbound/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound). See "BAS 2.0 — decisions and build order" above. | Supabase + Vercel | Not started — step 3 (`sync/`) after the portal | — |
 
 **Not in this repo, on purpose:**
@@ -108,7 +108,7 @@ ticked, the old location is the source of truth and this copy is a snapshot.
 | Project | Old GitHub repo | Old local folder | Switched to bas2? |
 |---|---|---|---|
 | document-processor | lojul/c21-document-processor | `~/Active Projects/document processor/langgraph` | No |
-| genie-dashboard | lojul/property-intelligence-dashboard | `~/Active Projects/document processor/nextjs-dashboard` | No (needs Vercel root directory → `legacy/genie-dashboard`) |
+| genie-dashboard | lojul/property-intelligence-dashboard | `~/Active Projects/document processor/nextjs-dashboard` | Replaced, not switched: the Vercel project now builds `portal/` from `lojul/bas2`. Archive the old repo |
 | odoo-bas-sync | lojul/odoo-bas-sync | `~/Active Projects/odoo-bas-sync` | No |
 | property-chatbot | lojul/c21-property-chatbot | `~/Active Projects/c21-property-chatbot` | No |
 

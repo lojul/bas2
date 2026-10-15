@@ -44,8 +44,8 @@ Checks before pushing: `npx tsc --noEmit`, `npm run lint`, `npm run build`.
 
 In the Supabase dashboard for project `genie` → **Authentication → URL Configuration**:
 
-- **Site URL**: the portal's public address (e.g. the Vercel URL).
-- **Redirect URLs**: add `http://localhost:3000/**` and `https://<portal address>/**`.
+- **Site URL**: `https://genie.infiniduo.com`
+- **Redirect URLs**: `https://genie.infiniduo.com/**` and `http://localhost:3000/**`.
   Sign-in links to any other address are refused.
 
 **Email sending:** Supabase's built-in email service only delivers to members of the Supabase
@@ -54,7 +54,12 @@ Before real users sign up, set up custom SMTP (e.g. Resend) under **Authenticati
 
 ## Deploy (Vercel)
 
-New Vercel project from the `lojul/bas2` repository with **Root Directory = `portal`**
-(framework preset: Next.js). Environment variables: `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_SITE_URL` (the deployed address).
-genie.infiniduo.com keeps serving the legacy dashboard until the switch-over.
+Served at **https://genie.infiniduo.com** by the Vercel project `nextjs-dashboard`
+(team Infinity Duo Technology), which used to serve the legacy dashboard. Settings:
+
+- Git repository `lojul/bas2`, production branch `main`
+- **Root Directory = `portal`**, framework preset Next.js, no build/output overrides
+- Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
+  `NEXT_PUBLIC_SITE_URL=https://genie.infiniduo.com` (production)
+
+Every merge to `main` that touches `portal/` deploys to production.
