@@ -18,8 +18,11 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
 | `/app/[slug]` | members | Overview: counts and a getting-started checklist |
+| `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/keys` | owners/admins | Bring-your-own AI keys (Anthropic, OpenRouter, xAI, Azure OpenAI), stored in Supabase Vault |
+| `/app/[slug]/agents` | owners/admins | Create and revoke API keys for AI agents; shows the MCP endpoint and a Claude Desktop config |
+| `/api/mcp` | API key | Genie MCP server (see below) |
 | `/invite/[token]` | signed in | Accept an invitation (`accept_invitation`); must be signed in with the invited email |
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
@@ -38,6 +41,50 @@ on every request. This replaces the token the legacy dashboard kept in browser s
 
 **Invitations** are links shown to the inviter to copy and send. Emailing them automatically
 comes later, together with a custom SMTP sender (see below).
+
+## MCP server (`/api/mcp`)
+
+`https://genie.infiniduo.com/api/mcp` — MCP Streamable HTTP, stateless, JSON responses
+(`app/api/mcp/route.ts`, tools in `lib/mcp/server.ts`). Authenticate with a workspace API key:
+`Authorization: Bearer gnk_…` (also `x-api-key`, or `?key=` for clients that cannot send headers).
+
+| Tool | Database function | What it does |
+|---|---|---|
+| `workspace_info` | `mcp_workspace` | workspace name, sources, record types and counts |
+| `search_records` | `mcp_search_records` | keyword search over records, optional type filter |
+| `get_record` | `mcp_get_record` | all fields of one record |
+| `find_contact` | `mcp_find_contact` | people/companies by name, email or phone digits |
+| `search_knowledge` | `mcp_search_knowledge` | passages from policies and documents |
+
+All tools are read-only. The server holds no database secret: it calls the `mcp_*` functions with
+the public key, and the database checks the API key and limits every query to that workspace.
+Each call is metered as a `tool_call` usage event.
+
+Claude Desktop (`claude_desktop_config.json`), via `mcp-remote`:
+
+```json
+{ "mcpServers": { "genie": { "command": "npx",
+  "args": ["-y", "mcp-remote", "https://genie.infiniduo.com/api/mcp", "--header", "Authorization:Bearer ${GENIE_KEY}"],
+  "env": { "GENIE_KEY": "gnk_…" } } } }
+```
+
+## Agent and model gateway (`lib/ai`)
+
+The Ask page sends the conversation to a server action (`app/app/[slug]/ask/actions.ts`) which runs
+`askAgent` (`lib/ai/agent.ts`):
+
+- **Gateway** (`lib/ai/gateway.ts`): the workspace's own key from Vault (Anthropic → OpenRouter → xAI),
+  else the platform key (`ANTHROPIC_API_KEY`, then `OPENROUTER_API_KEY`). Claude goes through the
+  Anthropic SDK with adaptive thinking, effort `medium` and server-side `fallbacks: "default"`
+  (beta `server-side-fallback-2026-07-01`: a declined request is retried on Anthropic's recommended
+  fallback model). OpenRouter and xAI use their OpenAI-compatible chat completions API.
+  Models: `GENIE_ANTHROPIC_MODEL` (default `claude-opus-5-5`), `GENIE_OPENROUTER_MODEL`, `GENIE_XAI_MODEL`.
+- **Tools** (`lib/ai/tools.ts`): the same five read tools as the MCP server, executed with
+  `agent_tool()` as the signed-in user, so membership is checked by the database.
+- **Metering**: one `message`, plus `input_token` / `output_token` rows with `key_source`
+  (`platform` or `byok`), written with the service role (`lib/supabase/admin.ts`).
+- Server-only env vars: `SUPABASE_SECRET_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` — mark them
+  Sensitive in Vercel, never `NEXT_PUBLIC_`.
 
 ## Run locally
 

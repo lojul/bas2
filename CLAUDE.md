@@ -36,7 +36,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 - Billing: Stripe Billing + customer portal; meter messages, OCR pages, tokens and synced
   records per tenant from day one.
 
-**Demo data (proposed, to confirm)**
+**Demo data (proposed, to confirm)** — tenant B is seeded in `genie` as *Harbour Supplies (Demo)*
+(`shared/supabase/seed/demo_tenant_b.sql`, synthetic records, no Odoo).
 - Demo tenant A (property, on our Odoo 20): Odoo's built-in demo data for CRM/contacts, plus a
   listing model shaped like C21's `x_c21_listing`, filled with ~200 synthetic listings (real public
   building names and districts; invented units, prices, owners and phone numbers).
@@ -55,6 +56,19 @@ through the BAS MCP server. The customer's system stays the system of record.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
+   **MCP server in progress** (branch `bas2/outbound-mcp`): it lives in the portal at
+   `https://genie.infiniduo.com/api/mcp` (`portal/app/api/mcp`, `portal/lib/mcp`), authenticated by
+   workspace API keys (portal → workspace → AI agents). Read tools: workspace_info, search_records,
+   get_record, find_contact, search_knowledge, each backed by an `mcp_*` database function. Still to
+   come: create lead/record (needs write-back connectors), web search, semantic search (needs the
+   embedding job).
+   **Agent + model gateway in progress** (same branch), also in the portal: "Ask" tab at
+   `/app/<workspace>/ask`; `portal/lib/ai` — gateway picks the workspace's own key (Anthropic, then
+   OpenRouter, then xAI, read from Vault) or the platform key; Claude runs through the Anthropic SDK
+   (`claude-opus-5-5`, server-side fallbacks on), OpenRouter/xAI through their OpenAI-compatible APIs.
+   Tools run as the signed-in member via `agent_tool()`; messages and tokens are metered in
+   `usage_events`. Azure OpenAI keys are saved but not used by chat yet (needs endpoint + deployment).
+   `outbound/` stays reserved in case the agent moves out of the portal (e.g. for Slack/WhatsApp workers).
 5. Web chat + Slack app; Stripe plans and usage metering on.
 6. Gate: both demo tenants pass a fixed question set; then the first paying customer.
 7. Phase 2: WhatsApp (Meta Cloud API, Embedded Signup), Teams, email intake, Odoo MCP mode.
@@ -64,7 +78,9 @@ through the BAS MCP server. The customer's system stays the system of record.
 - Step 1: ~~create the Supabase project~~ done (free tier for development; upgrade to Pro before
   the first paying tenant — free projects pause when idle).
 - Step 3: Odoo 20 environment URL + API key for a dedicated integration user.
-- Step 4: a platform OpenRouter key (optionally Anthropic / xAI keys to test bring-your-own-key).
+- Step 4: ~~Vercel env vars `SUPABASE_SECRET_KEY` and `OPENROUTER_API_KEY`~~ added 2026-10-15. The platform AI key
+  is **OpenRouter only** — no platform `ANTHROPIC_API_KEY` (decided 2026-10-15); workspaces can still add
+  their own Anthropic key. Model: `GENIE_OPENROUTER_MODEL` (default `anthropic/claude-opus-5.5`).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
 ## Which folder to use
