@@ -13,12 +13,15 @@ export async function GET(request: NextRequest) {
   const type = url.searchParams.get("type") as EmailOtpType | null;
 
   const supabase = await createClient();
-  let ok = false;
+  let error: { name?: string; message: string } | null = { message: "no code or token_hash in the link" };
   if (code) {
-    ok = !(await supabase.auth.exchangeCodeForSession(code)).error;
+    ({ error } = await supabase.auth.exchangeCodeForSession(code));
   } else if (tokenHash && type) {
-    ok = !(await supabase.auth.verifyOtp({ type, token_hash: tokenHash })).error;
+    ({ error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash }));
   }
+  const ok = !error;
+  // Shows up in Vercel's runtime logs, so a failed sign-in can be diagnosed.
+  if (error) console.error("auth/callback failed:", error.name ?? "Error", error.message);
 
   if (ok) return NextResponse.redirect(new URL(next, request.url));
   const login = new URL("/login", request.url);
