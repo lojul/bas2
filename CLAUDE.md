@@ -228,6 +228,19 @@ LangGraph + LangSmith document processor.
 >   auto-classify), and there is no duplicate question — listings are always created/updated.
 > - Field/model names can be overridden with `ODOO_UPLOAD_*` env vars if Studio edits rename them;
 >   optional fields that are missing are skipped.
+> - **Rollout notes (same day):** deployed with `./deploy.sh --all`; the rule is now **active**.
+>   (1) **The App Service's own `ODOO_API_KEY` was dead** (Odoo rejected it for admin@c21net.com)
+>   while the Function App's key worked — so the App Service's assistant Odoo lookups (duplicate
+>   check etc. in `src/nodes/assistant.py`) had been silently failing too. Replaced with the
+>   Function App's working key. `ODOO_UID` on the App Service is unused by the code. If Odoo calls
+>   from the App Service fail, compare key fingerprints on both apps first.
+>   (2) The webhook token was rotated once (the first value was exposed in a session log); the old
+>   one now returns 401.
+>   (3) After `az webapp config appsettings set` + restart, the old container kept serving the old
+>   settings for several minutes (Linux App Service overlaps containers) — test with the old value
+>   to tell "not restarted yet" from "wrong value".
+>   (4) `func azure functionapp publish` failed once with "Unable to connect to the Azure Function
+>   App" (transient; public access is enabled) and succeeded on retry with `--func-only`.
 
 - **Document pipeline:** WhatsApp/Slack/Teams/OneDrive/Odoo → n8n (WhatsApp/Slack), Bot Framework (Teams), the `onedrive_sync` timer, or an Odoo webhook (`/api/odoo/upload`) → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
