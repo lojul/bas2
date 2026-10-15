@@ -13,7 +13,8 @@ signed-in user's session, so row-level security decides what every page can see 
 |---|---|---|
 | `/` | anyone | Landing page; signed-in users go straight to `/app` |
 | `/login` | anyone | Email sign-in link (no password). The same link creates the account |
-| `/auth/callback` | — | Finishes sign-in from the emailed link (PKCE `code` or `token_hash`) |
+| `/auth/confirm` | — | Landing page of the emailed sign-in link: reads the session from the URL fragment (implicit flow), stores it in this browser's cookies, wipes it from the address bar |
+| `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
 | `/app/[slug]` | members | Overview: counts and a getting-started checklist |
@@ -23,6 +24,11 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
 The product name lives only in `lib/brand.ts`.
+
+**Email sign-in uses Supabase's implicit flow** (`lib/supabase/implicit.ts`). The PKCE flow
+failed on genie.infiniduo.com with `AuthPKCECodeVerifierMissingError`: the code-verifier cookie set
+when the link was requested never came back on the callback. The implicit flow needs no such cookie
+and also works when the email is opened on another device.
 
 **Sessions** are Supabase cookies managed by `@supabase/ssr`, and `proxy.ts` refreshes them
 on every request. This replaces the token the legacy dashboard kept in browser storage.
