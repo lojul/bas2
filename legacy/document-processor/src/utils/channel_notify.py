@@ -12,33 +12,41 @@ reply is already returned synchronously in the HTTP response) are a no-op.
 """
 
 
-def _whatsapp(target: str, message: str) -> bool:
+def _whatsapp(target: str, message: str, final=None) -> bool:
     from src.utils.whatsapp_notify import send_whatsapp
     return send_whatsapp(target, message)
 
 
-def _slack(target: str, message: str) -> bool:
+def _slack(target: str, message: str, final=None) -> bool:
     from src.utils.slack_notify import send_slack
     return send_slack(target, message)
 
 
-def _teams(target: str, message: str) -> bool:
+def _teams(target: str, message: str, final=None) -> bool:
     from src.utils.teams_notify import send_teams
     return send_teams(target, message)
+
+
+def _odoo(target: str, message: str, final=None) -> bool:
+    # target = Odoo 文件上傳 record id; writes status/result back onto that record
+    from src.utils.odoo_upload import report_result
+    return report_result(target, message, final)
 
 
 _NOTIFIERS = {
     "whatsapp": _whatsapp,
     "slack": _slack,
     "teams": _teams,
+    "odoo": _odoo,
 }
 
 
-def notify(channel: str, target: str | None, message: str) -> bool:
+def notify(channel: str, target: str | None, message: str, final=None) -> bool:
     """Send an async completion notification to the user on their channel.
     Returns False (no-op) if the target is empty or the channel has no
-    registered delivery function."""
+    registered delivery function. `final` (the pipeline's final DocumentState,
+    None on failure) is for senders that record more than the text (Odoo)."""
     if not target:
         return False
     sender = _NOTIFIERS.get(channel)
-    return sender(target, message) if sender else False
+    return sender(target, message, final) if sender else False
