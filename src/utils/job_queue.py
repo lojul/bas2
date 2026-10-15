@@ -220,6 +220,7 @@ def run_pipeline_job(payload: dict) -> None:
     sender_number = payload.get("sender_number", "")
     source = payload.get("source") or "assistant"
 
+    final = None
     try:
         if blob_name:
             container = _blob_container()
@@ -252,4 +253,4 @@ def run_pipeline_job(payload: dict) -> None:
         message = f"❌ 處理失敗：{file_name or '文字內容'}\n原因：{str(e)[:120]}"
 
     from src.utils.channel_notify import notify
-    notify(notify_channel, notify_user, message)
+    notify(notify_channel, notify_user, message, final)
