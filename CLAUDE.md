@@ -45,12 +45,13 @@ ticked, the old location is the source of truth and this copy is a snapshot.
 
 ### Changes made in the old repos after the import
 
-The `legacy/` copies are frozen at 2026-10-08 and do not include these. Read the old
-repo for the current code and docs:
+The old repos are still where changes are made and deployed from. The `legacy/` copy
+is refreshed afterwards with `git subtree pull` (history kept), e.g.
+`git subtree pull --prefix=legacy/document-processor "<old local folder>" master`.
 
-| Date | Project | Change | Where to read |
+| Date | Project | Change | `legacy/` copy up to date? |
 |---|---|---|---|
-| 2026-10-15 | document-processor | New upload channel: Odoo **C21 放盤管理 → 文件上傳**. A staff upload in Odoo triggers a webhook to `POST /api/odoo/upload`, the file goes through the same pipeline as WhatsApp/Slack, and the result is written back to the Odoo record. The Odoo side is built with Studio-compatible records (model `x_c21_doc_upload`) by `scripts/setup_odoo_doc_upload.py`. | lojul/c21-document-processor, `CLAUDE.md` (UPDATE 2026-10-15), commits `63b0e92`, `5a2bbf5`, `c956e1a`. Live since 2026-10-15. |
+| 2026-10-15 | document-processor | New upload channel: Odoo **C21 放盤管理 → 文件上傳**. A staff upload in Odoo triggers a webhook to `POST /api/odoo/upload`, the file goes through the same pipeline as WhatsApp/Slack, and the result is written back to the Odoo record. The Odoo side is built with Studio-compatible records (model `x_c21_doc_upload`) by `scripts/setup_odoo_doc_upload.py`. Live since 2026-10-15. Details: `legacy/document-processor/CLAUDE.md` (UPDATE 2026-10-15). | Yes, synced to old repo commit `c956e1a` |
 
 To switch one: recreate its virtualenv / `node_modules` inside this repo, deploy once
 from here and verify behaviour, then archive the old GitHub repo with a README pointing here.
