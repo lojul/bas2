@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { BRAND } from "@/lib/brand";
@@ -29,6 +30,10 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             </p>
           )}
           <LoginForm next={next} />
+          <p className="mt-5 text-xs text-genie-muted">
+            By continuing you agree to the <Link href="/terms" className="underline underline-offset-2">Terms of Service</Link>{" "}
+            and acknowledge the <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.
+          </p>
         </div>
       </div>
     </main>
