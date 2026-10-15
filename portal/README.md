@@ -20,6 +20,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/keys` | owners/admins | Bring-your-own AI keys (Anthropic, OpenRouter, xAI, Azure OpenAI), stored in Supabase Vault |
 | `/invite/[token]` | signed in | Accept an invitation (`accept_invitation`); must be signed in with the invited email |
+| `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
 The product name lives only in `lib/brand.ts`.
 

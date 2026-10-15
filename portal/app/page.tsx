@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Database, MessagesSquare, ShieldCheck } from "lucide-react";
 import { Logo } from "@/components/logo";
+import { SiteFooter } from "@/components/site-footer";
 import { BRAND } from "@/lib/brand";
 import { getUser } from "@/lib/supabase/server";
 
@@ -41,7 +42,7 @@ export default async function Home() {
         ))}
       </section>
 
-      <footer className="mt-auto pt-16 text-xs text-genie-muted">© {BRAND.company}</footer>
+      <SiteFooter />
     </main>
   );
 }
