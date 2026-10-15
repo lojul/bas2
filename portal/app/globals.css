@@ -14,7 +14,10 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-geist-sans), var(--font-noto-sans-tc), system-ui, sans-serif;
+  /* Chinese uses fonts already on the device; a downloaded CJK web font is large and its
+     next/font download made Vercel builds fail intermittently. */
+  --font-sans: var(--font-geist-sans), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC",
+    "Noto Sans CJK TC", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --color-genie-bg: var(--genie-bg);
   --color-genie-card: var(--genie-card);
