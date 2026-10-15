@@ -19,13 +19,21 @@ export async function GET(request: NextRequest) {
   } else if (tokenHash && type) {
     ({ error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash }));
   }
-  const ok = !error;
-  // Shows up in Vercel's runtime logs, so a failed sign-in can be diagnosed.
-  if (error) console.error("auth/callback failed:", error.name ?? "Error", error.message);
+  if (!error) return NextResponse.redirect(new URL(next, request.url));
 
-  if (ok) return NextResponse.redirect(new URL(next, request.url));
+  // Diagnose without logging secrets: names of the query parameters and cookies, never values.
+  // Supabase reports its own failures as error_code / error_description on this URL.
+  const reason = url.searchParams.get("error_code") ?? error.name ?? "Error";
+  console.error("auth/callback failed", {
+    reason,
+    message: url.searchParams.get("error_description") ?? error.message,
+    params: [...url.searchParams.keys()],
+    verifierCookies: request.cookies.getAll().filter((c) => c.name.includes("code-verifier")).map((c) => c.name),
+  });
+
   const login = new URL("/login", request.url);
   login.searchParams.set("error", "link");
+  login.searchParams.set("reason", reason);
   login.searchParams.set("next", next);
   return NextResponse.redirect(login);
 }
