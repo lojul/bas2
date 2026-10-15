@@ -13,6 +13,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const params = await searchParams;
   const next = safeNextPath(typeof params.next === "string" ? params.next : null);
   const failed = params.error === "link";
+  // Short technical code from /auth/callback (e.g. otp_expired), shown to help support.
+  const reason = typeof params.reason === "string" ? params.reason.replace(/[^\w.-]/g, "").slice(0, 60) : null;
 
   const { user } = await getUser();
   if (user) redirect(next);
@@ -27,6 +29,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
           {failed && (
             <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-genie-danger">
               That sign-in link has expired or was already used. Request a new one.
+              {reason && <span className="mt-1 block font-mono text-xs opacity-70">Reason: {reason}</span>}
             </p>
           )}
           <LoginForm next={next} />
