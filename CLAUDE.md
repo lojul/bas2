@@ -78,8 +78,9 @@ through the BAS MCP server. The customer's system stays the system of record.
 - Step 1: ~~create the Supabase project~~ done (free tier for development; upgrade to Pro before
   the first paying tenant — free projects pause when idle).
 - Step 3: Odoo 20 environment URL + API key for a dedicated integration user.
-- Step 4: Vercel env vars `SUPABASE_SECRET_KEY` (Supabase secret key, server only) and a platform AI key
-  `ANTHROPIC_API_KEY` and/or `OPENROUTER_API_KEY` (optionally xAI keys to test bring-your-own-key).
+- Step 4: ~~Vercel env vars `SUPABASE_SECRET_KEY` and `OPENROUTER_API_KEY`~~ added 2026-10-15. The platform AI key
+  is **OpenRouter only** — no platform `ANTHROPIC_API_KEY` (decided 2026-10-15); workspaces can still add
+  their own Anthropic key. Model: `GENIE_OPENROUTER_MODEL` (default `anthropic/claude-opus-5.5`).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
 ## Which folder to use
