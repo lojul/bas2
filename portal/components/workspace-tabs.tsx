@@ -8,6 +8,7 @@ export function WorkspaceTabs({ slug, showKeys }: { slug: string; showKeys: bool
   const base = `/app/${slug}`;
   const tabs = [
     { href: base, label: "Overview" },
+    { href: `${base}/ask`, label: "Ask" },
     { href: `${base}/members`, label: "Members" },
     ...(showKeys
       ? [

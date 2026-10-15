@@ -61,7 +61,14 @@ through the BAS MCP server. The customer's system stays the system of record.
    workspace API keys (portal → workspace → AI agents). Read tools: workspace_info, search_records,
    get_record, find_contact, search_knowledge, each backed by an `mcp_*` database function. Still to
    come: create lead/record (needs write-back connectors), web search, semantic search (needs the
-   embedding job). `outbound/` is reserved for the agent and model gateway.
+   embedding job).
+   **Agent + model gateway in progress** (same branch), also in the portal: "Ask" tab at
+   `/app/<workspace>/ask`; `portal/lib/ai` — gateway picks the workspace's own key (Anthropic, then
+   OpenRouter, then xAI, read from Vault) or the platform key; Claude runs through the Anthropic SDK
+   (`claude-opus-5-5`, server-side fallbacks on), OpenRouter/xAI through their OpenAI-compatible APIs.
+   Tools run as the signed-in member via `agent_tool()`; messages and tokens are metered in
+   `usage_events`. Azure OpenAI keys are saved but not used by chat yet (needs endpoint + deployment).
+   `outbound/` stays reserved in case the agent moves out of the portal (e.g. for Slack/WhatsApp workers).
 5. Web chat + Slack app; Stripe plans and usage metering on.
 6. Gate: both demo tenants pass a fixed question set; then the first paying customer.
 7. Phase 2: WhatsApp (Meta Cloud API, Embedded Signup), Teams, email intake, Odoo MCP mode.
@@ -71,7 +78,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 - Step 1: ~~create the Supabase project~~ done (free tier for development; upgrade to Pro before
   the first paying tenant — free projects pause when idle).
 - Step 3: Odoo 20 environment URL + API key for a dedicated integration user.
-- Step 4: a platform OpenRouter key (optionally Anthropic / xAI keys to test bring-your-own-key).
+- Step 4: Vercel env vars `SUPABASE_SECRET_KEY` (Supabase secret key, server only) and a platform AI key
+  `ANTHROPIC_API_KEY` and/or `OPENROUTER_API_KEY` (optionally xAI keys to test bring-your-own-key).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
 ## Which folder to use
