@@ -200,9 +200,39 @@ LangGraph + LangSmith document processor.
 > - **Open:** deleted test listings 144/145 may linger in BAS `properties-index` (`odoo-listing-144/145`);
 >   the `odoo-bas-sync` job only upserts and never deletes.
 
-- **Document pipeline:** WhatsApp/Slack/Teams/OneDrive → n8n (WhatsApp/Slack), Bot Framework (Teams), or the `onedrive_sync` timer → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
+> **UPDATE (2026-10-15): Odoo 放盤管理 → 文件上傳 is a fifth ingest channel** (`63b0e92`).
+>
+> - **Odoo side (SaaS, Studio-only — no custom modules):** model `x_c21_doc_upload` (chatter on),
+>   fields `x_studio_file` (+`_filename`), `x_studio_doc_type` (auto/listing/listing_list/
+>   pitching_deck/news/contact), `x_studio_allow_duplicate` (only affects news), `x_studio_status`
+>   (pending 待處理 → processing 處理中 → done 完成 / error 失敗, default via `ir.default`),
+>   `x_studio_result`, `x_studio_listing_ids` (m2m → `x_c21_listing`). Menu id 744 under
+>   C21 放盤管理. Built by `scripts/setup_odoo_doc_upload.py` (idempotent) with
+>   `studio_customization` xmlids, so it is editable/exportable in Studio like hand-made Studio work.
+> - **Trigger:** automation rule id 8 "文件上傳：新上傳自動處理" (**On create** only — never on
+>   edit, the processor writes back to the record and would loop) and the 重新處理 button (server
+>   action 1243). Both are "Send Webhook Notification" actions posting `{_id, _model}` to
+>   `POST /api/odoo/upload?token=...`. Studio webhooks can't set headers, so the shared secret is
+>   in the URL: `ODOO_UPLOAD_WEBHOOK_TOKEN` (App Service app setting + local `.env`; the route fails
+>   closed if unset). Rule was created inactive; `setup_odoo_doc_upload.py --activate` switches it
+>   on. Re-running the script also rewrites both webhook URLs, so after rotating the token: update
+>   `.env` + App Service setting, then re-run the script.
+> - **Flow:** `api/routes/odoo_upload.py` → `src/utils/odoo_upload.fetch_upload()` (the processor
+>   pulls the file from Odoo itself — the webhook never carries it) → status 處理中 (+ names the
+>   record after the file if blank) → `enqueue_pipeline_job(source="odoo", notify_channel="odoo",
+>   notify_user=<record id>)` → same queue/worker as every other channel → `channel_notify`'s
+>   `odoo` sender (`report_result`) writes status/result/listing links and posts the first line in
+>   chatter, notifying the uploader. `notify()` now also passes the final `DocumentState`
+>   (`final=`) so senders can record more than text; WhatsApp/Slack/Teams ignore it.
+> - No chat step (unlike WhatsApp/Slack `handle_message()`): type comes from the form (default
+>   auto-classify), and there is no duplicate question — listings are always created/updated.
+> - Field/model names can be overridden with `ODOO_UPLOAD_*` env vars if Studio edits rename them;
+>   optional fields that are missing are skipped.
+
+- **Document pipeline:** WhatsApp/Slack/Teams/OneDrive/Odoo → n8n (WhatsApp/Slack), Bot Framework (Teams), the `onedrive_sync` timer, or an Odoo webhook (`/api/odoo/upload`) → `handle_message()`/`enqueue_pipeline_job()` → LangGraph → Odoo
 - **Teams:** Teams user → Bot Framework → `POST /api/messages` (`api/routes/teams.py`) → same channel-agnostic `handle_message()` core → async completion via `teams_notify.py`, requires `MICROSOFT_APP_ID`/`PASSWORD`/`TENANT_ID` on **both** the App Service and the Function App (job_queue.py's async notify runs in the Function App)
 - **OneDrive:** `onedrive_sync` timer (Function App, once daily 07:00 HKT) → Graph delta → `enqueue_pipeline_job(source="onedrive")` → same queue as every other channel; no per-file notify, see daily Slack digest instead
+- **Odoo 文件上傳:** staff upload in Odoo (C21 放盤管理 → 文件上傳) → automation-rule webhook → `POST /api/odoo/upload` (`api/routes/odoo_upload.py`) → `enqueue_pipeline_job(source="odoo")` → result written back to the Odoo record (`src/utils/odoo_upload.py`)
 - **Backend API:** FastAPI on Azure App Service (see FastAPI Backend section)
 
 ## Product Design Philosophy
@@ -243,9 +273,10 @@ langgraph/
 │       ├── di_guard.py        # Document Intelligence daily cost guard
 │       ├── whatsapp_notify.py # WhatsApp send via n8n notify webhook
 │       ├── slack_notify.py    # Slack send via Bot token
-│       ├── channel_notify.py  # Single dispatch point: channel name -> notify fn (whatsapp/slack/teams)
+│       ├── channel_notify.py  # Single dispatch point: channel name -> notify fn (whatsapp/slack/teams/odoo)
 │       ├── teams_notify.py    # Teams proactive-message send via Bot Framework REST (needs MICROSOFT_APP_ID/PASSWORD/TENANT_ID on the Function App)
 │       ├── teams_conversations.py # Persists Teams ConversationReference for async notify
+│       ├── odoo_upload.py     # Odoo 文件上傳 channel: read upload record, write status/result back
 │       ├── bas_index_sync.py  # Immediate Odoo->BAS properties-index sync on every ingest (daily odoo-bas-sync job still runs as reconciliation)
 │       └── session_storage.py # Assistant session persistence (Table Storage)
 ├── api/
@@ -255,7 +286,8 @@ langgraph/
 │       ├── chat.py     # /api/chat (stream, report)
 │       ├── search.py   # /api/search
 │       ├── admin.py    # /api/admin (triage, upload, process, vector, history)
-│       └── teams.py    # Bot Framework /api/messages endpoint for Teams ingest — verified end-to-end 2026-09-13
+│       ├── teams.py    # Bot Framework /api/messages endpoint for Teams ingest — verified end-to-end 2026-09-13
+│       └── odoo_upload.py # /api/odoo/upload webhook from the Odoo 文件上傳 automation rule
 ├── tests/              # Mirror src structure
 ├── function_app.py     # Azure Functions (timer + HTTP)
 └── .env                # Local secrets (never commit)
