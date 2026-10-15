@@ -46,6 +46,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 
 **Build order**
 1. `shared/` — Supabase project, tenants, users + roles, RLS, Vault, pgvector storage schema.
+   **Done 2026-10-15** (branch `bas2/shared-schema`): project `genie`, ref `xhaqzwznduxoosqtcrrm`,
+   ap-southeast-1, free tier. See `shared/README.md`.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
@@ -57,8 +59,8 @@ through the BAS MCP server. The customer's system stays the system of record.
    Phase 3: document add-on moved from `legacy/document-processor`.
 
 **Needed before each step**
-- Step 1: create the Supabase project (free tier for development; Pro before the first paying
-  tenant — free projects pause when idle).
+- Step 1: ~~create the Supabase project~~ done (free tier for development; upgrade to Pro before
+  the first paying tenant — free projects pause when idle).
 - Step 3: Odoo 20 environment URL + API key for a dedicated integration user.
 - Step 4: a platform OpenRouter key (optionally Anthropic / xAI keys to test bring-your-own-key).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
@@ -73,12 +75,20 @@ through the BAS MCP server. The customer's system stays the system of record.
 | `legacy/odoo-bas-sync/` | Daily Odoo `x_c21_listing` → BAS `properties-index` sync (Azure Function) | Azure Function App | Live | End of phase 1 |
 | `legacy/property-chatbot/` | Staff Slack bot: property search over `properties-index`, CRM leads, contacts | App Service + Function App (RG `c21net-bas-property-chatbot-ea-prod`) | Live | End of phase 1 |
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
-| `sync/`, `documents/`, `outbound/`, `portal/`, `shared/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound, bas2-portal, shared storage schema). See "BAS 2.0 — decisions and build order" above. | Supabase (project not yet created) + Vercel | Not started — step 1 (`shared/`) next | — |
+| `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |
+| `sync/`, `documents/`, `outbound/`, `portal/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound, bas2-portal). See "BAS 2.0 — decisions and build order" above. | Supabase + Vercel | Not started — step 2 (`portal/`) next | — |
 
 **Not in this repo, on purpose:**
 - `c21-leasing` (www.c21net.com) — the public website; different audience and lifecycle.
 - `bas-stacks` — another developer's project; reference only, never copy code without their agreement.
 - `knowledge-sync-client` — lives in the `c21net` GitHub org; ownership not yet confirmed.
+
+## Branches
+
+- BAS 2.0 work: one branch per build step under `bas2/` — `bas2/shared-schema`, `bas2/portal`,
+  `bas2/sync`, `bas2/outbound`, `bas2/web-chat`, ... Create each from the latest `main` when the
+  step starts; merge to `main` by pull request when it is done.
+- Fixes to old projects: `legacy/<short-description>`, e.g. `legacy/fix-chatbot-search`.
 
 ## Rules
 
