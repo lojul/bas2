@@ -76,8 +76,9 @@ insert into supabase_migrations.schema_migrations (version, name)
 values ('20261015000500', 'advisor_fixes');
 ```
 
-(Applying through the Supabase MCP connector from a Claude Code cloud session timed out on
-2026-10-15 for every statement that changes the schema; read-only queries worked.)
+(From a Claude Code cloud session, the Supabase MCP `apply_migration` tool and very large SQL
+statements timed out on 2026-10-15; small statements through `execute_sql` worked. Paste big
+files into the SQL Editor instead.)
 
 ## Running the isolation test
 

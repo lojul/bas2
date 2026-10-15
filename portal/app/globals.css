@@ -1,0 +1,54 @@
+@import "tailwindcss";
+
+:root {
+  /* Genie palette (same as the legacy dashboard): warm cream, deep ink, genie-green accent */
+  --genie-bg: #f8f6ee;
+  --genie-card: #fdfcf7;
+  --genie-ink: #16241c;
+  --genie-muted: #6b7a70;
+  --genie-border: #16241c1f;
+  --genie-accent: #d7ecd9;
+  --genie-green: #3f8f5c;
+  --genie-green-deep: #24462f;
+  --genie-danger: #b42318;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), var(--font-noto-sans-tc), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono);
+  --color-genie-bg: var(--genie-bg);
+  --color-genie-card: var(--genie-card);
+  --color-genie-ink: var(--genie-ink);
+  --color-genie-muted: var(--genie-muted);
+  --color-genie-border: var(--genie-border);
+  --color-genie-accent: var(--genie-accent);
+  --color-genie-green: var(--genie-green);
+  --color-genie-green-deep: var(--genie-green-deep);
+  --color-genie-danger: var(--genie-danger);
+}
+
+body {
+  background: var(--genie-bg);
+  color: var(--genie-ink);
+}
+
+@layer components {
+  .card {
+    @apply rounded-xl border border-genie-border bg-genie-card p-6;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-genie-green-deep px-4 py-2 text-sm font-medium text-white hover:bg-genie-ink disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-genie-border bg-white px-4 py-2 text-sm font-medium text-genie-ink hover:bg-genie-bg disabled:opacity-50;
+  }
+  .btn-danger {
+    @apply inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-genie-danger hover:bg-red-50 disabled:opacity-50;
+  }
+  .input {
+    @apply w-full rounded-lg border border-genie-border bg-white px-3 py-2 text-sm outline-none focus:border-genie-green focus:ring-2 focus:ring-genie-accent;
+  }
+  .label {
+    @apply mb-1 block text-sm font-medium;
+  }
+}

@@ -49,6 +49,8 @@ through the BAS MCP server. The customer's system stays the system of record.
    **Done 2026-10-15** (branch `bas2/shared-schema`): project `genie`, ref `xhaqzwznduxoosqtcrrm`,
    ap-southeast-1, free tier. See `shared/README.md`.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
+   **In progress** (branch `bas2/portal`): email-link sign-in, workspaces, members and invite links,
+   bring-your-own AI keys. Microsoft/Google sign-in next. See `portal/README.md`.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
@@ -76,7 +78,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 | `legacy/property-chatbot/` | Staff Slack bot: property search over `properties-index`, CRM leads, contacts | App Service + Function App (RG `c21net-bas-property-chatbot-ea-prod`) | Live | End of phase 1 |
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
 | `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |
-| `sync/`, `documents/`, `outbound/`, `portal/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound, bas2-portal). See "BAS 2.0 — decisions and build order" above. | Supabase + Vercel | Not started — step 2 (`portal/`) next | — |
+| `portal/` | Genie sign-up and workspace admin (Next.js 16 + Supabase Auth). See `portal/README.md`. | Vercel (temporary address until switch-over) | Step 2 in progress | — |
+| `sync/`, `documents/`, `outbound/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound). See "BAS 2.0 — decisions and build order" above. | Supabase + Vercel | Not started — step 3 (`sync/`) after the portal | — |
 
 **Not in this repo, on purpose:**
 - `c21-leasing` (www.c21net.com) — the public website; different audience and lifecycle.
