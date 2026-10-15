@@ -50,6 +50,10 @@ metering, and the private `documents` storage bucket.
 | `delete_tenant_secret(tenant, name)` | owner/admin, service role | removes it from the table and Vault |
 | `get_tenant_secret(tenant, name)` | **service role only** | returns the decrypted value |
 | `match_chunks(tenant, embedding, count, min_similarity)` | signed-in user, service role | semantic search; security invoker, so RLS still applies |
+| `mcp_workspace`, `mcp_search_records`, `mcp_get_record`, `mcp_find_contact`, `mcp_search_knowledge` (first argument: API key) | anyone holding a workspace API key (the MCP server calls them with the public key) | read tools for the MCP server; each resolves the key to its workspace, records a `tool_call` usage event, and reads only that workspace |
+
+**API keys** (`api_keys`): created by owners/admins in the portal. Only the SHA-256 hash and a
+short prefix are stored; revoked keys stop working immediately. Keys look like `gnk_…`.
 
 The Supabase security advisor warns that signed-in users can call the four `SECURITY DEFINER`
 functions above. That is intended: each one checks the caller's membership and role itself
@@ -63,6 +67,12 @@ functions above. That is intended: each one checks the caller's membership and r
   words. Chinese search relies on the trigram index on `title` and on embeddings for now.
 - **Deleting a user who is the last owner of a tenant is blocked** until ownership is
   transferred or the tenant is deleted.
+
+## Demo data
+
+`seed/demo_tenant_b.sql` creates *Harbour Supplies (Demo)*: 10 contacts, 10 products, 10 sales
+orders and 4 policies (also as knowledge chunks), all invented. It is re-runnable (deletes and
+recreates the tenant) and makes kincheonglau@gmail.com the owner if that account exists.
 
 ## Applying migrations
 

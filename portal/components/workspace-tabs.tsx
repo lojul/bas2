@@ -9,7 +9,12 @@ export function WorkspaceTabs({ slug, showKeys }: { slug: string; showKeys: bool
   const tabs = [
     { href: base, label: "Overview" },
     { href: `${base}/members`, label: "Members" },
-    ...(showKeys ? [{ href: `${base}/keys`, label: "AI keys" }] : []),
+    ...(showKeys
+      ? [
+          { href: `${base}/keys`, label: "AI keys" },
+          { href: `${base}/agents`, label: "AI agents (MCP)" },
+        ]
+      : []),
   ];
   return (
     <nav className="mt-4 flex gap-1 border-b border-genie-border">

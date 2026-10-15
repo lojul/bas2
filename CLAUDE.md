@@ -36,7 +36,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 - Billing: Stripe Billing + customer portal; meter messages, OCR pages, tokens and synced
   records per tenant from day one.
 
-**Demo data (proposed, to confirm)**
+**Demo data (proposed, to confirm)** — tenant B is seeded in `genie` as *Harbour Supplies (Demo)*
+(`shared/supabase/seed/demo_tenant_b.sql`, synthetic records, no Odoo).
 - Demo tenant A (property, on our Odoo 20): Odoo's built-in demo data for CRM/contacts, plus a
   listing model shaped like C21's `x_c21_listing`, filled with ~200 synthetic listings (real public
   building names and districts; invented units, prices, owners and phone numbers).
@@ -55,6 +56,12 @@ through the BAS MCP server. The customer's system stays the system of record.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
+   **MCP server in progress** (branch `bas2/outbound-mcp`): it lives in the portal at
+   `https://genie.infiniduo.com/api/mcp` (`portal/app/api/mcp`, `portal/lib/mcp`), authenticated by
+   workspace API keys (portal → workspace → AI agents). Read tools: workspace_info, search_records,
+   get_record, find_contact, search_knowledge, each backed by an `mcp_*` database function. Still to
+   come: create lead/record (needs write-back connectors), web search, semantic search (needs the
+   embedding job). `outbound/` is reserved for the agent and model gateway.
 5. Web chat + Slack app; Stripe plans and usage metering on.
 6. Gate: both demo tenants pass a fixed question set; then the first paying customer.
 7. Phase 2: WhatsApp (Meta Cloud API, Embedded Signup), Teams, email intake, Odoo MCP mode.
