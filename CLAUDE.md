@@ -50,7 +50,7 @@ repo for the current code and docs:
 
 | Date | Project | Change | Where to read |
 |---|---|---|---|
-| 2026-10-15 | document-processor | New upload channel: Odoo **C21 放盤管理 → 文件上傳**. A staff upload in Odoo triggers a webhook to `POST /api/odoo/upload`, the file goes through the same pipeline as WhatsApp/Slack, and the result is written back to the Odoo record. The Odoo side is built with Studio-compatible records (model `x_c21_doc_upload`) by `scripts/setup_odoo_doc_upload.py`. | lojul/c21-document-processor, `CLAUDE.md` (UPDATE 2026-10-15), commits `63b0e92`, `5a2bbf5` |
+| 2026-10-15 | document-processor | New upload channel: Odoo **C21 放盤管理 → 文件上傳**. A staff upload in Odoo triggers a webhook to `POST /api/odoo/upload`, the file goes through the same pipeline as WhatsApp/Slack, and the result is written back to the Odoo record. The Odoo side is built with Studio-compatible records (model `x_c21_doc_upload`) by `scripts/setup_odoo_doc_upload.py`. | lojul/c21-document-processor, `CLAUDE.md` (UPDATE 2026-10-15), commits `63b0e92`, `5a2bbf5`, `c956e1a`. Live since 2026-10-15. |
 
 To switch one: recreate its virtualenv / `node_modules` inside this repo, deploy once
 from here and verify behaviour, then archive the old GitHub repo with a README pointing here.
