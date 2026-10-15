@@ -20,9 +20,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/[slug]` | members | Overview: counts and a getting-started checklist |
 | `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
-| `/app/[slug]/sources` | owners/admins | Data sources: connect Odoo (read-only), Sync now, remove |
-| `/app/[slug]/keys` | owners/admins | Bring-your-own AI keys (Anthropic, OpenRouter, xAI, Azure OpenAI), stored in Supabase Vault |
-| `/app/[slug]/agents` | owners/admins | Create and revoke API keys for AI agents; shows the MCP endpoint and a Claude Desktop config |
+| `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (connect Odoo, Sync now), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
 | `/api/mcp` | API key | Genie MCP server (see below) |
 | `/invite/[token]` | signed in | Accept an invitation (`accept_invitation`); must be signed in with the invited email |
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |

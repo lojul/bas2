@@ -10,13 +10,7 @@ export function WorkspaceTabs({ slug, showKeys }: { slug: string; showKeys: bool
     { href: base, label: "Overview" },
     { href: `${base}/ask`, label: "Ask" },
     { href: `${base}/members`, label: "Members" },
-    ...(showKeys
-      ? [
-          { href: `${base}/sources`, label: "Data sources" },
-          { href: `${base}/keys`, label: "AI keys" },
-          { href: `${base}/agents`, label: "AI agents (MCP)" },
-        ]
-      : []),
+    ...(showKeys ? [{ href: `${base}/settings`, label: "Settings" }] : []),
   ];
   return (
     <nav className="mt-4 flex gap-1 border-b border-genie-border">

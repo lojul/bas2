@@ -39,9 +39,9 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
     { done: true, text: "Create your workspace", href: null },
     { done: members > 1, text: "Invite your colleagues", href: `/app/${slug}/members` },
     ...(keys !== null
-      ? [{ done: keys > 0, text: "Add your own AI key (optional — the platform key is used otherwise)", href: `/app/${slug}/keys` }]
+      ? [{ done: keys > 0, text: "Add your own AI key (optional — the platform key is used otherwise)", href: `/app/${slug}/settings#ai-keys` }]
       : []),
-    { done: sources > 0, text: "Connect a data source — SQL database, spreadsheet or Odoo (coming next)", href: null },
+    { done: sources > 0, text: "Connect a data source — Odoo now; SQL database and spreadsheet next", href: `/app/${slug}/settings#data-sources` },
   ];
 
   return (
