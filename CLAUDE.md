@@ -54,7 +54,7 @@ through the BAS MCP server. The customer's system stays the system of record.
    bring-your-own AI keys. Microsoft/Google sign-in next. See `portal/README.md`.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
    **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo
-   (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Data sources. Read-only, JSON-2 with
+   (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Settings → Data sources. Read-only, JSON-2 with
    JSON-RPC fallback, key in Vault, manual "Sync now". Lives in `portal/lib/sync` for now. Still to come:
    scheduled sync, deletions, mapping screen, SQL/CSV.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
@@ -62,7 +62,7 @@ through the BAS MCP server. The customer's system stays the system of record.
    model gateway, per-tenant guardrails.
    **MCP server in progress** (branch `bas2/outbound-mcp`): it lives in the portal at
    `https://genie.infiniduo.com/api/mcp` (`portal/app/api/mcp`, `portal/lib/mcp`), authenticated by
-   workspace API keys (portal → workspace → AI agents). Read tools: workspace_info, search_records,
+   workspace API keys (portal → workspace → Settings → AI agent access). Read tools: workspace_info, search_records,
    get_record, find_contact, search_knowledge, each backed by an `mcp_*` database function. Still to
    come: create lead/record (needs write-back connectors), web search, semantic search (needs the
    embedding job).

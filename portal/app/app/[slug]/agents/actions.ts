@@ -33,7 +33,7 @@ export async function createApiKey(_prev: KeyState, formData: FormData): Promise
     created_by: user.id,
   });
   if (error) return { error: `Could not create the key: ${error.message}` };
-  revalidatePath(`/app/${slug}/agents`);
+  revalidatePath(`/app/${slug}/settings`);
   return { key, name };
 }
 
@@ -45,5 +45,5 @@ export async function revokeApiKey(formData: FormData) {
     .update({ revoked_at: new Date().toISOString() })
     .eq("id", String(formData.get("id")))
     .eq("tenant_id", workspace.id);
-  revalidatePath(`/app/${slug}/agents`);
+  revalidatePath(`/app/${slug}/settings`);
 }
