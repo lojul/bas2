@@ -12,8 +12,8 @@ signed-in user's session, so row-level security decides what every page can see 
 | Page | Who | What |
 |---|---|---|
 | `/` | anyone | Landing page; signed-in users go straight to `/app` |
-| `/login` | anyone | Email sign-in link (no password). The same link creates the account |
-| `/auth/confirm` | — | Landing page of the emailed sign-in link: reads the session from the URL fragment (implicit flow), stores it in this browser's cookies, wipes it from the address bar |
+| `/login` | anyone | Continue with Google (shown only when enabled in Supabase), or email + password: sign in / create account |
+| `/auth/confirm` | — | Return page for Google sign-in and email-confirmation links: reads the session from the URL fragment (implicit flow), stores it in this browser's cookies, wipes it from the address bar |
 | `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
@@ -25,10 +25,13 @@ signed-in user's session, so row-level security decides what every page can see 
 
 The product name lives only in `lib/brand.ts`.
 
-**Email sign-in uses Supabase's implicit flow** (`lib/supabase/implicit.ts`). The PKCE flow
-failed on genie.infiniduo.com with `AuthPKCECodeVerifierMissingError`: the code-verifier cookie set
-when the link was requested never came back on the callback. The implicit flow needs no such cookie
-and also works when the email is opened on another device.
+**Sign-in runs in the browser** (`app/login/auth-panel.tsx`, `lib/supabase/browser.ts`) with
+Supabase's implicit flow. Email sign-in links are no longer used. The PKCE flow failed on
+genie.infiniduo.com with `AuthPKCECodeVerifierMissingError`: the code-verifier cookie set when
+sign-in started never came back on the callback. The implicit flow needs no such cookie.
+`lib/auth-settings.ts` asks Supabase which providers are on, so the Google button only appears
+once Google is enabled. Password reset is not built yet (needs custom SMTP); the page points to the
+support address meanwhile.
 
 **Sessions** are Supabase cookies managed by `@supabase/ssr`, and `proxy.ts` refreshes them
 on every request. This replaces the token the legacy dashboard kept in browser storage.
@@ -54,6 +57,14 @@ In the Supabase dashboard for project `genie` → **Authentication → URL Confi
 - **Site URL**: `https://genie.infiniduo.com`
 - **Redirect URLs**: `https://genie.infiniduo.com/**` and `http://localhost:3000/**`.
   Sign-in links to any other address are refused.
+
+**Sign-in methods** (Authentication → Sign In / Providers):
+
+- **Email**: enabled. **Confirm email** is off for now, so new accounts can sign in immediately;
+  Supabase's built-in email is limited to a few messages an hour. Turn it back on once custom SMTP
+  is set up.
+- **Google**: enabled with a Google Cloud OAuth client (Web application) whose authorised
+  redirect URI is `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`.
 
 **Email sending:** Supabase's built-in email service only delivers to members of the Supabase
 organisation and allows a few emails per hour. That is enough to test with your own address.
