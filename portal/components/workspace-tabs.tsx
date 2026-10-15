@@ -12,6 +12,7 @@ export function WorkspaceTabs({ slug, showKeys }: { slug: string; showKeys: bool
     { href: `${base}/members`, label: "Members" },
     ...(showKeys
       ? [
+          { href: `${base}/sources`, label: "Data sources" },
           { href: `${base}/keys`, label: "AI keys" },
           { href: `${base}/agents`, label: "AI agents (MCP)" },
         ]

@@ -20,6 +20,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/[slug]` | members | Overview: counts and a getting-started checklist |
 | `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
+| `/app/[slug]/sources` | owners/admins | Data sources: connect Odoo (read-only), Sync now, remove |
 | `/app/[slug]/keys` | owners/admins | Bring-your-own AI keys (Anthropic, OpenRouter, xAI, Azure OpenAI), stored in Supabase Vault |
 | `/app/[slug]/agents` | owners/admins | Create and revoke API keys for AI agents; shows the MCP endpoint and a Claude Desktop config |
 | `/api/mcp` | API key | Genie MCP server (see below) |
@@ -85,6 +86,21 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
   (`platform` or `byok`), written with the service role (`lib/supabase/admin.ts`).
 - Server-only env vars: `SUPABASE_SECRET_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` — mark them
   Sensitive in Vercel, never `NEXT_PUBLIC_`.
+
+## Data sources (`lib/sync`)
+
+**Odoo** (`lib/sync/odoo.ts`, `lib/sync/odoo-sync.ts`), read-only:
+- Connect with address, database, API key (and login email for Odoo 18 or older). The client tries
+  the JSON-2 API (`/json/2/<model>/<method>`, Odoo 19+) and falls back to the legacy JSON-RPC
+  endpoint (`/jsonrpc`, `execute_kw`). The key goes to Vault (`tenant_secrets`, kind `connector`);
+  the source row keeps only non-secret settings.
+- **Sync now** copies each listed model into `records` with the service role: stored text, number,
+  date, selection and many2one fields (many2one -> name, selection -> label, HTML -> text), up to
+  5,000 rows per model per run, then only rows changed since the last sync (`write_date`).
+  Object types: `res.partner` -> `contact`, `crm.lead` -> `lead`, `x_c21_listing` -> `listing`,
+  others keep the model name. Meters `synced_record`.
+- Not yet: scheduled sync, deletions (rows removed in Odoo stay until the source is removed),
+  field mapping screen, SQL and CSV sources.
 
 ## Run locally
 

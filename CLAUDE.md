@@ -53,6 +53,10 @@ through the BAS MCP server. The customer's system stays the system of record.
    **In progress** (branch `bas2/portal`): email-link sign-in, workspaces, members and invite links,
    bring-your-own AI keys. Microsoft/Google sign-in next. See `portal/README.md`.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
+   **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo
+   (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Data sources. Read-only, JSON-2 with
+   JSON-RPC fallback, key in Vault, manual "Sync now". Lives in `portal/lib/sync` for now. Still to come:
+   scheduled sync, deletions, mapping screen, SQL/CSV.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
