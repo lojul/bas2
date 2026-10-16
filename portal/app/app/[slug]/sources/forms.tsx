@@ -4,7 +4,7 @@ import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
 import { BRAND } from "@/lib/brand";
 import { guessOdooDb } from "@/lib/odoo/models";
-import { connectOdoo, connectSearch, removeSource } from "./actions";
+import { connectOdoo, connectSearch, removeSource, testSource } from "./actions";
 
 export function OdooForm({ slug }: { slug: string }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
@@ -220,6 +220,22 @@ export function OffSwitch({ slug, sourceId }: { slug: string; sourceId: string }
       <button type="button" onClick={() => setConfirming(false)} className="text-genie-muted underline underline-offset-2">
         Cancel
       </button>
+    </form>
+  );
+}
+
+// "Test connection" on a switched-on source: success or failure, with what was found.
+export function TestConnection({ slug, sourceId }: { slug: string; sourceId: string }) {
+  const [state, action, pending] = useActionState(testSource, undefined);
+  return (
+    <form action={action} className="flex flex-wrap items-center gap-3">
+      <input type="hidden" name="slug" value={slug} />
+      <input type="hidden" name="source_id" value={sourceId} />
+      <button type="submit" className="btn-secondary" disabled={pending}>
+        {pending ? "Testing…" : "Test connection"}
+      </button>
+      {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
+      {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
     </form>
   );
 }
