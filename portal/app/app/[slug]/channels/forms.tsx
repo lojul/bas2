@@ -4,9 +4,9 @@ import { startTransition, useActionState, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { FormMessage } from "@/components/form-message";
 import { Switch } from "../sources/forms";
-import { connectSlack, disconnectSlack, testSlack } from "./actions";
+import { connectSlack, disconnectSlack, setSlackEnabled, testSlack } from "./actions";
 
-function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
+function SlackForm({ slug, editing, fallback }: { slug: string; editing: boolean; fallback: string }) {
   const [state, action, pending] = useActionState(connectSlack, undefined);
   const [stale, setStale] = useState(false);
   return (
@@ -34,6 +34,13 @@ function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
           <p className="mt-1 text-xs text-genie-muted">Same app → Basic Information → App Credentials.</p>
         </div>
       </div>
+      <div>
+        <label htmlFor="fallback_url" className="label">When Genie is switched off, pass messages to (optional)</label>
+        <input id="fallback_url" name="fallback_url" className="input font-mono text-xs" defaultValue={fallback} placeholder="https://your-old-bot.example.com/api/slack/events" />
+        <p className="mt-1 text-xs text-genie-muted">
+          The bot&apos;s previous Request URL. With it, the switch below moves Slack between Genie and the old bot — no Slack settings to change.
+        </p>
+      </div>
       <button type="submit" className="btn" disabled={pending}>
         {pending ? "Checking with Slack and saving…" : "Save"}
       </button>
@@ -42,7 +49,7 @@ function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
   );
 }
 
-export function SlackOff({ slug }: { slug: string }) {
+export function SlackOff({ slug, fallback }: { slug: string; fallback: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-4">
@@ -59,21 +66,54 @@ export function SlackOff({ slug }: { slug: string }) {
             Use your own Slack app — a new one, or the bot your team already has. Genie keeps only the two keys (encrypted) and reads
             nothing from Slack except the questions asked to it.
           </p>
-          <SlackForm slug={slug} editing={false} />
+          <SlackForm slug={slug} editing={false} fallback={fallback} />
         </div>
       )}
     </div>
   );
 }
 
-export function SlackOffSwitch({ slug }: { slug: string }) {
-  const [confirming, setConfirming] = useState(false);
-  if (!confirming) return <Switch on onClick={() => setConfirming(true)} label="Turn Slack off" />;
+// The switch on a connected Slack: who answers — Genie (on) or the previous bot / nobody (off).
+export function SlackEnabledSwitch({ slug, enabled }: { slug: string; enabled: boolean }) {
+  const [pending, setPending] = useState(false);
   return (
-    <form action={disconnectSlack} className="flex items-center gap-2 text-sm">
+    <form
+      action={async (data) => {
+        setPending(true);
+        await setSlackEnabled(data);
+        setPending(false);
+      }}
+    >
       <input type="hidden" name="slug" value={slug} />
-      <span className="text-genie-muted">Turn off and forget the keys?</span>
-      <button type="submit" className="btn-secondary px-3 py-1 text-genie-danger">Turn off</button>
+      <input type="hidden" name="enabled" value={enabled ? "0" : "1"} />
+      <button
+        type="submit"
+        role="switch"
+        aria-checked={enabled}
+        aria-label={enabled ? "Switch Genie off in Slack" : "Switch Genie on in Slack"}
+        disabled={pending}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${enabled ? "bg-genie-green" : "bg-genie-border"}`}
+      >
+        <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
+      </button>
+    </form>
+  );
+}
+
+function DisconnectSlack({ slug }: { slug: string }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) {
+    return (
+      <button type="button" className="btn-danger mr-auto" onClick={() => setConfirming(true)}>
+        Disconnect
+      </button>
+    );
+  }
+  return (
+    <form action={disconnectSlack} className="mr-auto flex items-center gap-2 text-sm">
+      <input type="hidden" name="slug" value={slug} />
+      <span className="text-genie-muted">Forget the Slack keys?</span>
+      <button type="submit" className="btn-secondary px-3 py-1 text-genie-danger">Disconnect</button>
       <button type="button" onClick={() => setConfirming(false)} className="text-genie-muted underline underline-offset-2">Cancel</button>
     </form>
   );
@@ -100,13 +140,13 @@ export function CopyField({ value }: { value: string }) {
 }
 
 // Edit + Test connection at the bottom right; the form (keys optional) while editing.
-export function SlackActions({ slug }: { slug: string }) {
+export function SlackActions({ slug, fallback }: { slug: string; fallback: string }) {
   const [editing, setEditing] = useState(false);
   const [state, action, pending] = useActionState(testSlack, undefined);
   if (editing) {
     return (
       <div className="space-y-3 border-t border-genie-border pt-4">
-        <SlackForm slug={slug} editing />
+        <SlackForm slug={slug} editing fallback={fallback} />
         <div className="flex justify-end">
           <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Close</button>
         </div>
@@ -114,7 +154,9 @@ export function SlackActions({ slug }: { slug: string }) {
     );
   }
   return (
-    <form action={action} className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <DisconnectSlack slug={slug} />
+      <form action={action} className="flex flex-wrap items-center justify-end gap-2">
       <input type="hidden" name="slug" value={slug} />
       {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
       {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
@@ -122,6 +164,7 @@ export function SlackActions({ slug }: { slug: string }) {
       <button type="submit" disabled={pending} className="inline-flex items-center justify-center rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
         {pending ? "Testing…" : "Test connection"}
       </button>
-    </form>
+      </form>
+    </div>
   );
 }

@@ -4,7 +4,7 @@ import { SITE_URL } from "@/lib/env";
 import type { SlackSettings } from "@/lib/slack/slack";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
-import { CopyField, SlackActions, SlackOff, SlackOffSwitch } from "./forms";
+import { CopyField, SlackActions, SlackEnabledSwitch, SlackOff } from "./forms";
 
 // Settings → Channels: where staff can talk to Genie besides the web (Slack now; WhatsApp and
 // Teams later).
@@ -18,6 +18,9 @@ export async function ChannelsSection({ slug }: { slug: string }) {
   const { data: tenant } = await supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { channels?: { slack?: SlackSettings } } | null }>();
   const slack = tenant?.settings?.channels?.slack;
   const eventsUrl = `${SITE_URL}/api/slack/${slug}/events`;
+  // C21's existing bot (Azure Function) — offered as the "switched off" target.
+  const fallback = slack?.fallback_url ?? (slug === "c21" ? "https://c21net-bas-func-chatbot-slack-ea-prod.azurewebsites.net/api/slack/events" : "");
+  const enabled = slack?.enabled !== false;
 
   return (
     <div className="space-y-4">
@@ -27,15 +30,23 @@ export async function ChannelsSection({ slug }: { slug: string }) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-medium">Slack</h3>
-                <p className="text-sm text-genie-green">On — answers @mentions and direct messages</p>
+                {enabled ? (
+                  <p className="text-sm text-genie-green">On — {BRAND.name}{" "}answers @mentions and direct messages</p>
+                ) : (
+                  <p className="text-sm text-genie-muted">
+                    Off — {slack.fallback_url ? "messages go to the previous bot" : `${BRAND.name} doesn't answer`}
+                  </p>
+                )}
               </div>
-              <SlackOffSwitch slug={slug} />
+              <SlackEnabledSwitch slug={slug} enabled={enabled} />
             </div>
             <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
               <dt className="text-genie-muted">Slack workspace</dt>
               <dd>{slack.team}</dd>
               <dt className="text-genie-muted">Bot</dt>
               <dd>@{slack.bot_name}</dd>
+              <dt className="text-genie-muted">When off</dt>
+              <dd className="break-all">{slack.fallback_url ? `passes messages to ${slack.fallback_url}` : "stays silent"}</dd>
             </dl>
             <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
               <p className="font-medium">Last step, in Slack (api.slack.com/apps → your app):</p>
@@ -56,14 +67,13 @@ export async function ChannelsSection({ slug }: { slug: string }) {
                 </li>
               </ol>
               <p className="text-xs text-genie-muted">
-                Pointing an existing bot here moves it to {BRAND.name}: its old server stops receiving messages. Switching back is the same
-                Request URL change.
+                After this one change, the switch above decides who answers: {BRAND.name}{" "}(on) or the previous bot (off).
               </p>
             </div>
-            <SlackActions slug={slug} />
+            <SlackActions slug={slug} fallback={fallback} />
           </div>
         ) : (
-          <SlackOff slug={slug} />
+          <SlackOff slug={slug} fallback={fallback} />
         )}
       </section>
       <p className="text-xs text-genie-muted">WhatsApp and Microsoft Teams come later.</p>
