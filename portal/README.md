@@ -123,10 +123,10 @@ In the Supabase dashboard for project `genie` → **Authentication → URL Confi
 
 **Sign-in methods** (Authentication → Sign In / Providers):
 
-- **Email**: enabled. **Confirm email** is off for now, so new accounts can sign in immediately;
+- **Email**: enabled. **Confirm email** is currently **on** (2026-10-16), so new accounts must click the emailed link first;
   Supabase's built-in email is limited to a few messages an hour. Turn it back on once custom SMTP
   is set up.
-- **Google**: enabled with a Google Cloud OAuth client (Web application) whose authorised
+- **Google** (not set up yet, 2026-10-16): enable with a Google Cloud OAuth client (Web application) whose authorised
   redirect URI is `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`.
 - **Azure (Microsoft)**: in the Infinity Duo Microsoft Entra tenant, add an app registration
   (*Accounts in any organizational directory and personal Microsoft accounts*) with Web redirect URI

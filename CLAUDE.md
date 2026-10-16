@@ -50,7 +50,7 @@ through the BAS MCP server. The customer's system stays the system of record.
    **Done 2026-10-15** (branch `bas2/shared-schema`): project `genie`, ref `xhaqzwznduxoosqtcrrm`,
    ap-southeast-1, free tier. See `shared/README.md`.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
-   **In progress**, live at genie.infiniduo.com: Google or email + password sign-in (email links
+   **In progress**, live at genie.infiniduo.com: email + password sign-in (Google built, not yet enabled in Supabase) (email links
    dropped — they failed on the live site), workspaces, members and invite links, one Settings page
    (data sources, AI model keys, AI agent access), forgot-password (2026-10-16). Microsoft sign-in is
    built but appears only once the Azure provider is set up in Supabase (`portal/README.md`).
