@@ -4,7 +4,7 @@ import { BRAND } from "@/lib/brand";
 import { ODOO_MODEL_CHOICES } from "@/lib/odoo/models";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
-import { OdooOff, OffSwitch, SearchOff, type SearchDefaults } from "./forms";
+import { OdooOff, OffSwitch, SearchOff, TestConnection, type SearchDefaults } from "./forms";
 
 type Source = {
   id: string;
@@ -67,7 +67,8 @@ export async function SourcesSection({ slug }: { slug: string }) {
               <dt className="text-genie-muted">{BRAND.name}{" "}can read</dt>
               <dd>{(odoo.config.models ?? []).map(label).join(", ")}</dd>
             </dl>
-            {odoo.last_error && <p className="text-sm text-genie-danger">{odoo.last_error}</p>}
+            {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
+            <TestConnection slug={slug} sourceId={odoo.id} />
             <p className="text-xs text-genie-muted">To change the address, key or what {BRAND.name}{" "}can read, turn Odoo off and on again.</p>
           </div>
         ) : (
@@ -91,7 +92,8 @@ export async function SourcesSection({ slug }: { slug: string }) {
               <dt className="text-genie-muted">Index</dt>
               <dd>{index.config.index} · {index.config.endpoint}</dd>
             </dl>
-            {index.last_error && <p className="text-sm text-genie-danger">{index.last_error}</p>}
+            {index.last_error && <p className="text-sm text-genie-danger">Last check failed: {index.last_error}</p>}
+            <TestConnection slug={slug} sourceId={index.id} />
           </div>
         ) : (
           <SearchOff

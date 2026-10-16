@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/supabase/server";
 import { OdooClient, OdooError, normaliseUrl } from "@/lib/odoo/client";
 import { ODOO_MODEL_CHOICES, guessOdooDb } from "@/lib/odoo/models";
@@ -159,4 +160,59 @@ export async function connectSearch(_prev: FormState, formData: FormData): Promi
   if (error) return { error: `Could not save the source: ${error.message}` };
   revalidatePath(`/app/${slug}`, "layout");
   return { ok: `On — ${count ?? "the"} documents can now be searched live. Nothing is copied into Genie.` };
+}
+
+// "Test connection" on a switched-on source: reads it live with the saved key and reports what it
+// found. Records the outcome on the source (status, last_error) so the sidebar dot matches.
+export async function testSource(_prev: FormState, formData: FormData): Promise<FormState> {
+  const slug = String(formData.get("slug"));
+  const { supabase, workspace } = await context(slug);
+  const { data: source } = await supabase
+    .from("sources")
+    .select("id, name, kind, config")
+    .eq("id", String(formData.get("source_id")))
+    .eq("tenant_id", workspace.id)
+    .maybeSingle<{
+      id: string;
+      name: string;
+      kind: string;
+      config: { secret_name: string; url?: string; db?: string; login?: string | null; models?: string[]; endpoint?: string; index?: string };
+    }>();
+  if (!source) return { error: "Source not found." };
+
+  const admin = createAdminClient();
+  const started = Date.now();
+  const record = (error: string | null) =>
+    admin.from("sources").update({ status: error ? "error" : "active", last_error: error }).eq("id", source.id);
+  try {
+    const { data: key, error: keyError } = await admin.rpc("get_tenant_secret", { p_tenant_id: workspace.id, p_name: source.config.secret_name });
+    if (keyError || !key) throw new Error("The saved key is missing. Turn the source off and on again.");
+    let found: string;
+    if (source.kind.startsWith("odoo")) {
+      const odoo = await OdooClient.open(
+        { url: source.config.url ?? "", db: source.config.db ?? "", login: source.config.login ?? undefined, apiKey: key as string },
+        source.kind === "odoo_json2" ? "json2" : "jsonrpc",
+      );
+      const counts = await Promise.all(
+        (source.config.models ?? []).map(async (m) => {
+          const n = await odoo.call<number>(m, "search_count", { domain: [] });
+          return `${ODOO_MODEL_CHOICES.find((c) => c.model === m)?.label ?? m} ${n.toLocaleString()}`;
+        }),
+      );
+      found = counts.join(" · ");
+    } else if (source.kind === "azure_search") {
+      const { count } = await testSearch({ endpoint: source.config.endpoint ?? "", index: source.config.index ?? "", key: key as string });
+      found = `${(count ?? 0).toLocaleString()} documents`;
+    } else {
+      return { error: "This kind of source can't be tested yet." };
+    }
+    await record(null);
+    revalidatePath(`/app/${slug}`, "layout");
+    return { ok: `✓ Connected in ${((Date.now() - started) / 1000).toFixed(1)} s — ${found}.` };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    await record(message.slice(0, 1000));
+    revalidatePath(`/app/${slug}`, "layout");
+    return { error: `✗ Failed — ${message}` };
+  }
 }
