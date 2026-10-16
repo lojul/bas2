@@ -73,7 +73,7 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
 `askAgent` (`lib/ai/agent.ts`):
 
 - **Gateway** (`lib/ai/gateway.ts`): the workspace's own key from Vault (Anthropic → OpenRouter → xAI),
-  else the platform key (`ANTHROPIC_API_KEY`, then `OPENROUTER_API_KEY`). Claude goes through the
+  else the platform key (`OPENROUTER_API_KEY` only — there is no platform Anthropic key). Claude goes through the
   Anthropic SDK with adaptive thinking, effort `medium` and server-side `fallbacks: "default"`
   (beta `server-side-fallback-2026-07-01`: a declined request is retried on Anthropic's recommended
   fallback model). OpenRouter and xAI use their OpenAI-compatible chat completions API.
@@ -82,7 +82,7 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
   `agent_tool()` as the signed-in user, so membership is checked by the database.
 - **Metering**: one `message`, plus `input_token` / `output_token` rows with `key_source`
   (`platform` or `byok`), written with the service role (`lib/supabase/admin.ts`).
-- Server-only env vars: `SUPABASE_SECRET_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` — mark them
+- Server-only env vars: `SUPABASE_SECRET_KEY`, `OPENROUTER_API_KEY` — mark them
   Sensitive in Vercel, never `NEXT_PUBLIC_`.
 
 ## Data sources (`lib/sync`)

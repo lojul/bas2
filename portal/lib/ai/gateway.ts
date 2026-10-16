@@ -5,7 +5,7 @@ import type { ToolSpec } from "./tools";
 
 // Model gateway: picks the AI provider and key for a workspace, then runs one tool-use loop on it.
 // Order: the workspace's own key (Anthropic, then OpenRouter, then xAI), else the platform key
-// (ANTHROPIC_API_KEY, then OPENROUTER_API_KEY). Workspace keys are read from Supabase Vault with
+// (OPENROUTER_API_KEY only; there is no platform Anthropic key). Workspace keys are read from Supabase Vault with
 // the service role; they never reach the browser.
 
 export type ProviderId = "anthropic" | "openrouter" | "xai";
@@ -41,14 +41,11 @@ export async function resolveRoute(tenantId: string): Promise<Route> {
     if (error) throw new GatewayError(`Could not read workspace AI keys: ${error.message}`);
     if (typeof data === "string" && data) return { provider, apiKey: data, model: MODELS[provider], keySource: "byok" };
   }
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { provider: "anthropic", apiKey: process.env.ANTHROPIC_API_KEY, model: MODELS.anthropic, keySource: "platform" };
-  }
   if (process.env.OPENROUTER_API_KEY) {
     return { provider: "openrouter", apiKey: process.env.OPENROUTER_API_KEY, model: MODELS.openrouter, keySource: "platform" };
   }
   throw new GatewayError(
-    "No AI key available: add one under AI keys, or set ANTHROPIC_API_KEY / OPENROUTER_API_KEY on the server.",
+    "No AI key available: add one under Settings → AI model keys, or set OPENROUTER_API_KEY on the server.",
   );
 }
 
