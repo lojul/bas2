@@ -76,9 +76,11 @@ export async function askAgent(
   const { error } = await createAdminClient()
     .from("usage_events")
     .insert([
-      { ...base, metric: "message", quantity: 1, metadata: { provider: route.provider, tools: result.toolCalls } },
-      { ...base, metric: "input_token", quantity: result.inputTokens, model: result.model },
-      { ...base, metric: "output_token", quantity: result.outputTokens, model: result.model },
+      { ...base, metric: "message", quantity: 1, model: result.model, metadata: { provider: route.provider, tools: result.toolCalls } },
+      // Every row carries metadata: in a multi-row insert a missing key is sent as NULL, and
+      // usage_events.metadata is NOT NULL — that silently dropped all three rows until 2026-10-16.
+      { ...base, metric: "input_token", quantity: result.inputTokens, model: result.model, metadata: {} },
+      { ...base, metric: "output_token", quantity: result.outputTokens, model: result.model, metadata: {} },
     ]);
   if (error) console.error("usage metering failed", error.message);
 
