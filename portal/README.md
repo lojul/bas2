@@ -20,7 +20,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
 | `/app/[slug]` | members | Redirects to Ask — the workspace's home (Overview page removed 2026-10-16) |
 | `/app/[slug]/help` | members | Help centre: searchable articles by topic (`lib/help.ts`) |
-| `/app/[slug]/ask` | members | Home: chat with the workspace's data (agent + model gateway, below); owners/admins also see a closable setup strip |
+| `/app/[slug]/ask` | members | Home, Copilot-style: greeting, large message box (Enter sends, Shift+Enter new line), suggestion cards that fit the switched-on sources; then a centred thread with the box at the bottom and "New chat". Owners/admins also see a closable setup strip |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (Odoo on/off, read live), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
 | `/api/mcp` | API key | Genie MCP server (see below) |

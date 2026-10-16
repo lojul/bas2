@@ -8,6 +8,7 @@ export type NavItem = {
   title: string;
   subtitle: string;
   managersOnly?: boolean;
+  bare?: boolean; // no big page title (Ask has its own greeting)
 };
 
 export const NAV: NavItem[] = [
@@ -18,6 +19,7 @@ export const NAV: NavItem[] = [
     label: "Ask",
     title: "Ask",
     subtitle: "Ask about your company's data in plain language. Answers come only from your own systems; the conversation is not saved.",
+    bare: true,
   },
   { key: "members", path: "/members", label: "Team", title: "Team", subtitle: "Who can use this workspace, and what they can change." },
   {

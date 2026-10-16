@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { SetupStrip, type SetupStep } from "./setup-strip";
+import type { Suggestion } from "./chat";
 import { Chat } from "./chat";
 
 export const metadata: Metadata = { title: "Ask" };
@@ -34,10 +35,27 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
     ];
   }
 
+  // Suggestion cards that fit the switched-on sources.
+  const supabaseForSources = await createClient();
+  const { data: kinds } = await supabaseForSources.from("sources").select("kind").eq("tenant_id", workspace.id);
+  const hasOdoo = kinds?.some((k) => k.kind.startsWith("odoo")) ?? false;
+  const hasDocs = kinds?.some((k) => k.kind === "azure_search") ?? false;
+  const suggestions: Suggestion[] = [
+    ...(hasOdoo ? [{ kind: "contact" as const, title: "Find a contact", prompt: "Find the phone number of the owner Chan Tai Man" }] : []),
+    ...(hasOdoo ? [{ kind: "listing" as const, title: "Search listings", prompt: "3-bedroom flats for rent in Taikoo Shing" }] : []),
+    ...(hasDocs ? [{ kind: "document" as const, title: "Search documents", prompt: "What do we have at SOHO East in Sai Wan Ho?" }] : []),
+    { kind: "idea" as const, title: "Get started", prompt: "What data can you see?" },
+  ].slice(0, 3);
+
   return (
     <div className="space-y-4">
       {steps && <SetupStrip slug={slug} steps={steps} />}
-      <Chat slug={slug} initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""} />
+      <Chat
+        slug={slug}
+        initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""}
+        greeting="Hi, how can I help?"
+        suggestions={suggestions}
+      />
     </div>
   );
 }

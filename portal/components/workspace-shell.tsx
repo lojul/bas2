@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -252,11 +252,32 @@ export function WorkspaceShell({
   const page = activeNav(pathname, workspace.slug);
   const base = `/app/${workspace.slug}`;
 
+  // Close any open menu (workspace switcher, account menu) on a click outside it or after navigating.
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      document.querySelectorAll("details[open]").forEach((d) => {
+        if (!d.contains(e.target as Node) || (e.target as HTMLElement).closest("a")) d.removeAttribute("open");
+      });
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
-          <Link href={`${base}/ask`} className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={BRAND.name}>
+          <Link
+            href={`${base}/ask`}
+            title="New question"
+            // Already on Ask: a full reload starts a fresh conversation.
+            onClick={(e) => {
+              if (pathname === `${base}/ask`) {
+                e.preventDefault();
+                window.location.assign(`${base}/ask`);
+              }
+            }}
+            className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={BRAND.name}>
             <Sparkles size={14} />
           </Link>
           <ChevronRight size={14} className="text-genie-muted" />
@@ -290,7 +311,7 @@ export function WorkspaceShell({
           </aside>
         )}
         <main className={`min-w-0 flex-1 py-4 ${collapsed ? "" : "md:pl-4"}`}>
-          <div className="mb-5 flex items-center gap-2">
+          <div className={`flex items-center gap-2 ${page.bare ? "mb-1" : "mb-5"}`}>
             <button
               type="button"
               className="rounded-md p-1 text-genie-muted hover:bg-genie-accent"
@@ -300,10 +321,10 @@ export function WorkspaceShell({
               <Menu size={18} />
             </button>
             <div className="min-w-0">
-              <h1 className="truncate text-xl font-semibold text-genie-ink">{page.title}</h1>
+              <h1 className={page.bare ? "sr-only" : "truncate text-xl font-semibold text-genie-ink"}>{page.title}</h1>
             </div>
           </div>
-          <p className="-mt-3 mb-5 pl-9 text-sm text-genie-muted">{page.subtitle}</p>
+          {!page.bare && <p className="-mt-3 mb-5 pl-9 text-sm text-genie-muted">{page.subtitle}</p>}
           {children}
         </main>
       </div>
