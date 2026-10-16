@@ -1,18 +1,30 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import { type OdooModelChoice, guessOdooDb } from "@/lib/sync/models";
 import { connectOdoo, syncSource } from "./actions";
 
 export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelChoice[] }) {
-  const [state, action] = useActionState(connectOdoo, undefined);
+  const [state, action, pending] = useActionState(connectOdoo, undefined);
   const [url, setUrl] = useState("");
+  // Hide the last result as soon as the user changes something, so an old error doesn't linger.
+  const [stale, setStale] = useState(false);
   const guessedDb = guessOdooDb(url.startsWith("http") ? url : `https://${url}`);
   const needsDb = url.trim() !== "" && !guessedDb;
   return (
-    <form action={action} className="space-y-3">
+    <form
+      className="space-y-3"
+      onChange={() => setStale(true)}
+      // Submit without React's automatic form reset, so typed values (and the API key) survive an error.
+      onSubmit={(e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        setStale(false);
+        startTransition(() => action(data));
+      }}
+    >
       <input type="hidden" name="slug" value={slug} />
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
@@ -67,8 +79,11 @@ export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelCh
           <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" />
         </details>
       </fieldset>
-      <SubmitButton pendingText="Checking the connection…">Connect</SubmitButton>
-      <FormMessage state={state} />
+      <button type="submit" className="btn" disabled={pending}>
+        {pending ? "Checking the connection…" : "Connect and save"}
+      </button>
+      <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo, then saves them. Nothing is copied until you press Sync now.</p>
+      {!stale && <FormMessage state={state} />}
     </form>
   );
 }
