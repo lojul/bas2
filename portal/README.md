@@ -12,7 +12,8 @@ signed-in user's session, so row-level security decides what every page can see 
 | Page | Who | What |
 |---|---|---|
 | `/` | anyone | Landing page; signed-in users go straight to `/app` |
-| `/login` | anyone | Continue with Google (shown only when enabled in Supabase), or email + password: sign in / create account |
+| `/login` | anyone | Continue with Google or Microsoft (each shown only when enabled in Supabase), or email + password: sign in / create account / forgot password |
+| `/reset-password` | signed in | Choose a new password. The reset email signs the user in through `/auth/confirm` and lands here |
 | `/auth/confirm` | — | Return page for Google sign-in and email-confirmation links: reads the session from the URL fragment (implicit flow), stores it in this browser's cookies, wipes it from the address bar |
 | `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
@@ -31,9 +32,10 @@ The product name lives only in `lib/brand.ts`.
 Supabase's implicit flow. Email sign-in links are no longer used. The PKCE flow failed on
 genie.infiniduo.com with `AuthPKCECodeVerifierMissingError`: the code-verifier cookie set when
 sign-in started never came back on the callback. The implicit flow needs no such cookie.
-`lib/auth-settings.ts` asks Supabase which providers are on, so the Google button only appears
-once Google is enabled. Password reset is not built yet (needs custom SMTP); the page points to the
-support address meanwhile.
+`lib/auth-settings.ts` asks Supabase which providers are on, so the Google and Microsoft buttons only
+appear once each is enabled. **Forgot password** emails a reset link (`resetPasswordForEmail`) back to
+`/auth/confirm?next=/reset-password`. Until custom SMTP is set up, Supabase only delivers it to members
+of the Supabase organisation.
 
 **Sessions** are Supabase cookies managed by `@supabase/ssr`, and `proxy.ts` refreshes them
 on every request. This replaces the token the legacy dashboard kept in browser storage.
@@ -126,6 +128,11 @@ In the Supabase dashboard for project `genie` → **Authentication → URL Confi
   is set up.
 - **Google**: enabled with a Google Cloud OAuth client (Web application) whose authorised
   redirect URI is `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`.
+- **Azure (Microsoft)**: in the Infinity Duo Microsoft Entra tenant, add an app registration
+  (*Accounts in any organizational directory and personal Microsoft accounts*) with Web redirect URI
+  `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`, then create a client secret. Put the
+  Application (client) ID and the secret **Value** into the Azure provider in Supabase, leave the
+  tenant URL empty (any account), and save. The button appears within a minute.
 
 **Email sending:** Supabase's built-in email service only delivers to members of the Supabase
 organisation and allows a few emails per hour. That is enough to test with your own address.

@@ -2,6 +2,8 @@ import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 
 export type AuthSettings = {
   google: boolean;
+  // Supabase calls Microsoft (Entra ID) sign-in "azure".
+  microsoft: boolean;
   // false when Supabase asks new users to confirm their email before they can sign in.
   autoconfirm: boolean;
 };
@@ -16,8 +18,12 @@ export async function getAuthSettings(): Promise<AuthSettings> {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const s = (await res.json()) as { external?: Record<string, boolean>; mailer_autoconfirm?: boolean };
-    return { google: Boolean(s.external?.google), autoconfirm: Boolean(s.mailer_autoconfirm) };
+    return {
+      google: Boolean(s.external?.google),
+      microsoft: Boolean(s.external?.azure),
+      autoconfirm: Boolean(s.mailer_autoconfirm),
+    };
   } catch {
-    return { google: false, autoconfirm: false };
+    return { google: false, microsoft: false, autoconfirm: false };
   }
 }

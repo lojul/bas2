@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { LEGAL } from "@/lib/legal";
 import { createClient } from "@/lib/supabase/browser";
 
-type Mode = "signin" | "signup";
+type Mode = "signin" | "signup" | "forgot";
+type Provider = "google" | "azure";
 type Message = { kind: "error" | "ok"; text: string } | null;
 
 const MIN_PASSWORD = 8;
@@ -19,6 +19,19 @@ function GoogleIcon() {
     </svg>
   );
 }
+
+function MicrosoftIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 21 21" aria-hidden="true">
+      <path fill="#F25022" d="M1 1h9v9H1z" />
+      <path fill="#7FBA00" d="M11 1h9v9h-9z" />
+      <path fill="#00A4EF" d="M1 11h9v9H1z" />
+      <path fill="#FFB900" d="M11 11h9v9h-9z" />
+    </svg>
+  );
+}
+
+const PROVIDER_NAME: Record<Provider, string> = { google: "Google", azure: "Microsoft" };
 
 // Plain-English versions of Supabase's sign-in errors.
 function explain(code: string | undefined, fallback: string): string {
@@ -42,25 +55,53 @@ function explain(code: string | undefined, fallback: string): string {
   }
 }
 
-export function AuthPanel({ next, google, autoconfirm }: { next: string; google: boolean; autoconfirm: boolean }) {
+export function AuthPanel({
+  next,
+  google,
+  microsoft,
+  autoconfirm,
+}: {
+  next: string;
+  google: boolean;
+  microsoft: boolean;
+  autoconfirm: boolean;
+}) {
   const [mode, setMode] = useState<Mode>("signin");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
 
   const confirmUrl = () => `${window.location.origin}/auth/confirm?next=${encodeURIComponent(next)}`;
 
-  async function withGoogle() {
+  async function withProvider(provider: Provider) {
     setBusy(true);
     setMessage(null);
     const { error } = await createClient().auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: confirmUrl() },
+      provider,
+      // Microsoft only returns the email address when asked for it.
+      options: { redirectTo: confirmUrl(), scopes: provider === "azure" ? "email" : undefined },
     });
-    // On success the browser is already on its way to Google.
+    // On success the browser is already on its way to Google or Microsoft.
     if (error) {
       setBusy(false);
-      setMessage({ kind: "error", text: explain(error.code, `Google sign-in failed: ${error.message}`) });
+      setMessage({ kind: "error", text: explain(error.code, `${PROVIDER_NAME[provider]} sign-in failed: ${error.message}`) });
     }
+  }
+
+  // Emails a link that signs the user in and opens /reset-password to choose a new password.
+  async function sendReset(form: FormData) {
+    const email = String(form.get("email") ?? "").trim().toLowerCase();
+    setMessage(null);
+    setBusy(true);
+    const { error } = await createClient().auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/confirm?next=${encodeURIComponent("/reset-password")}`,
+    });
+    setBusy(false);
+    if (error) {
+      setMessage({ kind: "error", text: explain(error.code, error.message) });
+      return;
+    }
+    // Same answer whether or not the address has an account, so the form can't be used to find accounts.
+    setMessage({ kind: "ok", text: `If ${email} has an account, a link to reset the password is on its way. Check your inbox.` });
   }
 
   async function withPassword(form: FormData) {
@@ -109,67 +150,98 @@ export function AuthPanel({ next, google, autoconfirm }: { next: string; google:
 
   return (
     <div>
-      {google && (
+      {(google || microsoft) && mode !== "forgot" && (
         <>
-          <button type="button" onClick={withGoogle} disabled={busy} className="btn-secondary w-full">
-            <GoogleIcon /> Continue with Google
-          </button>
+          <div className="space-y-2">
+            {google && (
+              <button type="button" onClick={() => withProvider("google")} disabled={busy} className="btn-secondary w-full">
+                <GoogleIcon /> Continue with Google
+              </button>
+            )}
+            {microsoft && (
+              <button type="button" onClick={() => withProvider("azure")} disabled={busy} className="btn-secondary w-full">
+                <MicrosoftIcon /> Continue with Microsoft
+              </button>
+            )}
+          </div>
           <div className="my-5 flex items-center gap-3 text-xs text-genie-muted">
             <span className="h-px flex-1 bg-genie-border" /> or with email <span className="h-px flex-1 bg-genie-border" />
           </div>
         </>
       )}
 
-      <div className="mb-4 grid grid-cols-2 rounded-lg border border-genie-border p-1 text-sm">
-        {(["signin", "signup"] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              setMode(m);
-              setMessage(null);
-            }}
-            className={`rounded-md py-1.5 ${mode === m ? "bg-genie-green-deep text-white" : "text-genie-muted hover:text-genie-ink"}`}
-          >
-            {m === "signin" ? "Sign in" : "Create account"}
+      {mode === "forgot" ? (
+        <form action={sendReset} className="space-y-3">
+          <p className="text-sm text-genie-muted">Enter your email and we&apos;ll send you a link to choose a new password.</p>
+          <div>
+            <label htmlFor="email" className="label">Work email</label>
+            <input id="email" name="email" type="email" autoComplete="email" required className="input" placeholder="you@company.com" />
+          </div>
+          <button type="submit" disabled={busy} className="btn w-full">
+            {busy ? "Please wait…" : "Send reset link"}
           </button>
-        ))}
-      </div>
-
-      <form action={withPassword} className="space-y-3">
-        <div>
-          <label htmlFor="email" className="label">Work email</label>
-          <input id="email" name="email" type="email" autoComplete="email" required className="input" placeholder="you@company.com" />
-        </div>
-        <div>
-          <label htmlFor="password" className="label">Password</label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            required
-            minLength={mode === "signup" ? MIN_PASSWORD : undefined}
-            autoComplete={mode === "signin" ? "current-password" : "new-password"}
-            className="input"
-          />
-          {mode === "signup" && (
-            <p className="mt-1 text-xs text-genie-muted">
-              At least {MIN_PASSWORD} characters.{autoconfirm ? "" : " We'll email you a link to confirm your address."}
-            </p>
-          )}
-        </div>
-        <button type="submit" disabled={busy} className="btn w-full">
-          {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
-        </button>
-      </form>
+        </form>
+      ) : (
+        <>
+          <div className="mb-4 grid grid-cols-2 rounded-lg border border-genie-border p-1 text-sm">
+            {(["signin", "signup"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m);
+                  setMessage(null);
+                }}
+                className={`rounded-md py-1.5 ${mode === m ? "bg-genie-green-deep text-white" : "text-genie-muted hover:text-genie-ink"}`}
+              >
+                {m === "signin" ? "Sign in" : "Create account"}
+              </button>
+            ))}
+          </div>
+    
+          <form action={withPassword} className="space-y-3">
+            <div>
+              <label htmlFor="email" className="label">Work email</label>
+              <input id="email" name="email" type="email" autoComplete="email" required className="input" placeholder="you@company.com" />
+            </div>
+            <div>
+              <label htmlFor="password" className="label">Password</label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                required
+                minLength={mode === "signup" ? MIN_PASSWORD : undefined}
+                autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                className="input"
+              />
+              {mode === "signup" && (
+                <p className="mt-1 text-xs text-genie-muted">
+                  At least {MIN_PASSWORD} characters.{autoconfirm ? "" : " We'll email you a link to confirm your address."}
+                </p>
+              )}
+            </div>
+            <button type="submit" disabled={busy} className="btn w-full">
+              {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+            </button>
+          </form>
+        </>
+      )}
 
       {message && (
         <p className={`mt-3 text-sm ${message.kind === "error" ? "text-genie-danger" : "text-genie-green-deep"}`}>{message.text}</p>
       )}
-      {mode === "signin" && (
-        <p className="mt-3 text-xs text-genie-muted">
-          Forgot your password? Email <a href={`mailto:${LEGAL.supportEmail}`} className="underline underline-offset-2">{LEGAL.supportEmail}</a>.
-        </p>
+      {mode !== "signup" && (
+        <button
+          type="button"
+          onClick={() => {
+            setMode(mode === "forgot" ? "signin" : "forgot");
+            setMessage(null);
+          }}
+          className="mt-3 text-xs text-genie-muted underline underline-offset-2 hover:text-genie-ink"
+        >
+          {mode === "forgot" ? "Back to sign in" : "Forgot your password?"}
+        </button>
       )}
     </div>
   );
