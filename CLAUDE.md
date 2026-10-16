@@ -93,6 +93,11 @@ data; CSV upload and the document add-on need a design that reads files where th
    `usage_events`. Azure OpenAI keys are saved but not used by chat yet (needs endpoint + deployment).
    `outbound/` stays reserved in case the agent moves out of the portal (e.g. for Slack/WhatsApp workers).
 5. Web chat + Slack app; Stripe plans and usage metering on.
+   **Slack built 2026-10-16** (Settings → Channels; `portal/README.md` → Slack). C21's existing bot is
+   `c21_property_chatbot` in Slack workspace C21net, today served by Azure Function
+   `c21net-bas-func-chatbot-slack-ea-prod` (`/api/slack/events`); moving it to Genie = paste its keys in Genie and
+   change the app's Request URL. WhatsApp later: C21 only has Twilio's shared Sandbox number (+1 415 523 8886,
+   trial account, keys in n8n) used for document intake.
 6. Gate: both demo tenants pass a fixed question set; then the first paying customer.
 7. Phase 2: WhatsApp (Meta Cloud API, Embedded Signup), Teams, email intake, Odoo MCP mode.
    Phase 3: document add-on moved from `legacy/document-processor`.

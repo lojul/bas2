@@ -1,0 +1,127 @@
+"use client";
+
+import { startTransition, useActionState, useState } from "react";
+import { Check, Copy } from "lucide-react";
+import { FormMessage } from "@/components/form-message";
+import { Switch } from "../sources/forms";
+import { connectSlack, disconnectSlack, testSlack } from "./actions";
+
+function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
+  const [state, action, pending] = useActionState(connectSlack, undefined);
+  const [stale, setStale] = useState(false);
+  return (
+    <form
+      className="space-y-3"
+      onChange={() => setStale(true)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        setStale(false);
+        startTransition(() => action(data));
+      }}
+    >
+      <input type="hidden" name="slug" value={slug} />
+      {editing && <input type="hidden" name="editing" value="1" />}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="bot_token" className="label">Bot User OAuth Token</label>
+          <input id="bot_token" name="bot_token" type="password" autoComplete="off" required={!editing} className="input font-mono" placeholder={editing ? "Leave empty to keep the saved token" : "xoxb-…"} />
+          <p className="mt-1 text-xs text-genie-muted">api.slack.com/apps → your app → OAuth &amp; Permissions.</p>
+        </div>
+        <div>
+          <label htmlFor="signing_secret" className="label">Signing Secret</label>
+          <input id="signing_secret" name="signing_secret" type="password" autoComplete="off" required={!editing} className="input font-mono" placeholder={editing ? "Leave empty to keep the saved secret" : "Paste the signing secret"} />
+          <p className="mt-1 text-xs text-genie-muted">Same app → Basic Information → App Credentials.</p>
+        </div>
+      </div>
+      <button type="submit" className="btn" disabled={pending}>
+        {pending ? "Checking with Slack and saving…" : "Save"}
+      </button>
+      {!stale && <FormMessage state={state} />}
+    </form>
+  );
+}
+
+export function SlackOff({ slug }: { slug: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-medium">Slack</h3>
+          <p className="text-sm text-genie-muted">Off — staff can&apos;t ask Genie in Slack yet.</p>
+        </div>
+        <Switch on={open} onClick={() => setOpen(!open)} label="Turn Slack on" />
+      </div>
+      {open && (
+        <div className="space-y-3 border-t border-genie-border pt-4">
+          <p className="text-sm text-genie-muted">
+            Use your own Slack app — a new one, or the bot your team already has. Genie keeps only the two keys (encrypted) and reads
+            nothing from Slack except the questions asked to it.
+          </p>
+          <SlackForm slug={slug} editing={false} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SlackOffSwitch({ slug }: { slug: string }) {
+  const [confirming, setConfirming] = useState(false);
+  if (!confirming) return <Switch on onClick={() => setConfirming(true)} label="Turn Slack off" />;
+  return (
+    <form action={disconnectSlack} className="flex items-center gap-2 text-sm">
+      <input type="hidden" name="slug" value={slug} />
+      <span className="text-genie-muted">Turn off and forget the keys?</span>
+      <button type="submit" className="btn-secondary px-3 py-1 text-genie-danger">Turn off</button>
+      <button type="button" onClick={() => setConfirming(false)} className="text-genie-muted underline underline-offset-2">Cancel</button>
+    </form>
+  );
+}
+
+export function CopyField({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-2">
+      <code className="input min-w-0 flex-1 truncate font-mono text-xs">{value}</code>
+      <button
+        type="button"
+        className="btn-secondary shrink-0"
+        onClick={async () => {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+      >
+        {copied ? <Check size={14} /> : <Copy size={14} />} {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+// Edit + Test connection at the bottom right; the form (keys optional) while editing.
+export function SlackActions({ slug }: { slug: string }) {
+  const [editing, setEditing] = useState(false);
+  const [state, action, pending] = useActionState(testSlack, undefined);
+  if (editing) {
+    return (
+      <div className="space-y-3 border-t border-genie-border pt-4">
+        <SlackForm slug={slug} editing />
+        <div className="flex justify-end">
+          <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Close</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <form action={action} className="flex flex-wrap items-center justify-end gap-2">
+      <input type="hidden" name="slug" value={slug} />
+      {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
+      {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
+      <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Edit</button>
+      <button type="submit" disabled={pending} className="inline-flex items-center justify-center rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+        {pending ? "Testing…" : "Test connection"}
+      </button>
+    </form>
+  );
+}

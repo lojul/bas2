@@ -108,7 +108,7 @@ export async function runLiveTool(live: LiveSources, workspaceName: string, tool
 }
 
 // One tool_call usage row (the database tools over demo data meter inside the database).
-export async function meterToolCall(tenantId: string, tool: string, channel: "web" | "mcp", userId?: string | null) {
+export async function meterToolCall(tenantId: string, tool: string, channel: "web" | "mcp" | "slack", userId?: string | null) {
   const { error } = await createAdminClient()
     .from("usage_events")
     .insert({ tenant_id: tenantId, metric: "tool_call", quantity: 1, channel, user_id: userId ?? null, metadata: { tool, live: true } });

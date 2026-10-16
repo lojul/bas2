@@ -4,6 +4,7 @@ import { getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { AgentsSection } from "../agents/section";
 import { KeysSection } from "../keys/section";
+import { ChannelsSection } from "../channels/section";
 import { SourcesSection } from "../sources/section";
 import { SettingsTabs } from "./tabs";
 
@@ -15,6 +16,7 @@ const SECTIONS = [
   { id: "data-sources", title: "Data sources", hint: "Systems Genie reads live when someone asks. Nothing is copied into Genie." },
   { id: "ai-keys", title: "AI model keys", hint: "Optional: your own Anthropic, OpenRouter or xAI key instead of the platform key." },
   { id: "ai-agents", title: "AI agent access (MCP)", hint: "API keys that let Claude, ChatGPT or your own agents read this workspace." },
+  { id: "channels", title: "Channels", hint: "Ask Genie from Slack (WhatsApp and Teams later)." },
 ] as const;
 
 export default async function SettingsPage({ params }: PageProps<"/app/[slug]/settings">) {
@@ -34,6 +36,7 @@ export default async function SettingsPage({ params }: PageProps<"/app/[slug]/se
         "data-sources": <SourcesSection slug={slug} />,
         "ai-keys": <KeysSection slug={slug} />,
         "ai-agents": <AgentsSection slug={slug} />,
+        channels: <ChannelsSection slug={slug} />,
       }}
     />
   );
