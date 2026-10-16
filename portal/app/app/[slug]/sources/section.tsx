@@ -86,7 +86,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
         <h2 className="font-medium">Connect Odoo</h2>
         <p className="mb-4 mt-1 text-sm text-genie-muted">
           Read-only: {BRAND.name}{" "}copies the records it can see and never changes anything in Odoo. Use a dedicated
-          Odoo user with read access to the models below, and create its API key under Odoo → Preferences → Account
+          Odoo user with read access to the data below, and create its API key under Odoo → Preferences → Account
           Security → New API Key.
         </p>
         <OdooForm slug={slug} choices={choices} />

@@ -10,6 +10,7 @@ export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelCh
   const [state, action] = useActionState(connectOdoo, undefined);
   const [url, setUrl] = useState("");
   const guessedDb = guessOdooDb(url.startsWith("http") ? url : `https://${url}`);
+  const needsDb = url.trim() !== "" && !guessedDb;
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="slug" value={slug} />
@@ -20,30 +21,31 @@ export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelCh
           <p className="mt-1 text-xs text-genie-muted">The address you open Odoo at in the browser.</p>
         </div>
         <div>
-          <label htmlFor="db" className="label">
-            Database name {guessedDb && <span className="font-normal text-genie-muted">(optional)</span>}
-          </label>
-          <input id="db" name="db" required={!guessedDb} className="input" placeholder={guessedDb ?? "yourcompany"} />
-          <p className="mt-1 text-xs text-genie-muted">
-            {guessedDb
-              ? <>Leave empty to use <span className="font-mono">{guessedDb}</span> — on Odoo Online it is the part before .odoo.com.</>
-              : "On Odoo Online it is the part before .odoo.com. Otherwise ask your Odoo administrator."}
-          </p>
-        </div>
-        <div>
-          <label htmlFor="login" className="label">Login email <span className="font-normal text-genie-muted">(Odoo 18 or older)</span></label>
-          <input id="login" name="login" type="email" className="input" placeholder="integration@yourcompany.com" />
-          <p className="mt-1 text-xs text-genie-muted">Leave empty for Odoo 19 or newer.</p>
-        </div>
-        <div>
           <label htmlFor="api_key" className="label">API key</label>
           <input id="api_key" name="api_key" type="password" autoComplete="off" required className="input font-mono" placeholder="Paste the Odoo API key" />
+          <p className="mt-1 text-xs text-genie-muted">In Odoo: your avatar → Preferences → Account Security → New API Key.</p>
         </div>
+        {/* Odoo Online (<name>.odoo.com) needs no database name; only self-hosted Odoo asks for it. */}
+        {needsDb && (
+          <div>
+            <label htmlFor="db" className="label">Database name</label>
+            <input id="db" name="db" required className="input" placeholder="yourcompany" />
+            <p className="mt-1 text-xs text-genie-muted">Your own Odoo server can hold several databases — ask your Odoo administrator which one.</p>
+          </div>
+        )}
         <div>
           <label htmlFor="name" className="label">Name in Genie</label>
           <input id="name" name="name" className="input" defaultValue="Odoo" />
         </div>
       </div>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-genie-muted">Using Odoo 18 or older?</summary>
+        <div className="mt-2 max-w-md">
+          <label htmlFor="login" className="label">Login email of the Odoo user</label>
+          <input id="login" name="login" type="email" className="input" placeholder="integration@yourcompany.com" />
+          <p className="mt-1 text-xs text-genie-muted">Older Odoo versions need the login together with the API key. Leave empty for Odoo 19 or newer.</p>
+        </div>
+      </details>
       <fieldset>
         <legend className="label">What to copy into Genie</legend>
         <div className="grid gap-2 sm:grid-cols-3">
