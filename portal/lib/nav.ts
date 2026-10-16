@@ -27,7 +27,7 @@ export const NAV: NavItem[] = [
     path: "/settings",
     label: "Settings",
     title: "Settings",
-    subtitle: "Data sources, AI model keys and AI agent access.",
+    subtitle: "Data sources, AI model keys, AI agent access and channels.",
     managersOnly: true,
   },
   { key: "help", path: "/help", label: "Help", title: "Help", subtitle: "How to set up and use Genie, and what it can't do yet." },

@@ -116,10 +116,8 @@ The endpoint checks Slack's signature, acknowledges at once and answers in `afte
 posted, then replaced by the answer (Markdown → Slack mrkdwn). Thread history is read back from Slack for
 context; nothing is stored. Runs the same agent as Ask with `channel = "slack"` and no signed-in user, so
 only switched-on live sources answer. Anyone who can message the bot in that Slack workspace can ask.
-**On/off in Genie:** `settings.channels.slack.enabled`. Off → each event is forwarded unchanged (raw body + Slack
-signature headers, 2.5 s timeout) to `fallback_url` — for C21 the old Azure bot
-`https://c21net-bas-func-chatbot-slack-ea-prod.azurewebsites.net/api/slack/events` — or ignored if none. So after the
-one-time Request URL change, switching between Genie and the old bot needs no Slack settings. "Disconnect" deletes the keys.
+**On/off:** the Slack switch sets `settings.channels.slack.enabled`; off = the endpoint acknowledges and ignores
+events (keys kept). "Disconnect" deletes the keys.
 
 ## Data sources (`lib/odoo`) — read live, nothing stored
 

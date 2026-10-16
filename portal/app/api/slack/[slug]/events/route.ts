@@ -83,23 +83,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const body = JSON.parse(raw) as { type: string; challenge?: string; event?: SlackEvent };
   if (body.type === "url_verification") return Response.json({ challenge: body.challenge });
 
-  // Switched off in Genie: hand the event, untouched (Slack's signature stays valid), to the bot's
-  // previous server, or ignore it.
-  if (ws.slack.enabled === false) {
-    if (!ws.slack.fallback_url) return new Response("ok");
-    const headers: Record<string, string> = { "Content-Type": request.headers.get("content-type") ?? "application/json" };
-    for (const h of ["x-slack-signature", "x-slack-request-timestamp", "x-slack-retry-num", "x-slack-retry-reason"]) {
-      const v = request.headers.get(h);
-      if (v) headers[h] = v;
-    }
-    try {
-      const res = await fetch(ws.slack.fallback_url, { method: "POST", headers, body: raw, signal: AbortSignal.timeout(2500) });
-      return new Response(await res.text(), { status: res.status });
-    } catch (e) {
-      console.error("slack fallback failed", e);
-      return new Response("ok");
-    }
-  }
+  // Slack switched off in Settings → Channels: acknowledge and ignore.
+  if (ws.slack.enabled === false) return new Response("ok");
   // Slack retries when it thinks we were slow; the first delivery is already being answered.
   if (request.headers.get("x-slack-retry-num")) return new Response("ok");
 

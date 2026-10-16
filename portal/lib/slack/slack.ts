@@ -9,8 +9,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const SLACK_TOKEN_SECRET = "slack_bot_token";
 export const SLACK_SIGNING_SECRET = "slack_signing_secret";
 
-// enabled: Genie answers. When false, every Slack event is passed on unchanged to fallback_url (e.g. the
-// bot's previous server), or ignored when there is none — so the switch lives in Genie, not in Slack.
+// enabled: the Slack switch in Settings → Channels. Off = the bot doesn't answer (keys are kept).
 export type SlackSettings = {
   team?: string;
   team_id?: string;
@@ -18,18 +17,7 @@ export type SlackSettings = {
   bot_name?: string;
   connected_at?: string;
   enabled?: boolean;
-  fallback_url?: string | null;
 };
-
-export function validFallbackUrl(raw: string): string | null {
-  try {
-    const u = new URL(raw.trim());
-    if (u.protocol !== "https:" || u.hostname.endsWith("infiniduo.com")) return null;
-    return u.toString();
-  } catch {
-    return null;
-  }
-}
 
 export function verifySlackSignature(signingSecret: string, timestamp: string | null, signature: string | null, rawBody: string) {
   if (!timestamp || !signature) return false;

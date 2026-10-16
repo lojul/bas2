@@ -6,7 +6,7 @@ import { FormMessage } from "@/components/form-message";
 import { Switch } from "../sources/forms";
 import { connectSlack, disconnectSlack, setSlackEnabled, testSlack } from "./actions";
 
-function SlackForm({ slug, editing, fallback }: { slug: string; editing: boolean; fallback: string }) {
+function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
   const [state, action, pending] = useActionState(connectSlack, undefined);
   const [stale, setStale] = useState(false);
   return (
@@ -34,13 +34,6 @@ function SlackForm({ slug, editing, fallback }: { slug: string; editing: boolean
           <p className="mt-1 text-xs text-genie-muted">Same app → Basic Information → App Credentials.</p>
         </div>
       </div>
-      <div>
-        <label htmlFor="fallback_url" className="label">When Genie is switched off, pass messages to (optional)</label>
-        <input id="fallback_url" name="fallback_url" className="input font-mono text-xs" defaultValue={fallback} placeholder="https://your-old-bot.example.com/api/slack/events" />
-        <p className="mt-1 text-xs text-genie-muted">
-          The bot&apos;s previous Request URL. With it, the switch below moves Slack between Genie and the old bot — no Slack settings to change.
-        </p>
-      </div>
       <button type="submit" className="btn" disabled={pending}>
         {pending ? "Checking with Slack and saving…" : "Save"}
       </button>
@@ -49,7 +42,7 @@ function SlackForm({ slug, editing, fallback }: { slug: string; editing: boolean
   );
 }
 
-export function SlackOff({ slug, fallback }: { slug: string; fallback: string }) {
+export function SlackOff({ slug }: { slug: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-4">
@@ -66,14 +59,14 @@ export function SlackOff({ slug, fallback }: { slug: string; fallback: string })
             Use your own Slack app — a new one, or the bot your team already has. Genie keeps only the two keys (encrypted) and reads
             nothing from Slack except the questions asked to it.
           </p>
-          <SlackForm slug={slug} editing={false} fallback={fallback} />
+          <SlackForm slug={slug} editing={false} />
         </div>
       )}
     </div>
   );
 }
 
-// The switch on a connected Slack: who answers — Genie (on) or the previous bot / nobody (off).
+// The Slack on/off switch on a connected Slack (keys stay saved).
 export function SlackEnabledSwitch({ slug, enabled }: { slug: string; enabled: boolean }) {
   const [pending, setPending] = useState(false);
   return (
@@ -90,7 +83,7 @@ export function SlackEnabledSwitch({ slug, enabled }: { slug: string; enabled: b
         type="submit"
         role="switch"
         aria-checked={enabled}
-        aria-label={enabled ? "Switch Genie off in Slack" : "Switch Genie on in Slack"}
+        aria-label={enabled ? "Turn Slack off" : "Turn Slack on"}
         disabled={pending}
         className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${enabled ? "bg-genie-green" : "bg-genie-border"}`}
       >
@@ -140,13 +133,13 @@ export function CopyField({ value }: { value: string }) {
 }
 
 // Edit + Test connection at the bottom right; the form (keys optional) while editing.
-export function SlackActions({ slug, fallback }: { slug: string; fallback: string }) {
+export function SlackActions({ slug }: { slug: string }) {
   const [editing, setEditing] = useState(false);
   const [state, action, pending] = useActionState(testSlack, undefined);
   if (editing) {
     return (
       <div className="space-y-3 border-t border-genie-border pt-4">
-        <SlackForm slug={slug} editing fallback={fallback} />
+        <SlackForm slug={slug} editing />
         <div className="flex justify-end">
           <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Close</button>
         </div>
