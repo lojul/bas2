@@ -70,7 +70,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: [
           "1. In Odoo, create (or pick) a user that can read the data you want in Genie — ideally one used only for integrations.",
           "2. Signed in as that user: Preferences → Account Security → New API Key. Copy the key.",
-          "3. In Genie: Settings → Data sources → Connect Odoo. Enter your Odoo address and the API key. On Odoo Online (yourcompany.odoo.com) the database name fills itself in; otherwise ask your Odoo administrator. For Odoo 18 or older, also enter that user's login email.",
+          "3. In Genie: Settings → Data sources → Connect Odoo. Enter your Odoo address and the API key. If you run your own Odoo server (not yourcompany.odoo.com), Genie also asks for the database name. For Odoo 18 or older, open \"Using Odoo 18 or older?\" and enter that user's login email.",
           "4. Tick what to copy — Contacts, CRM leads (and Listings for C21) — press Connect, then Sync now.",
           "The key is kept in an encrypted vault and is never shown again. Only owners and admins can connect sources.",
         ],
