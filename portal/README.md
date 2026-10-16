@@ -115,7 +115,20 @@ system at question time; Genie stores only the connection (address, settings) an
 - Used by Ask (`lib/ai/agent.ts`) and the MCP server (`lib/mcp/server.ts`) whenever the workspace has
   Odoo on; each call is metered as `tool_call`. Workspaces without Odoo (the demo tenant) still use
   the database tools over `records`.
-- Not yet: SQL databases (live, read-only), meaning-based search.
+- Not yet: SQL databases (live, read-only).
+
+**Azure AI Search index** (`lib/search/azure.ts`, kind `azure_search`), read-only: the customer's own
+index, searched live with a **query key** (can only search). Settings card asks for service address,
+index, query key, and (advanced) semantic configuration + vector field. `search_knowledge` uses it:
+keyword + semantic reranker + captions; a `text` vector query is added when the index has a vectorizer
+(falls back by itself when it has none). `get_record` with `search:<doc key>` returns one document.
+`lib/live.ts` combines the switched-on sources for Ask and the MCP server.
+
+C21: service `c21net-bas-srch-ea-prod` (C21's Azure, RG `c21net-bas-app-ea-prod-etl`), index
+`properties-index` (~5,700 docs: SharePoint building folders, proposals, listings, photo captions; built
+by `legacy/` jobs), query key `genie-readonly` (created 2026-10-16). No vectorizer on the index yet, so
+search is keyword + semantic; adding an Azure OpenAI vectorizer (`text-embedding-3-large`, 3072 dims) to
+the index turns on vector search with no Genie change.
 
 ## Run locally
 

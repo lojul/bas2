@@ -17,11 +17,11 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       .from("sources")
       .select("name, status")
       .eq("tenant_id", workspace.id)
-      .order("created_at")
-      .limit(1),
+      .order("created_at"),
   ]);
-  const first = sources?.[0];
-  const source: SourceStatus = first ? { name: first.name, status: first.status } : null;
+  const source: SourceStatus = sources?.length
+    ? { name: sources.map((s) => s.name).join(", "), status: sources.some((s) => s.status === "error") ? "error" : "active" }
+    : null;
 
   return (
     <WorkspaceShell

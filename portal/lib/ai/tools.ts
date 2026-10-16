@@ -54,7 +54,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   },
   {
     name: "search_knowledge",
-    description: "Search passages of policies, procedures and uploaded documents. Use for 'what is our policy on…' or 'how do we…' questions.",
+    description: "Search the company's documents — e.g. property proposals, building details, marketing kits, reports, policies — ranked by meaning. Use for property and building questions as well as 'what is our policy on…'. Results include a link to the original file.",
     input_schema: {
       type: "object",
       properties: {

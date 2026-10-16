@@ -87,6 +87,17 @@ export const HELP_TOPICS: HelpTopic[] = [
         ],
       },
       {
+        id: "search-index",
+        title: "Search your documents (Azure AI Search)",
+        summary: "Use your own search index — read live with a read-only key.",
+        body: [
+          "If your documents are already indexed in Azure AI Search (for example SharePoint folders), Genie can search that index directly: Settings → Data sources → switch Document search index on.",
+          "Enter the search service address, the index name and a query key (Azure portal → search service → Keys → Manage query keys). A query key can only search; it cannot change anything.",
+          "Results are ranked by meaning when the index has a semantic configuration, and link back to the original file. Nothing is copied into Genie.",
+        ],
+        link: { label: "Open Data sources", path: "/settings#data-sources" },
+      },
+      {
         id: "other-sources",
         title: "SQL databases",
         summary: "Coming soon.",

@@ -6,6 +6,7 @@ import type { FormState } from "@/components/form-message";
 import { getUser } from "@/lib/supabase/server";
 import { OdooClient, OdooError, normaliseUrl } from "@/lib/odoo/client";
 import { DEFAULT_ODOO_MODELS, guessOdooDb } from "@/lib/odoo/models";
+import { normaliseSearchEndpoint, testSearch } from "@/lib/search/azure";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 
 async function context(slug: string) {
@@ -91,4 +92,56 @@ export async function removeSource(formData: FormData) {
     await supabase.rpc("delete_tenant_secret", { p_tenant_id: workspace.id, p_name: source.config.secret_name });
   }
   revalidatePath(`/app/${slug}`, "layout");
+}
+
+// Turn on a customer's own Azure AI Search index (read live with a query key).
+export async function connectSearch(_prev: FormState, formData: FormData): Promise<FormState> {
+  const slug = String(formData.get("slug"));
+  const { supabase, user, workspace } = await context(slug);
+  const name = String(formData.get("name") ?? "").trim() || "Documents";
+  const index = String(formData.get("index") ?? "").trim();
+  const key = String(formData.get("query_key") ?? "").trim();
+  const semantic = String(formData.get("semantic") ?? "").trim() || null;
+  const vectorField = String(formData.get("vector_field") ?? "").trim() || null;
+  let endpoint: string;
+  try {
+    endpoint = normaliseSearchEndpoint(String(formData.get("endpoint") ?? ""));
+  } catch {
+    return { error: "Enter the search service address, e.g. https://yourservice.search.windows.net" };
+  }
+  if (!index) return { error: "Enter the index name." };
+  if (key.length < 20) return { error: "Paste the query key." };
+
+  let count: number | null;
+  try {
+    ({ count } = await testSearch({ endpoint, index, key }));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+
+  const secretName = `search_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40)}`;
+  const { data: secretId, error: secretError } = await supabase.rpc("set_tenant_secret", {
+    p_tenant_id: workspace.id,
+    p_name: secretName,
+    p_kind: "connector",
+    p_provider: "azure_search",
+    p_secret: key,
+  });
+  if (secretError) return { error: `Could not save the key: ${secretError.message}` };
+
+  const { error } = await supabase.from("sources").upsert(
+    {
+      tenant_id: workspace.id,
+      name,
+      kind: "azure_search",
+      config: { endpoint, index, semantic, vector_field: vectorField, secret_name: secretName },
+      secret_id: secretId,
+      status: "active",
+      created_by: user.id,
+    },
+    { onConflict: "tenant_id,name" },
+  );
+  if (error) return { error: `Could not save the source: ${error.message}` };
+  revalidatePath(`/app/${slug}`, "layout");
+  return { ok: `On — ${count ?? "the"} documents can now be searched live. Nothing is copied into Genie.` };
 }
