@@ -3,7 +3,7 @@ import { Database, Lock } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
-import { DEFAULT_ODOO_MODELS } from "@/lib/sync/models";
+import { ODOO_MODEL_CHOICES } from "@/lib/sync/models";
 import { removeSource } from "./actions";
 import { OdooForm, SyncButton } from "./forms";
 
@@ -38,7 +38,8 @@ export async function SourcesSection({ slug }: { slug: string }) {
     .select("id", { count: "exact", head: true })
     .eq("tenant_id", workspace.id)
     .is("deleted_at", null);
-  const defaultModels = slug === "c21" ? `x_c21_listing, ${DEFAULT_ODOO_MODELS}` : DEFAULT_ODOO_MODELS;
+  // The listings model is custom to C21's Odoo; other workspaces add custom models under "More Odoo data".
+  const choices = ODOO_MODEL_CHOICES.filter((c) => !c.c21Only || slug === "c21");
 
   return (
     <div className="space-y-6">
@@ -88,7 +89,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
           Odoo user with read access to the models below, and create its API key under Odoo → Preferences → Account
           Security → New API Key.
         </p>
-        <OdooForm slug={slug} defaultModels={defaultModels} />
+        <OdooForm slug={slug} choices={choices} />
         <p className="mt-4 flex items-center gap-1.5 text-xs text-genie-muted">
           <Lock size={12} /> The API key is encrypted in Supabase Vault and can&apos;t be shown again.
         </p>
