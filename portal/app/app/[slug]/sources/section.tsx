@@ -4,7 +4,7 @@ import { BRAND } from "@/lib/brand";
 import { ODOO_MODEL_CHOICES } from "@/lib/odoo/models";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
-import { OdooOff, OffSwitch, SearchOff, TestConnection, type SearchDefaults } from "./forms";
+import { EditableSource, OdooForm, OdooOff, OffSwitch, SearchForm, SearchOff, TestConnection, type SearchDefaults } from "./forms";
 
 type Source = {
   id: string;
@@ -12,7 +12,17 @@ type Source = {
   kind: string;
   status: string;
   last_error: string | null;
-  config: { url?: string; db?: string; models?: string[]; endpoint?: string; index?: string };
+  config: {
+    url?: string;
+    db?: string;
+    login?: string | null;
+    models?: string[];
+    extra_models?: string[];
+    endpoint?: string;
+    index?: string;
+    semantic?: string | null;
+    vector_field?: string | null;
+  };
 };
 
 // Data sources as on/off cards. Sources are read live (decided 2026-10-16): Genie keeps the
@@ -61,15 +71,33 @@ export async function SourcesSection({ slug }: { slug: string }) {
               </div>
               <OffSwitch slug={slug} sourceId={odoo.id} />
             </div>
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-              <dt className="text-genie-muted">Address</dt>
-              <dd>{odoo.config.url}</dd>
-              <dt className="text-genie-muted">{BRAND.name}{" "}can read</dt>
-              <dd>{(odoo.config.models ?? []).map(label).join(", ")}</dd>
-            </dl>
-            {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
-            <p className="text-xs text-genie-muted">To change the address or key, turn Odoo off and on again.</p>
-            <TestConnection slug={slug} sourceId={odoo.id} />
+            <EditableSource
+              view={
+                <>
+                  <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
+                    <dt className="text-genie-muted">Address</dt>
+                    <dd>{odoo.config.url}</dd>
+                    <dt className="text-genie-muted">{BRAND.name}{" "}can read</dt>
+                    <dd>{(odoo.config.models ?? []).map(label).join(", ")}</dd>
+                  </dl>
+                  {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
+                </>
+              }
+              form={
+                <OdooForm
+                  slug={slug}
+                  existing={{
+                    id: odoo.id,
+                    url: odoo.config.url ?? "",
+                    db: odoo.config.db ?? "",
+                    name: odoo.name,
+                    login: odoo.config.login ?? "",
+                    extraModels: (odoo.config.extra_models ?? []).join(", "),
+                  }}
+                />
+              }
+              test={<TestConnection slug={slug} sourceId={odoo.id} />}
+            />
           </div>
         ) : (
           <OdooOff slug={slug} intro={intro} />
@@ -86,14 +114,33 @@ export async function SourcesSection({ slug }: { slug: string }) {
               </div>
               <OffSwitch slug={slug} sourceId={index.id} />
             </div>
-            <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-              <dt className="text-genie-muted">Name</dt>
-              <dd>{index.name}</dd>
-              <dt className="text-genie-muted">Index</dt>
-              <dd>{index.config.index} · {index.config.endpoint}</dd>
-            </dl>
-            {index.last_error && <p className="text-sm text-genie-danger">Last check failed: {index.last_error}</p>}
-            <TestConnection slug={slug} sourceId={index.id} />
+            <EditableSource
+              view={
+                <>
+                  <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
+                    <dt className="text-genie-muted">Name</dt>
+                    <dd>{index.name}</dd>
+                    <dt className="text-genie-muted">Index</dt>
+                    <dd>{index.config.index} · {index.config.endpoint}</dd>
+                  </dl>
+                  {index.last_error && <p className="text-sm text-genie-danger">Last check failed: {index.last_error}</p>}
+                </>
+              }
+              form={
+                <SearchForm
+                  slug={slug}
+                  sourceId={index.id}
+                  d={{
+                    endpoint: index.config.endpoint ?? "",
+                    index: index.config.index ?? "",
+                    name: index.name,
+                    semantic: index.config.semantic ?? "",
+                    vectorField: index.config.vector_field ?? "",
+                  }}
+                />
+              }
+              test={<TestConnection slug={slug} sourceId={index.id} />}
+            />
           </div>
         ) : (
           <SearchOff
