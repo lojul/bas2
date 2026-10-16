@@ -54,11 +54,15 @@ through the BAS MCP server. The customer's system stays the system of record.
    expires 2028-10-15 — renew before then) or email + password, forgot-password; workspaces, members and
    invite links; sidebar layout with Help centre; one Settings page (data sources, AI model keys, AI agent
    access). Email sign-in links were dropped (they failed on the live site). See `portal/README.md`.
+   Still open: email sending (custom SMTP, e.g. Resend) — until then Supabase only emails members of the
+   Supabase organisation, so invites/resets/sign-up confirmations don't reach customers; Google sign-in
+   is in Testing mode (only listed test users) until published.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
    **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo
    (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Settings → Data sources. Read-only, JSON-2 with
-   JSON-RPC fallback, key in Vault, manual "Sync now". Lives in `portal/lib/sync` for now. Still to come:
-   scheduled sync, deletions, mapping screen, SQL/CSV.
+   JSON-RPC fallback, key in Vault, manual "Sync now". Lives in `portal/lib/sync` for now. The Connect
+   form uses plain checkboxes (Contacts, CRM leads, Listings) and fills the database name from
+   `<name>.odoo.com` (C21: `c21net`). Still to come: scheduled sync, deletions, mapping screen, SQL/CSV.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
@@ -89,6 +93,19 @@ through the BAS MCP server. The customer's system stays the system of record.
   their own Anthropic key. Model: `GENIE_OPENROUTER_MODEL` (default `anthropic/claude-opus-5.5`).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
+**Next (agreed 2026-10-16), in this order**
+0. User: connect C21's Odoo (workspace `c21` → Settings → Data sources → Sync now) and try 5–10 real
+   questions on Ask; their results decide what to fix first. *Not done yet.*
+1. Automatic daily sync (Vercel cron) + remove records deleted in Odoo.
+2. Fix what the C21 test questions show (e.g. listing search quality).
+3. Email sending via Resend (needs a Resend account + infiniduo.com DNS records) for invites, password
+   resets and sign-up confirmations.
+4. CSV/spreadsheet upload and read-only SQL connector (needed for demo tenant B and the gate).
+5. Meaning-based search (embedding job + pgvector), so differently worded questions still match.
+6. Slack app + Stripe plans (build step 5).
+Also open: rotate the n8n keys (see Secrets); Supabase Pro before the first paying tenant; publish the
+Google consent screen when ready.
+
 ## Which folder to use
 
 | Folder | What it is | Deploys to | Status | Retires at |
@@ -101,7 +118,7 @@ through the BAS MCP server. The customer's system stays the system of record.
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
 | `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |
 | `portal/` | Genie sign-up and workspace admin (Next.js 16 + Supabase Auth). See `portal/README.md`. | Vercel project `nextjs-dashboard` (team Infinity Duo Technology) → **genie.infiniduo.com**, Root Directory `portal` | Step 2 in progress | — |
-| `sync/`, `documents/`, `outbound/` | BAS 2.0 projects (bas2-sync, bas2-documents, bas2-outbound). See "BAS 2.0 — decisions and build order" above. | Supabase + Vercel | Not started — step 3 (`sync/`) after the portal | — |
+| `sync/`, `documents/`, `outbound/` | Reserved for BAS 2.0 parts that move out of the portal later. The Odoo sync, MCP server and agent currently live in `portal/` (`lib/sync`, `lib/mcp`, `lib/ai`). | Supabase + Vercel | Empty | — |
 
 **Not in this repo, on purpose:**
 - `c21-leasing` (www.c21net.com) — the public website; different audience and lifecycle.
@@ -113,6 +130,10 @@ through the BAS MCP server. The customer's system stays the system of record.
 - BAS 2.0 work: one branch per build step under `bas2/` — `bas2/shared-schema`, `bas2/portal`,
   `bas2/sync`, `bas2/outbound`, `bas2/web-chat`, ... Create each from the latest `main` when the
   step starts; merge to `main` by pull request when it is done.
+- **Claude merges its own PRs (user decision 2026-10-16)** — the user does not want to merge each one.
+  Flow: branch → PR → `npx tsc --noEmit`, `npm run lint`, `npm run build` pass → `gh pr merge --merge
+  --delete-branch` → wait for the Vercel status on `main` to be `success` → tell the user what is live and
+  what to test. Allowed by `Bash(gh pr merge *)` in `.claude/settings.local.json`.
 - Fixes to old projects: `legacy/<short-description>`, e.g. `legacy/fix-chatbot-search`.
 
 ## Rules
