@@ -95,6 +95,9 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
 - **Speed**: the prompt names the switched-on sources and only tools that can work are offered (no
   `workspace_info` step); lookups in one step run in parallel; OpenRouter gets `reasoning.effort: low`. Each
   question logs `ask … total=…ms [model …ms tools …ms]` per step (Vercel runtime logs).
+- **Model choice per workspace**: Settings → AI model keys → "Model for Ask" (`lib/ai/models.ts`), stored in
+  `tenants.settings.ai_models` per route (anthropic / openrouter / xai); applies to the workspace's own key or the
+  platform key. On OpenRouter the choice goes first, then `GENIE_OPENROUTER_MODEL`, then the Hong Kong-safe list.
 - **Tools** (`lib/ai/tools.ts`): the same five read tools as the MCP server, executed with
   `agent_tool()` as the signed-in user, so membership is checked by the database.
 - **Metering**: one `message`, plus `input_token` / `output_token` rows with `key_source`
