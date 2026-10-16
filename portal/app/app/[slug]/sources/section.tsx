@@ -68,8 +68,8 @@ export async function SourcesSection({ slug }: { slug: string }) {
               <dd>{(odoo.config.models ?? []).map(label).join(", ")}</dd>
             </dl>
             {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
+            <p className="text-xs text-genie-muted">To change the address or key, turn Odoo off and on again.</p>
             <TestConnection slug={slug} sourceId={odoo.id} />
-            <p className="text-xs text-genie-muted">To change the address, key or what {BRAND.name}{" "}can read, turn Odoo off and on again.</p>
           </div>
         ) : (
           <OdooOff slug={slug} intro={intro} />
