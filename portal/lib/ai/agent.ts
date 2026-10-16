@@ -30,12 +30,16 @@ export type AgentAnswer = LoopResult & { keySource: "byok" | "platform"; provide
 // One question in a workspace chat, run as the signed-in member (the page checked membership).
 // With data sources switched on (Odoo, a search index), tools read them live and nothing is stored; otherwise they go through
 // agent_tool() over the workspace's demo data. Tool calls and tokens are metered.
+// Slack (and later other channels) call it without a signed-in user: then only switched-on live
+// sources can answer — the demo-data database tools need a member's session.
 export async function askAgent(
-  supabase: SupabaseClient,
+  supabase: SupabaseClient | null,
   workspace: { id: string; name: string },
-  userId: string,
+  userId: string | null,
   history: ChatTurn[],
+  opts: { channel?: "web" | "slack" } = {},
 ): Promise<AgentAnswer> {
+  const channel = opts.channel ?? "web";
   const turns = history
     .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.content === "string" && t.content.trim())
     .slice(-MAX_HISTORY)
@@ -58,9 +62,10 @@ export async function askAgent(
   const runTool = async (name: string, input: Record<string, unknown>) => {
     if (!TOOL_NAMES.has(name)) throw new Error(`Unknown tool ${name}`);
     if (live) {
-      void meterToolCall(workspace.id, name, "web", userId);
+      void meterToolCall(workspace.id, name, channel, userId);
       return runLiveTool(live, workspace.name, name, input);
     }
+    if (!supabase) throw new Error("No data source is switched on for this workspace.");
     const { data, error } = await supabase.rpc("agent_tool", { p_tenant_id: workspace.id, p_tool: name, p_args: input });
     if (error) throw new Error(error.message);
     return data ?? null;
@@ -72,7 +77,7 @@ export async function askAgent(
       `total=${Date.now() - started}ms ${result.steps.map((s) => `[model ${s.modelMs}ms tools ${s.toolMs}ms]`).join(" ")}`,
   );
 
-  const base = { tenant_id: workspace.id, channel: "web", user_id: userId, key_source: route.keySource };
+  const base = { tenant_id: workspace.id, channel, user_id: userId, key_source: route.keySource };
   const { error } = await createAdminClient()
     .from("usage_events")
     .insert([

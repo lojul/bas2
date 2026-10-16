@@ -105,6 +105,18 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
 - Server-only env vars: `SUPABASE_SECRET_KEY`, `OPENROUTER_API_KEY` — mark them
   Sensitive in Vercel, never `NEXT_PUBLIC_`.
 
+## Slack (`lib/slack`, `app/api/slack/[slug]/events`)
+
+Settings → **Channels** → Slack: a workspace connects **its own Slack app** (new, or an existing bot such as C21's
+`c21_property_chatbot` in Slack workspace C21net). Bot token + signing secret go to Vault (`slack_bot_token`,
+`slack_signing_secret`, kind `other`); the Slack workspace and bot name to `tenants.settings.channels.slack`.
+In the Slack app: Event Subscriptions → Request URL `https://genie.infiniduo.com/api/slack/<slug>/events`, bot
+events `app_mention` + `message.im`; scopes `app_mentions:read`, `chat:write`, `im:history`, `channels:history`.
+The endpoint checks Slack's signature, acknowledges at once and answers in `after()`: "⏳ Looking it up…" is
+posted, then replaced by the answer (Markdown → Slack mrkdwn). Thread history is read back from Slack for
+context; nothing is stored. Runs the same agent as Ask with `channel = "slack"` and no signed-in user, so
+only switched-on live sources answer. Anyone who can message the bot in that Slack workspace can ask.
+
 ## Data sources (`lib/odoo`) — read live, nothing stored
 
 **Decided 2026-10-16: Genie keeps no copy of customer business data.** Tools read the customer's
