@@ -6,9 +6,12 @@ import { BRAND } from "@/lib/brand";
 import { guessOdooDb } from "@/lib/odoo/models";
 import { connectOdoo, connectSearch, removeSource, testSource } from "./actions";
 
-export function OdooForm({ slug }: { slug: string }) {
+// Values of a saved source, for editing it in the same form.
+export type OdooExisting = { id: string; url: string; db: string; name: string; login: string; extraModels: string };
+
+export function OdooForm({ slug, existing }: { slug: string; existing?: OdooExisting }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(existing?.url ?? "");
   // Hide the last result as soon as the user changes something, so an old error doesn't linger.
   const [stale, setStale] = useState(false);
   const guessedDb = guessOdooDb(url.startsWith("http") ? url : `https://${url}`);
@@ -26,6 +29,7 @@ export function OdooForm({ slug }: { slug: string }) {
       }}
     >
       <input type="hidden" name="slug" value={slug} />
+      {existing && <input type="hidden" name="source_id" value={existing.id} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="url" className="label">Odoo address</label>
@@ -34,27 +38,35 @@ export function OdooForm({ slug }: { slug: string }) {
         </div>
         <div>
           <label htmlFor="api_key" className="label">API key</label>
-          <input id="api_key" name="api_key" type="password" autoComplete="off" required className="input font-mono" placeholder="Paste the Odoo API key" />
+          <input
+            id="api_key"
+            name="api_key"
+            type="password"
+            autoComplete="off"
+            required={!existing}
+            className="input font-mono"
+            placeholder={existing ? "Leave empty to keep the saved key" : "Paste the Odoo API key"}
+          />
           <p className="mt-1 text-xs text-genie-muted">In Odoo: your avatar → Preferences → Account Security → New API Key.</p>
         </div>
         {/* Odoo Online (<name>.odoo.com) needs no database name; only self-hosted Odoo asks for it. */}
         {needsDb && (
           <div>
             <label htmlFor="db" className="label">Database name</label>
-            <input id="db" name="db" required className="input" placeholder="yourcompany" />
+            <input id="db" name="db" required className="input" placeholder="yourcompany" defaultValue={existing?.db} />
             <p className="mt-1 text-xs text-genie-muted">Your own Odoo server can hold several databases — ask your Odoo administrator which one.</p>
           </div>
         )}
         <div>
           <label htmlFor="name" className="label">Name in Genie</label>
-          <input id="name" name="name" className="input" defaultValue="Odoo" />
+          <input id="name" name="name" className="input" defaultValue={existing?.name ?? "Odoo"} />
         </div>
       </div>
       <details className="text-sm">
         <summary className="cursor-pointer text-genie-muted">Using Odoo 18 or older?</summary>
         <div className="mt-2 max-w-md">
           <label htmlFor="login" className="label">Login email of the Odoo user</label>
-          <input id="login" name="login" type="email" className="input" placeholder="integration@yourcompany.com" />
+          <input id="login" name="login" type="email" className="input" placeholder="integration@yourcompany.com" defaultValue={existing?.login} />
           <p className="mt-1 text-xs text-genie-muted">Older Odoo versions need the login together with the API key. Leave empty for Odoo 19 or newer.</p>
         </div>
       </details>
@@ -65,7 +77,7 @@ export function OdooForm({ slug }: { slug: string }) {
           names, separated by commas — e.g. <span className="font-mono">sale.order, product.template</span> (Settings →
           Technical → Models in Odoo).
         </p>
-        <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" aria-label="Other Odoo data" />
+        <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" aria-label="Other Odoo data" defaultValue={existing?.extraModels} />
       </details>
       <button type="submit" className="btn" disabled={pending}>
         {pending ? "Checking with Odoo and saving…" : "Save"}
@@ -119,7 +131,7 @@ export function OdooOff({ slug, intro }: { slug: string; intro: React.ReactNode 
 
 export type SearchDefaults = { endpoint: string; index: string; name: string; semantic: string; vectorField: string };
 
-function SearchForm({ slug, d }: { slug: string; d: SearchDefaults }) {
+export function SearchForm({ slug, d, sourceId }: { slug: string; d: SearchDefaults; sourceId?: string }) {
   const [state, action, pending] = useActionState(connectSearch, undefined);
   const [stale, setStale] = useState(false);
   return (
@@ -134,6 +146,7 @@ function SearchForm({ slug, d }: { slug: string; d: SearchDefaults }) {
       }}
     >
       <input type="hidden" name="slug" value={slug} />
+      {sourceId && <input type="hidden" name="source_id" value={sourceId} />}
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="endpoint" className="label">Search service address</label>
@@ -145,7 +158,15 @@ function SearchForm({ slug, d }: { slug: string; d: SearchDefaults }) {
         </div>
         <div>
           <label htmlFor="query_key" className="label">Query key</label>
-          <input id="query_key" name="query_key" type="password" autoComplete="off" required className="input font-mono" placeholder="Paste the query key" />
+          <input
+            id="query_key"
+            name="query_key"
+            type="password"
+            autoComplete="off"
+            required={!sourceId}
+            className="input font-mono"
+            placeholder={sourceId ? "Leave empty to keep the saved key" : "Paste the query key"}
+          />
           <p className="mt-1 text-xs text-genie-muted">Azure portal → your search service → Keys → Manage query keys. A query key can only search, never change anything.</p>
         </div>
         <div>
@@ -241,5 +262,34 @@ export function TestConnection({ slug, sourceId }: { slug: string; sourceId: str
         {pending ? "Testing…" : "Test connection"}
       </button>
     </form>
+  );
+}
+
+// A switched-on source's box body: details with Edit + Test connection at the bottom right, or the
+// form (filled in) while editing.
+export function EditableSource({ view, form, test }: { view: React.ReactNode; form: React.ReactNode; test: React.ReactNode }) {
+  const [editing, setEditing] = useState(false);
+  if (editing) {
+    return (
+      <div className="space-y-3 border-t border-genie-border pt-4">
+        {form}
+        <div className="flex justify-end">
+          <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {view}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>
+          Edit
+        </button>
+        {test}
+      </div>
+    </>
   );
 }
