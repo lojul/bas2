@@ -6,7 +6,7 @@ import type { FormState } from "@/components/form-message";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/supabase/server";
 import { OdooClient, OdooError, normaliseUrl } from "@/lib/sync/odoo";
-import { DEFAULT_ODOO_MODELS } from "@/lib/sync/models";
+import { DEFAULT_ODOO_MODELS, guessOdooDb } from "@/lib/sync/models";
 import { syncOdoo } from "@/lib/sync/odoo-sync";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 
@@ -26,18 +26,21 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
   const slug = String(formData.get("slug"));
   const { supabase, user, workspace } = await context(slug);
   const name = String(formData.get("name") ?? "").trim() || "Odoo";
-  const db = String(formData.get("db") ?? "").trim();
   const login = String(formData.get("login") ?? "").trim() || undefined;
   const apiKey = String(formData.get("api_key") ?? "").trim();
-  const models = parseModels(String(formData.get("models") ?? DEFAULT_ODOO_MODELS));
+  // Ticked checkboxes plus any extra model names typed under "More Odoo data".
+  const picked = [...formData.getAll("models").map(String), String(formData.get("extra_models") ?? "")].join(",");
+  const models = parseModels(formData.has("models") || formData.has("extra_models") ? picked : DEFAULT_ODOO_MODELS);
   let url: string;
   try {
     url = normaliseUrl(String(formData.get("url") ?? ""));
   } catch {
     return { error: "Enter the Odoo address, e.g. https://yourcompany.odoo.com" };
   }
-  if (!db || apiKey.length < 16) return { error: "Enter the database name and the API key." };
-  if (models.length === 0) return { error: "List at least one Odoo model, e.g. res.partner." };
+  const db = String(formData.get("db") ?? "").trim() || guessOdooDb(url);
+  if (!db) return { error: "Enter the database name — your Odoo administrator can find it under Settings → Database (or in the Odoo login page's database list)." };
+  if (apiKey.length < 16) return { error: "Paste the Odoo API key." };
+  if (models.length === 0) return { error: "Tick at least one kind of data to copy." };
 
   let mode: string;
   try {
