@@ -50,11 +50,10 @@ through the BAS MCP server. The customer's system stays the system of record.
    **Done 2026-10-15** (branch `bas2/shared-schema`): project `genie`, ref `xhaqzwznduxoosqtcrrm`,
    ap-southeast-1, free tier. See `shared/README.md`.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
-   **In progress**, live at genie.infiniduo.com: Google or email + password sign-in (email links
-   dropped — they failed on the live site), workspaces, members and invite links, one Settings page
-   (data sources, AI model keys, AI agent access), forgot-password (2026-10-16). Microsoft sign-in is
-   built but appears only once the Azure provider is set up in Supabase (`portal/README.md`).
-   See `portal/README.md`.
+   **In progress**, live at genie.infiniduo.com: sign-in with Google, Microsoft (Entra client secret
+   expires 2028-10-15 — renew before then) or email + password, forgot-password; workspaces, members and
+   invite links; sidebar layout with Help centre; one Settings page (data sources, AI model keys, AI agent
+   access). Email sign-in links were dropped (they failed on the live site). See `portal/README.md`.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
    **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo
    (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Settings → Data sources. Read-only, JSON-2 with

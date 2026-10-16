@@ -138,11 +138,11 @@ In the Supabase dashboard for project `genie` → **Authentication → URL Confi
   **Testing**, so only test users listed on its Audience page can sign in until it is published. OAuth client
   "Genie web (Supabase)" (Web application) whose authorised
   redirect URI is `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`.
-- **Azure (Microsoft)**: in the Infinity Duo Microsoft Entra tenant, add an app registration
-  (*Accounts in any organizational directory and personal Microsoft accounts*) with Web redirect URI
-  `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`, then create a client secret. Put the
-  Application (client) ID and the secret **Value** into the Azure provider in Supabase, leave the
-  tenant URL empty (any account), and save. The button appears within a minute.
+- **Azure (Microsoft)**: enabled 2026-10-16. App registration **Genie** in the Infinity Duo Entra tenant
+  (client ID `2cb0fc03-7649-46c1-8898-9c908952dc90`), any work/school or personal Microsoft account, Web
+  redirect URI `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`. Tenant URL left empty in Supabase.
+  **The client secret "Supabase sign-in" expires 2028-10-15**: before then, add a new secret in Entra
+  (Certificates & secrets) and paste its Value into Supabase.
 
 **Email sending:** Supabase's built-in email service only delivers to members of the Supabase
 organisation and allows a few emails per hour. That is enough to test with your own address.

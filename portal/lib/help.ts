@@ -53,7 +53,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Each sync copies up to 5,000 rows per Odoo model; later syncs copy only rows that changed.",
           "Genie can read and search, but cannot yet create leads or records, or search the web.",
           "Conversations on the Ask page are not saved.",
-          "Microsoft sign-in, Slack, WhatsApp and Teams are on the way.",
+          "Slack, WhatsApp and Teams are on the way.",
         ],
       },
     ],
@@ -214,10 +214,11 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         id: "signin",
-        title: "Sign in with Google or email",
-        summary: "Microsoft sign-in is coming.",
+        title: "Sign in with Google, Microsoft or email",
+        summary: "Use whichever account your company uses.",
         body: [
-          "Use Continue with Google, or an email address and password. If you were invited, sign in with the address the invite was sent to.",
+          "Use Continue with Google, Continue with Microsoft (work, school or personal account), or an email address and password.",
+          "If you were invited, sign in with the address the invite was sent to.",
         ],
       },
       {
