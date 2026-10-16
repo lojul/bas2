@@ -68,7 +68,7 @@ export function OdooForm({ slug }: { slug: string }) {
         <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" aria-label="Other Odoo data" />
       </details>
       <button type="submit" className="btn" disabled={pending}>
-        {pending ? "Checking with Odoo…" : "Turn on"}
+        {pending ? "Checking with Odoo and saving…" : "Save"}
       </button>
       <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo first. It can then read whatever that Odoo user may see — live, nothing copied.</p>
       {!stale && <FormMessage state={state} />}
@@ -100,7 +100,7 @@ export function OdooOff({ slug, intro }: { slug: string; intro: React.ReactNode 
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="font-medium">Odoo</h3>
           <p className="text-sm text-genie-muted">Off — Genie can&apos;t see your Odoo.</p>
@@ -169,7 +169,7 @@ function SearchForm({ slug, d }: { slug: string; d: SearchDefaults }) {
         </div>
       </details>
       <button type="submit" className="btn" disabled={pending}>
-        {pending ? "Checking the index…" : "Turn on"}
+        {pending ? "Checking the index and saving…" : "Save"}
       </button>
       {!stale && <FormMessage state={state} />}
     </form>
@@ -181,7 +181,7 @@ export function SearchOff({ slug, defaults, intro }: { slug: string; defaults: S
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="font-medium">Document search index</h3>
           <p className="text-sm text-genie-muted">Off — Genie can&apos;t search your documents.</p>

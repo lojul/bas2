@@ -26,7 +26,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         title: "Set up Genie in 4 steps",
         summary: "From an empty workspace to your first answer.",
         body: [
-          "1. Turn on a data source: Settings → Data sources → switch Odoo on and enter its address and API key.",
+          "1. Turn on a data source: Settings → Data sources → switch Odoo on (top right of the box), enter its address and API key, and press Save.",
           "2. Invite your colleagues: Team → Invite someone, then send them the link.",
           "3. Ask your first question on the Ask page, for example \"Which leads came in this week?\"",
           "4. Optional: add your own AI key, or give an outside AI agent (such as Claude Desktop) access under Settings → AI agent access.",
@@ -71,7 +71,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "1. In Odoo, create (or pick) a user that can read the data you want in Genie — ideally one used only for integrations.",
           "2. Signed in as that user: Preferences → Account Security → New API Key. Copy the key.",
           "3. In Genie: Settings → Data sources → Connect Odoo. Enter your Odoo address and the API key. If you run your own Odoo server (not yourcompany.odoo.com), Genie also asks for the database name. For Odoo 18 or older, open \"Using Odoo 18 or older?\" and enter that user's login email.",
-          "4. Press Turn on. Genie reads the contacts, CRM leads and listings that this Odoo user may see — nothing to pick.",
+          "4. Press Save. Genie reads the contacts, CRM leads and listings that this Odoo user may see — nothing to pick.",
           "The key is kept in an encrypted vault and is never shown again. Only owners and admins can connect sources.",
         ],
         link: { label: "Connect Odoo", path: "/settings#data-sources" },
