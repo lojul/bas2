@@ -5,6 +5,7 @@ import { canManage, getWorkspace } from "@/lib/workspaces";
 import { AgentsSection } from "../agents/section";
 import { KeysSection } from "../keys/section";
 import { SourcesSection } from "../sources/section";
+import { SettingsTabs } from "./tabs";
 
 export const metadata: Metadata = { title: "Settings" };
 // Turning Odoo on checks the connection with Odoo inside this page's server action.
@@ -26,28 +27,14 @@ export default async function SettingsPage({ params }: PageProps<"/app/[slug]/se
     return <p className="text-sm text-genie-muted">Only owners and admins can change settings.</p>;
   }
 
-  const body = { "data-sources": SourcesSection, "ai-keys": KeysSection, "ai-agents": AgentsSection };
   return (
-    <div className="space-y-10">
-      <nav className="flex flex-wrap gap-2 text-sm">
-        {SECTIONS.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="rounded-full border border-genie-border px-3 py-1 hover:bg-genie-card">
-            {s.title}
-          </a>
-        ))}
-      </nav>
-      {SECTIONS.map((s) => {
-        const Section = body[s.id];
-        return (
-          <section key={s.id} id={s.id} className="scroll-mt-6 space-y-4">
-            <div className="border-b border-genie-border pb-2">
-              <h2 className="text-lg font-semibold">{s.title}</h2>
-              <p className="text-sm text-genie-muted">{s.hint}</p>
-            </div>
-            <Section slug={slug} />
-          </section>
-        );
-      })}
-    </div>
+    <SettingsTabs
+      tabs={[...SECTIONS]}
+      panels={{
+        "data-sources": <SourcesSection slug={slug} />,
+        "ai-keys": <KeysSection slug={slug} />,
+        "ai-agents": <AgentsSection slug={slug} />,
+      }}
+    />
   );
 }

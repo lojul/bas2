@@ -228,14 +228,18 @@ export function OffSwitch({ slug, sourceId }: { slug: string; sourceId: string }
 export function TestConnection({ slug, sourceId }: { slug: string; sourceId: string }) {
   const [state, action, pending] = useActionState(testSource, undefined);
   return (
-    <form action={action} className="flex flex-wrap items-center gap-3">
+    <form action={action} className="flex flex-wrap items-center justify-end gap-3">
       <input type="hidden" name="slug" value={slug} />
       <input type="hidden" name="source_id" value={sourceId} />
-      <button type="submit" className="btn-secondary" disabled={pending}>
-        {pending ? "Testing…" : "Test connection"}
-      </button>
       {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
       {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
+      <button
+        type="submit"
+        disabled={pending}
+        className="inline-flex items-center justify-center rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+      >
+        {pending ? "Testing…" : "Test connection"}
+      </button>
     </form>
   );
 }
