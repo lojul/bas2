@@ -111,6 +111,9 @@ system at question time; Genie stores only the connection (address, settings) an
 - Settings → Data sources shows an on/off card. Turning it on asks for the address and API key
   (database name only for self-hosted Odoo; login email only for Odoo 18 or older), checks them with
   Odoo, and saves the source (`status = active`) and the key in Vault. Turning it off deletes both.
+  No picking what to read: at switch-on Genie checks which of contacts (`res.partner`), CRM leads
+  (`crm.lead`) and listings (`x_c21_listing`) the Odoo user can read (`search_count`), plus any models typed
+  under "Other Odoo data", and reads those. Access is limited through the Odoo user's own permissions.
 - The client tries the JSON-2 API (`/json/2/<model>/<method>`, Odoo 19+) and falls back to the
   legacy JSON-RPC endpoint (`/jsonrpc`, `execute_kw`).
 - Tools (`runLiveTool`): `workspace_info` (types + live counts), `search_records` (every word must

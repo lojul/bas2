@@ -71,7 +71,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "1. In Odoo, create (or pick) a user that can read the data you want in Genie — ideally one used only for integrations.",
           "2. Signed in as that user: Preferences → Account Security → New API Key. Copy the key.",
           "3. In Genie: Settings → Data sources → Connect Odoo. Enter your Odoo address and the API key. If you run your own Odoo server (not yourcompany.odoo.com), Genie also asks for the database name. For Odoo 18 or older, open \"Using Odoo 18 or older?\" and enter that user's login email.",
-          "4. Tick what Genie may read — Contacts, CRM leads (and Listings for C21) — and press Turn on.",
+          "4. Press Turn on. Genie reads the contacts, CRM leads and listings that this Odoo user may see — nothing to pick.",
           "The key is kept in an encrypted vault and is never shown again. Only owners and admins can connect sources.",
         ],
         link: { label: "Connect Odoo", path: "/settings#data-sources" },
@@ -83,7 +83,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         body: [
           "When someone asks a question, Genie looks it up in Odoo at that moment, with the API key you gave it, and shows the result. Nothing is saved in Genie, so answers are always current.",
           "Genie stores only the connection: the Odoo address and the API key (encrypted). Turning Odoo off deletes both.",
-          "Genie reads only what the Odoo user behind the key may see, and only the kinds of data you ticked.",
+          "Genie reads only what the Odoo user behind the key may see. To limit it, limit that user's access in Odoo.",
         ],
       },
       {

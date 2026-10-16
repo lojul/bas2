@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
 import { getUser } from "@/lib/supabase/server";
 import { OdooClient, OdooError, normaliseUrl } from "@/lib/odoo/client";
-import { DEFAULT_ODOO_MODELS, guessOdooDb } from "@/lib/odoo/models";
+import { ODOO_MODEL_CHOICES, guessOdooDb } from "@/lib/odoo/models";
 import { normaliseSearchEndpoint, testSearch } from "@/lib/search/azure";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 
@@ -27,9 +27,7 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
   const name = String(formData.get("name") ?? "").trim() || "Odoo";
   const login = String(formData.get("login") ?? "").trim() || undefined;
   const apiKey = String(formData.get("api_key") ?? "").trim();
-  // Ticked checkboxes plus any extra model names typed under "More Odoo data".
-  const picked = [...formData.getAll("models").map(String), String(formData.get("extra_models") ?? "")].join(",");
-  const models = parseModels(formData.has("models") || formData.has("extra_models") ? picked : DEFAULT_ODOO_MODELS);
+  const extra = parseModels(String(formData.get("extra_models") ?? ""));
   let url: string;
   try {
     url = normaliseUrl(String(formData.get("url") ?? ""));
@@ -39,13 +37,29 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
   const db = String(formData.get("db") ?? "").trim() || guessOdooDb(url);
   if (!db) return { error: "Enter the database name — your Odoo administrator can find it under Settings → Database (or in the Odoo login page's database list)." };
   if (apiKey.length < 16) return { error: "Paste the Odoo API key." };
-  if (models.length === 0) return { error: "Tick at least one kind of data to copy." };
 
+  // No picking: Genie reads every known kind of data this Odoo user can read (contacts, leads,
+  // C21 listings), plus any extra models typed under "Other Odoo data".
   let mode: string;
+  let models: string[];
   try {
-    mode = (await OdooClient.connect({ url, db, login, apiKey })).mode;
+    const odoo = await OdooClient.connect({ url, db, login, apiKey });
+    mode = odoo.mode;
+    const candidates = [...new Set([...ODOO_MODEL_CHOICES.map((c) => c.model), ...extra])];
+    const readable = await Promise.all(
+      candidates.map((m) =>
+        odoo
+          .call(m, "search_count", { domain: [] })
+          .then(() => m)
+          .catch(() => null),
+      ),
+    );
+    models = readable.filter((m): m is string => m !== null);
   } catch (e) {
     return { error: e instanceof OdooError ? e.message : `Could not reach Odoo: ${e instanceof Error ? e.message : e}` };
+  }
+  if (models.length === 0) {
+    return { error: "Connected, but this Odoo user can't read contacts, CRM leads or listings. Give it read access in Odoo and try again." };
   }
 
   const secretName = `odoo_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 40)}`;
@@ -72,7 +86,8 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
   );
   if (error) return { error: `Could not save the source: ${error.message}` };
   revalidatePath(`/app/${slug}`, "layout");
-  return { ok: "Odoo is on. Ask and AI agents now read it live — nothing is copied into Genie." };
+  const labels = models.map((m) => ODOO_MODEL_CHOICES.find((c) => c.model === m)?.label ?? m).join(", ");
+  return { ok: `Odoo is on — Genie can read ${labels}, live. Nothing is copied into Genie.` };
 }
 
 export async function removeSource(formData: FormData) {

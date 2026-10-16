@@ -40,14 +40,12 @@ export async function SourcesSection({ slug }: { slug: string }) {
     slug === "c21"
       ? { endpoint: "https://c21net-bas-srch-ea-prod.search.windows.net", index: "properties-index", name: "C21 documents", semantic: "default", vectorField: "contentVector" }
       : { endpoint: "", index: "", name: "Documents", semantic: "default", vectorField: "" };
-  // The listings model is custom to C21's Odoo; other workspaces add custom models under "More Odoo data".
-  const choices = ODOO_MODEL_CHOICES.filter((c) => !c.c21Only || slug === "c21");
   const label = (model: string) => ODOO_MODEL_CHOICES.find((c) => c.model === model)?.label ?? model;
 
   const intro = (
     <p className="text-sm text-genie-muted">
       Read-only and live: when someone asks a question, {BRAND.name}{" "}looks it up in Odoo at that moment. Nothing is copied
-      into {BRAND.name}{" "}and nothing in Odoo is changed. Use a dedicated Odoo user that can read the data below.
+      into {BRAND.name}{" "}and nothing in Odoo is changed. What it can see is what the Odoo user behind the API key may see — use a dedicated, read-only user.
     </p>
   );
 
@@ -73,7 +71,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
             <p className="text-xs text-genie-muted">To change the address, key or what {BRAND.name}{" "}can read, turn Odoo off and on again.</p>
           </div>
         ) : (
-          <OdooOff slug={slug} choices={choices} intro={intro} />
+          <OdooOff slug={slug} intro={intro} />
         )}
       </section>
 
