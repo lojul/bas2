@@ -42,7 +42,7 @@ export async function liveSourcesFor(tenantId: string): Promise<LiveSources | nu
 
   const keyFor = async (row: SourceRow) => {
     const { data, error } = await admin.rpc("get_tenant_secret", { p_tenant_id: tenantId, p_name: row.config.secret_name });
-    if (error || !data) throw new Error(`The key for "${row.name}" is missing. Turn it off and on again in Settings → Data sources.`);
+    if (error || !data) throw new Error(`The key for "${row.name}" is missing. Open Settings → Data sources → Edit and paste the key again.`);
     return data as string;
   };
 
