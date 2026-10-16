@@ -18,7 +18,8 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
-| `/app/[slug]` | members | Overview: counts and a getting-started checklist |
+| `/app/[slug]` | members | Overview: counts, a getting-started checklist and shortcuts |
+| `/app/[slug]/help` | members | Help centre: searchable articles by topic (`lib/help.ts`) |
 | `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (connect Odoo, Sync now), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
@@ -27,6 +28,13 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
 The product name lives only in `lib/brand.ts`.
+
+**Workspace layout** (`components/workspace-shell.tsx`): dark-green sidebar with the workspace
+switcher, the pages from `lib/nav.ts` (Overview, Ask, Team, Settings for owners/admins, Help), a
+"what's new" note (`lib/whats-new.ts`; change its `id` to show a new one, closing it is remembered in
+the browser), the data-source sync status, and the account menu (change password, sign out). On
+phones the sidebar opens from a menu button. `/app` and `/app/new` keep the simple top bar
+(`app/app/(home)/layout.tsx`).
 
 **Sign-in runs in the browser** (`app/login/auth-panel.tsx`, `lib/supabase/browser.ts`) with
 Supabase's implicit flow. Email sign-in links are no longer used. The PKCE flow failed on

@@ -11,6 +11,8 @@
   --genie-green: #3f8f5c;
   --genie-green-deep: #24462f;
   --genie-danger: #b42318;
+  /* sidebar: active item and "new" badges */
+  --genie-lime: #dcef9a;
 }
 
 @theme inline {
@@ -28,6 +30,7 @@
   --color-genie-green: var(--genie-green);
   --color-genie-green-deep: var(--genie-green-deep);
   --color-genie-danger: var(--genie-danger);
+  --color-genie-lime: var(--genie-lime);
 }
 
 body {

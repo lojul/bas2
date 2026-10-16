@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Circle } from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, CircleHelp, Database, MessagesSquare, Users } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
@@ -44,6 +44,15 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
     { done: sources > 0, text: "Connect a data source — Odoo now; SQL database and spreadsheet next", href: `/app/${slug}/settings#data-sources` },
   ];
 
+  const shortcuts = [
+    { href: `/app/${slug}/ask`, icon: MessagesSquare, title: "Ask a question", text: "Search your data in plain language" },
+    ...(canManage(workspace.role)
+      ? [{ href: `/app/${slug}/settings#data-sources`, icon: Database, title: "Data sources", text: "Connect Odoo and sync records" }]
+      : []),
+    { href: `/app/${slug}/members`, icon: Users, title: "Team", text: "Invite colleagues and set roles" },
+    { href: `/app/${slug}/help`, icon: CircleHelp, title: "Help", text: "Step-by-step guides and beta limits" },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -73,6 +82,21 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        {shortcuts.map((s) => (
+          <Link key={s.href} href={s.href} className="card flex items-center gap-3 p-4 hover:border-genie-green">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-genie-accent text-genie-green-deep">
+              <s.icon size={18} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium">{s.title}</span>
+              <span className="block text-xs text-genie-muted">{s.text}</span>
+            </span>
+            <ArrowRight size={16} className="text-genie-muted" />
+          </Link>
+        ))}
       </div>
 
       <p className="text-xs text-genie-muted">Plan: {workspace.plan}{workspace.document_addon ? " + Document add-on" : ""}</p>
