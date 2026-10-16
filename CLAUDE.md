@@ -43,8 +43,9 @@ data; CSV upload and the document add-on need a design that reads files where th
 - Billing: Stripe Billing + customer portal; meter messages, OCR pages, tokens and tool
   records per tenant from day one.
 
-**Demo data (proposed, to confirm)** — tenant B is seeded in `genie` as *Harbour Supplies (Demo)*
-(`shared/supabase/seed/demo_tenant_b.sql`, synthetic records, no Odoo).
+**Demo data (proposed, to confirm)** — tenant B *Harbour Supplies (Demo)* was seeded on 2026-10-15 and
+**deleted from `genie` on 2026-10-16 at the user's request**; the seed file stays at
+`shared/supabase/seed/demo_tenant_b.sql` (synthetic records, no Odoo) for when a demo is needed again.
 - Demo tenant A (property, on our Odoo 20): Odoo's built-in demo data for CRM/contacts, plus a
   listing model shaped like C21's `x_c21_listing`, filled with ~200 synthetic listings (real public
   building names and districts; invented units, prices, owners and phone numbers).
