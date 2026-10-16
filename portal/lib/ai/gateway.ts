@@ -23,9 +23,21 @@ export type LoopResult = {
   stopped?: "max_steps" | "refusal";
 };
 
+// The platform OpenRouter account is registered in Hong Kong, where Anthropic, OpenAI and Google
+// refuse service (OpenRouter 403 "violation of provider Terms Of Service", 2026-10-16). So the
+// OpenRouter route sends a list: GENIE_OPENROUTER_MODEL first (comma-separated allowed), then models
+// that serve Hong Kong; OpenRouter moves to the next one when a model is refused or down.
+const OPENROUTER_HK_MODELS = ["qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-pro-0813", "z-ai/glm-5.3"];
+const OPENROUTER_MAX_MODELS = 3;
+
+function openRouterModels(): string[] {
+  const configured = (process.env.GENIE_OPENROUTER_MODEL ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  return [...new Set([...configured, ...OPENROUTER_HK_MODELS])].slice(0, OPENROUTER_MAX_MODELS);
+}
+
 const MODELS: Record<ProviderId, string> = {
   anthropic: process.env.GENIE_ANTHROPIC_MODEL ?? "claude-opus-5-5",
-  openrouter: process.env.GENIE_OPENROUTER_MODEL ?? "anthropic/claude-opus-5.5",
+  openrouter: openRouterModels().join(","),
   xai: process.env.GENIE_XAI_MODEL ?? "grok-4",
 };
 const BYOK_ORDER: ProviderId[] = ["anthropic", "openrouter", "xai"];
@@ -142,9 +154,18 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: route.model, max_tokens: MAX_TOKENS, messages, tools: oaiTools }),
+      body: JSON.stringify({ ...modelFields(route), max_tokens: MAX_TOKENS, messages, tools: oaiTools }),
     });
-    if (!res.ok) throw new GatewayError(`${route.provider} returned ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    if (!res.ok) {
+      const detail = (await res.text()).slice(0, 300);
+      if (res.status === 403 && /Terms Of Service/i.test(detail)) {
+        throw new GatewayError(
+          `The AI provider refused this request for the account's region (${route.provider}, models ${route.model}). ` +
+            "Add your own AI key under Settings → AI model keys, or change GENIE_OPENROUTER_MODEL.",
+        );
+      }
+      throw new GatewayError(`${route.provider} returned ${res.status}: ${detail}`);
+    }
     const body = (await res.json()) as {
       model?: string;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
@@ -177,6 +198,14 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
   result.stopped = "max_steps";
   result.text = "I couldn't finish within the step limit. Try a narrower question.";
   return result;
+}
+
+// OpenRouter: a fallback list (`models`) and only hosts that don't store or train on prompts — the
+// prompts carry customer records read live, which Genie itself never stores either.
+function modelFields(route: Route) {
+  if (route.provider !== "openrouter") return { model: route.model };
+  const models = route.model.split(",").map((m) => m.trim()).filter(Boolean);
+  return { model: models[0], models, provider: { data_collection: "deny" } };
 }
 
 function errorText(e: unknown) {

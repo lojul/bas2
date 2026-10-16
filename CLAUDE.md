@@ -102,7 +102,11 @@ data; CSV upload and the document add-on need a design that reads files where th
 - Step 3: Odoo 20 environment URL + API key for a dedicated integration user.
 - Step 4: ~~Vercel env vars `SUPABASE_SECRET_KEY` and `OPENROUTER_API_KEY`~~ added 2026-10-15. The platform AI key
   is **OpenRouter only** — no platform `ANTHROPIC_API_KEY` (decided 2026-10-15); workspaces can still add
-  their own Anthropic key. Model: `GENIE_OPENROUTER_MODEL` (default `anthropic/claude-opus-5.5`).
+  their own Anthropic key. **The OpenRouter account is registered in Hong Kong, so Anthropic, OpenAI and Google
+  models are refused (403 "violation of provider Terms Of Service", 2026-10-16).** The gateway sends a fallback
+  list: `GENIE_OPENROUTER_MODEL` (comma-separated, optional) then `qwen/qwen3.8-max-0902`,
+  `deepseek/deepseek-v4-pro-0813`, `z-ai/glm-5.3` (max 3), with `provider.data_collection = deny`. Claude for
+  C21 needs a workspace's own Anthropic key or a non-HK platform account.
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
 **Next (updated 2026-10-16 after the no-copy decision), in this order**

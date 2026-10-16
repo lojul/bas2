@@ -88,7 +88,9 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
   Anthropic SDK with adaptive thinking, effort `medium` and server-side `fallbacks: "default"`
   (beta `server-side-fallback-2026-07-01`: a declined request is retried on Anthropic's recommended
   fallback model). OpenRouter and xAI use their OpenAI-compatible chat completions API.
-  Models: `GENIE_ANTHROPIC_MODEL` (default `claude-opus-5-5`), `GENIE_OPENROUTER_MODEL`, `GENIE_XAI_MODEL`.
+  Models: `GENIE_ANTHROPIC_MODEL` (default `claude-opus-5-5`), `GENIE_XAI_MODEL`. OpenRouter gets a fallback list
+  (`models`): `GENIE_OPENROUTER_MODEL` if set, then Qwen 3.8 Max, DeepSeek V4 Pro, GLM 5.3 — the platform account is
+  in Hong Kong, where Anthropic/OpenAI/Google refuse service — and `provider.data_collection: "deny"`.
 - **Tools** (`lib/ai/tools.ts`): the same five read tools as the MCP server, executed with
   `agent_tool()` as the signed-in user, so membership is checked by the database.
 - **Metering**: one `message`, plus `input_token` / `output_token` rows with `key_source`
