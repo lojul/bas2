@@ -3,13 +3,12 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { BRAND } from "@/lib/brand";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
-import type { LiveOdoo } from "@/lib/odoo/live";
-import { liveOdooFor, meterToolCall, runLiveTool } from "@/lib/odoo/source";
+import { type LiveSources, liveSourcesFor, meterToolCall, runLiveTool } from "@/lib/live";
 import { createAdminClient, hasAdminClient } from "@/lib/supabase/admin";
 
 // The Genie MCP server: read tools over one workspace's data.
 //
-// With Odoo switched on, tools read Odoo live with the workspace's key from Vault (service role)
+// With data sources switched on (Odoo, a search index), tools read them live with the keys from Vault (service role)
 // and nothing is stored (decided 2026-10-16). Otherwise each tool is a SECURITY DEFINER database
 // function over the workspace's demo data (shared/ migrations 20261015000700/0800), which checks
 // the API key and meters the call itself.
@@ -42,7 +41,7 @@ async function call(fn: string, args: Record<string, unknown>) {
   return asText(data ?? null);
 }
 
-type Live = { tenantId: string; workspaceName: string; odoo: LiveOdoo } | null;
+type Live = { tenantId: string; workspaceName: string; sources: LiveSources } | null;
 
 // Resolves the key to its workspace and live Odoo once per request (the server is per request).
 function liveResolver(apiKey: string) {
@@ -54,10 +53,10 @@ function liveResolver(apiKey: string) {
       const { data: tenantId } = await admin.rpc("mcp_key_tenant", { p_key: apiKey });
       if (!tenantId) return { code: "28000", message: "invalid api key" };
       try {
-        const odoo = await liveOdooFor(tenantId as string);
-        if (!odoo) return null;
+        const sources = await liveSourcesFor(tenantId as string);
+        if (!sources) return null;
         const { data: t } = await admin.from("tenants").select("name").eq("id", tenantId).single<{ name: string }>();
-        return { tenantId: tenantId as string, workspaceName: t?.name ?? "", odoo };
+        return { tenantId: tenantId as string, workspaceName: t?.name ?? "", sources };
       } catch (e) {
         return { message: e instanceof Error ? e.message : String(e) };
       }
@@ -75,7 +74,7 @@ export function createGenieMcpServer(apiKey: string) {
     if (!live) return call(fn, { p_key: apiKey, ...rpcArgs });
     await meterToolCall(live.tenantId, tool, "mcp");
     try {
-      return asText(await runLiveTool(live.odoo, live.workspaceName, tool, args));
+      return asText(await runLiveTool(live.sources, live.workspaceName, tool, args));
     } catch (e) {
       return asError({ message: e instanceof Error ? e.message : String(e) });
     }
@@ -157,8 +156,8 @@ export function createGenieMcpServer(apiKey: string) {
     {
       title: "Search knowledge",
       description:
-        "Search passages of longer text such as policies, procedures and uploaded documents. " +
-        "Use for 'how do we…' or 'what is our policy on…' questions.",
+        "Search the company's documents — e.g. property proposals, building details, marketing kits, reports, policies — ranked by meaning. " +
+        "Use for property and building questions as well as 'what is our policy on…'. Results include a link to the original file.",
       inputSchema: {
         query: z.string().min(2).max(300).describe("What to look for."),
         limit: z.number().int().min(1).max(30).optional().describe("Maximum passages (default 8)."),

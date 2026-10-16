@@ -68,7 +68,13 @@ data; CSV upload and the document add-on need a design that reads files where th
    **Odoo live (2026-10-16)**: portal → workspace → Settings → Data sources → switch Odoo on (C21:
    workspace `c21`, address `https://c21net.odoo.com`, database taken from the address). Ask and the MCP
    server read Odoo at question time (`portal/lib/odoo`). The copy/sync design of 2026-10-15 is removed.
-   Still to come: SQL database (live, read-only); a way to handle CSV/documents without storing them.
+   **C21's document index live (2026-10-16)**: Settings → Data sources → Document search index — C21's own
+   Azure AI Search `properties-index` (SharePoint building folders, proposals, listings) on
+   `c21net-bas-srch-ea-prod`, read-only query key `genie-readonly`. Feeds `search_knowledge`. The legacy
+   jobs that build this index must keep running while Genie uses it (was "retire at end of phase 1").
+   Vector search needs a vectorizer on the index (Azure OpenAI `text-embedding-3-large`) — user to decide;
+   adding it needed an OpenAI key copied into the search service, which Claude was not allowed to do.
+   Still to come: SQL database (live, read-only).
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
@@ -119,7 +125,7 @@ publish the Google consent screen when ready.
 | `legacy/document-processor/` | Document ingest: WhatsApp / Slack / Teams / OneDrive → OCR → classify → extract → Odoo. Python, LangGraph. Has its own detailed `CLAUDE.md`. | App Service `c21net-bas-api-doc-pipeline-ea-prod` + Function App `c21net-bas-func-doc-pipeline-ea-prod` (`./deploy.sh`) | Live | End of BAS 2.0 phase 3 |
 | `legacy/genie-dashboard/` | Old web dashboard (Next.js static export). **Replaced by `portal/` at genie.infiniduo.com (decided 2026-10-15)**; C21 gets a workspace in the portal instead | — (Vercel project now builds `portal/`) | Retired | Delete once the portal is live |
 | `legacy/n8n/` | n8n workflow exports (WhatsApp/Slack glue). **Keys redacted** — see Secrets | n8n | Live | End of phase 3 |
-| `legacy/odoo-bas-sync/` | Daily Odoo `x_c21_listing` → BAS `properties-index` sync (Azure Function) | Azure Function App | Live | End of phase 1 |
+| `legacy/odoo-bas-sync/` | Daily Odoo `x_c21_listing` → BAS `properties-index` sync (Azure Function) | Azure Function App | Live | Keep while Genie searches `properties-index` |
 | `legacy/property-chatbot/` | Staff Slack bot: property search over `properties-index`, CRM leads, contacts | App Service + Function App (RG `c21net-bas-property-chatbot-ea-prod`) | Live | End of phase 1 |
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
 | `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |

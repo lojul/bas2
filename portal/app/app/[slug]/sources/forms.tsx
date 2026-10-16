@@ -3,7 +3,7 @@
 import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
 import { type OdooModelChoice, guessOdooDb } from "@/lib/odoo/models";
-import { connectOdoo, removeSource } from "./actions";
+import { connectOdoo, connectSearch, removeSource } from "./actions";
 
 export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelChoice[] }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
@@ -128,11 +128,92 @@ export function OdooOff({ slug, choices, intro }: { slug: string; choices: OdooM
   );
 }
 
-// Odoo when on: the switch asks once, then turns it off (forgets the address and key).
-export function OdooOffSwitch({ slug, sourceId }: { slug: string; sourceId: string }) {
+export type SearchDefaults = { endpoint: string; index: string; name: string; semantic: string; vectorField: string };
+
+function SearchForm({ slug, d }: { slug: string; d: SearchDefaults }) {
+  const [state, action, pending] = useActionState(connectSearch, undefined);
+  const [stale, setStale] = useState(false);
+  return (
+    <form
+      className="space-y-3"
+      onChange={() => setStale(true)}
+      onSubmit={(e) => {
+        e.preventDefault();
+        const data = new FormData(e.currentTarget);
+        setStale(false);
+        startTransition(() => action(data));
+      }}
+    >
+      <input type="hidden" name="slug" value={slug} />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="endpoint" className="label">Search service address</label>
+          <input id="endpoint" name="endpoint" required className="input" defaultValue={d.endpoint} placeholder="https://yourservice.search.windows.net" />
+        </div>
+        <div>
+          <label htmlFor="index" className="label">Index name</label>
+          <input id="index" name="index" required className="input" defaultValue={d.index} placeholder="documents-index" />
+        </div>
+        <div>
+          <label htmlFor="query_key" className="label">Query key</label>
+          <input id="query_key" name="query_key" type="password" autoComplete="off" required className="input font-mono" placeholder="Paste the query key" />
+          <p className="mt-1 text-xs text-genie-muted">Azure portal → your search service → Keys → Manage query keys. A query key can only search, never change anything.</p>
+        </div>
+        <div>
+          <label htmlFor="sname" className="label">Name in Genie</label>
+          <input id="sname" name="name" className="input" defaultValue={d.name} />
+        </div>
+      </div>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-genie-muted">Search settings (advanced)</summary>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2">
+          <div>
+            <label htmlFor="semantic" className="label">Semantic configuration</label>
+            <input id="semantic" name="semantic" className="input font-mono" defaultValue={d.semantic} />
+            <p className="mt-1 text-xs text-genie-muted">Ranks results by meaning. Leave empty if the index has none.</p>
+          </div>
+          <div>
+            <label htmlFor="vector_field" className="label">Vector field</label>
+            <input id="vector_field" name="vector_field" className="input font-mono" defaultValue={d.vectorField} />
+            <p className="mt-1 text-xs text-genie-muted">Used when the index can turn questions into vectors itself; otherwise ignored.</p>
+          </div>
+        </div>
+      </details>
+      <button type="submit" className="btn" disabled={pending}>
+        {pending ? "Checking the index…" : "Turn on"}
+      </button>
+      {!stale && <FormMessage state={state} />}
+    </form>
+  );
+}
+
+// Search index when off: the switch opens the form.
+export function SearchOff({ slug, defaults, intro }: { slug: string; defaults: SearchDefaults; intro: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="font-medium">Document search index</h3>
+          <p className="text-sm text-genie-muted">Off — Genie can&apos;t search your documents.</p>
+        </div>
+        <Switch on={open} onClick={() => setOpen(!open)} label="Turn the search index on" />
+      </div>
+      {open && (
+        <div className="space-y-3 border-t border-genie-border pt-4">
+          {intro}
+          <SearchForm slug={slug} d={defaults} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A source when on: the switch asks once, then turns it off (forgets the address and key).
+export function OffSwitch({ slug, sourceId }: { slug: string; sourceId: string }) {
   const [confirming, setConfirming] = useState(false);
   const [pending, setPending] = useState(false);
-  if (!confirming) return <Switch on onClick={() => setConfirming(true)} label="Turn Odoo off" />;
+  if (!confirming) return <Switch on onClick={() => setConfirming(true)} label="Turn off" />;
   return (
     <form
       action={async (data) => {
