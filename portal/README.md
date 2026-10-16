@@ -18,7 +18,8 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
 | `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
-| `/app/[slug]` | members | Overview: counts and a getting-started checklist |
+| `/app/[slug]` | members | Overview: counts, a getting-started checklist and shortcuts |
+| `/app/[slug]/help` | members | Help centre: searchable articles by topic (`lib/help.ts`) |
 | `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (connect Odoo, Sync now), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
@@ -27,6 +28,13 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
 The product name lives only in `lib/brand.ts`.
+
+**Workspace layout** (`components/workspace-shell.tsx`): dark-green sidebar with the workspace
+switcher, the pages from `lib/nav.ts` (Overview, Ask, Team, Settings for owners/admins, Help), a
+"what's new" note (`lib/whats-new.ts`; change its `id` to show a new one, closing it is remembered in
+the browser), the data-source sync status, and the account menu (change password, sign out). On
+phones the sidebar opens from a menu button. `/app` and `/app/new` keep the simple top bar
+(`app/app/(home)/layout.tsx`).
 
 **Sign-in runs in the browser** (`app/login/auth-panel.tsx`, `lib/supabase/browser.ts`) with
 Supabase's implicit flow. Email sign-in links are no longer used. The PKCE flow failed on
@@ -123,10 +131,12 @@ In the Supabase dashboard for project `genie` → **Authentication → URL Confi
 
 **Sign-in methods** (Authentication → Sign In / Providers):
 
-- **Email**: enabled. **Confirm email** is off for now, so new accounts can sign in immediately;
+- **Email**: enabled. **Confirm email** is currently **on** (2026-10-16), so new accounts must click the emailed link first;
   Supabase's built-in email is limited to a few messages an hour. Turn it back on once custom SMTP
   is set up.
-- **Google**: enabled with a Google Cloud OAuth client (Web application) whose authorised
+- **Google**: enabled 2026-10-16 with Google Cloud project **Genie** (`genie-511800`). Its consent screen is in
+  **Testing**, so only test users listed on its Audience page can sign in until it is published. OAuth client
+  "Genie web (Supabase)" (Web application) whose authorised
   redirect URI is `https://xhaqzwznduxoosqtcrrm.supabase.co/auth/v1/callback`.
 - **Azure (Microsoft)**: in the Infinity Duo Microsoft Entra tenant, add an app registration
   (*Accounts in any organizational directory and personal Microsoft accounts*) with Web redirect URI

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { getUser } from "@/lib/supabase/server";
@@ -20,6 +21,7 @@ export default async function ResetPasswordPage() {
           <h1 className="text-xl font-semibold">Choose a new password</h1>
           <p className="mb-5 mt-1 text-sm text-genie-muted">For {user.email}.</p>
           <NewPasswordForm />
+          <Link href="/app" className="mt-4 inline-block text-xs text-genie-muted underline underline-offset-2">Cancel</Link>
         </div>
       </div>
     </main>
