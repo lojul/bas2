@@ -9,8 +9,9 @@ export const metadata: Metadata = { title: "Ask" };
 // A question can take several model and tool round trips.
 export const maxDuration = 120;
 
-export default async function AskPage({ params }: PageProps<"/app/[slug]/ask">) {
+export default async function AskPage({ params, searchParams }: PageProps<"/app/[slug]/ask">) {
   const { slug } = await params;
+  const q = (await searchParams).q;
   const { user } = await getUser();
   if (!user) redirect("/login");
   const workspace = await getWorkspace(user.id, slug);
@@ -22,7 +23,7 @@ export default async function AskPage({ params }: PageProps<"/app/[slug]/ask">) 
         Ask {BRAND.name}{" "}about {workspace.name}&apos;s data. Answers come only from your workspace&apos;s records and
         documents; the conversation is not saved.
       </p>
-      <Chat slug={slug} />
+      <Chat slug={slug} initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""} />
     </div>
   );
 }
