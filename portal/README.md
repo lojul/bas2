@@ -31,7 +31,7 @@ The product name lives only in `lib/brand.ts`.
 
 **Look and feel: ERPNext / Frappe desk** (user request 2026-10-16). Tokens in `app/globals.css` (white page,
 near-black ink `#1f272e`, grey `#f3f3f3` fills, black primary buttons, colour only for status), Inter font,
-14px base. **Workspace layout** (`components/workspace-shell.tsx`): top bar with logo, breadcrumbs (workspace
+16px base (enlarged 2026-10-16). **Workspace layout** (`components/workspace-shell.tsx`): top bar with logo, breadcrumbs (workspace
 switcher › page), a "Search or ask Genie" box (opens Ask with the question filled in) and the account menu;
 plain left sidebar (pages from `lib/nav.ts`, data-source status, closable "what's new" note from
 `lib/whats-new.ts`); page head with a sidebar toggle and the title. Phones get the sidebar as a drawer.
@@ -92,6 +92,9 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
   Models: `GENIE_ANTHROPIC_MODEL` (default `claude-opus-5-5`), `GENIE_XAI_MODEL`. OpenRouter gets a fallback list
   (`models`): `GENIE_OPENROUTER_MODEL` if set, then Qwen 3.8 Max, DeepSeek V4 Pro, GLM 5.3 — the platform account is
   in Hong Kong, where Anthropic/OpenAI/Google refuse service — and `provider.data_collection: "deny"`.
+- **Speed**: the prompt names the switched-on sources and only tools that can work are offered (no
+  `workspace_info` step); lookups in one step run in parallel; OpenRouter gets `reasoning.effort: low`. Each
+  question logs `ask … total=…ms [model …ms tools …ms]` per step (Vercel runtime logs).
 - **Tools** (`lib/ai/tools.ts`): the same five read tools as the MCP server, executed with
   `agent_tool()` as the signed-in user, so membership is checked by the database.
 - **Metering**: one `message`, plus `input_token` / `output_token` rows with `key_source`
