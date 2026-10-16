@@ -239,7 +239,7 @@ export async function testSource(_prev: FormState, formData: FormData): Promise<
     admin.from("sources").update({ status: error ? "error" : "active", last_error: error }).eq("id", source.id);
   try {
     const { data: key, error: keyError } = await admin.rpc("get_tenant_secret", { p_tenant_id: workspace.id, p_name: source.config.secret_name });
-    if (keyError || !key) throw new Error("The saved key is missing. Turn the source off and on again.");
+    if (keyError || !key) throw new Error("The saved key is missing. Click Edit and paste the key again.");
     let found: string;
     if (source.kind.startsWith("odoo")) {
       const odoo = await OdooClient.open(
