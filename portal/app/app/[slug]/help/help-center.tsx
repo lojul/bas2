@@ -104,7 +104,7 @@ export function HelpCenter({ slug }: { slug: string }) {
       )}
 
       <p className="flex items-center gap-2 text-xs text-genie-muted">
-        <Lightbulb size={14} /> Tip: if a sync fails, the reason is shown under Settings → Data sources. Still stuck? Email{" "}
+        <Lightbulb size={14} /> Tip: if Genie can&apos;t reach a data source, the reason is shown under Settings → Data sources. Still stuck? Email{" "}
         <a href={`mailto:${LEGAL.supportEmail}`} className="underline underline-offset-2">{LEGAL.supportEmail}</a>.
       </p>
     </div>

@@ -33,18 +33,9 @@ const ICONS: Record<NavKey, typeof LayoutDashboard> = {
 };
 
 export type ShellWorkspace = { slug: string; name: string; role: Role };
-export type SourceStatus = { name: string; status: string; lastSyncedAt: string | null } | null;
+export type SourceStatus = { name: string; status: string } | null;
 
 const DISMISS_KEY = "genie.whatsNew.dismissed";
-
-function timeAgo(iso: string): string {
-  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes} min ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} days ago`;
-}
 
 // Whether the current "what's new" note was closed in this browser. Read from localStorage after
 // hydration; the server render treats it as closed so the note never flashes.
@@ -183,11 +174,7 @@ function SidebarBody({
             <span>
               <span className="text-white">{source.name}</span>
               <br />
-              {source.status === "error"
-                ? "Last sync failed"
-                : source.lastSyncedAt
-                  ? `Synced ${timeAgo(source.lastSyncedAt)}`
-                  : "Connected, not synced yet"}
+              {source.status === "error" ? "Can't reach it — see Settings" : "On · read live"}
             </span>
           ) : (
             <span>No data source connected</span>

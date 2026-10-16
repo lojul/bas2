@@ -1,6 +1,7 @@
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BRAND } from "@/lib/brand";
+import { liveOdooFor, meterToolCall, runLiveTool } from "@/lib/odoo/source";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { type ChatTurn, type LoopResult, resolveRoute, runLoop } from "./gateway";
 import { AGENT_TOOLS, TOOL_NAMES } from "./tools";
@@ -12,7 +13,7 @@ function systemPrompt(workspaceName: string) {
   const today = new Date().toISOString().slice(0, 10);
   return `You are ${BRAND.name}, the AI assistant for the staff of "${workspaceName}". Today is ${today}.
 
-You answer questions about the company's own data: records synced from its systems (contacts, products, orders, listings and so on) and its policies and documents. Use the tools to look things up; the data is only available through them.
+You answer questions about the company's own data, read live from its systems (contacts, leads, listings, products, orders and so on). Use the tools to look things up; the data is only available through them, and every result is current as of this moment.
 
 - Base every factual statement on tool results from this conversation. If the tools return nothing relevant, say you could not find it and suggest what to search for instead. Do not guess figures, prices, names or phone numbers.
 - Name the records you used (title or reference number) so staff can check them.
@@ -23,8 +24,9 @@ You answer questions about the company's own data: records synced from its syste
 
 export type AgentAnswer = LoopResult & { keySource: "byok" | "platform"; provider: string };
 
-// One question in a workspace chat, run as the signed-in member: tools go through agent_tool(),
-// which checks membership and meters each call; tokens are metered here with the service role.
+// One question in a workspace chat, run as the signed-in member (the page checked membership).
+// With Odoo switched on, tools read Odoo live and nothing is stored; otherwise they go through
+// agent_tool() over the workspace's demo data. Tool calls and tokens are metered.
 export async function askAgent(
   supabase: SupabaseClient,
   workspace: { id: string; name: string },
@@ -39,8 +41,13 @@ export async function askAgent(
   while (turns[0].role !== "user") turns.shift();
 
   const route = await resolveRoute(workspace.id);
+  const live = await liveOdooFor(workspace.id);
   const runTool = async (name: string, input: Record<string, unknown>) => {
     if (!TOOL_NAMES.has(name)) throw new Error(`Unknown tool ${name}`);
+    if (live) {
+      await meterToolCall(workspace.id, name, "web", userId);
+      return runLiveTool(live, workspace.name, name, input);
+    }
     const { data, error } = await supabase.rpc("agent_tool", { p_tenant_id: workspace.id, p_tool: name, p_args: input });
     if (error) throw new Error(error.message);
     return data ?? null;

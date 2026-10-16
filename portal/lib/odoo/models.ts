@@ -7,7 +7,7 @@ export const ODOO_MODEL_CHOICES: OdooModelChoice[] = [
   { model: "x_c21_listing", label: "Listings", hint: "C21 property listings (放盤管理)", c21Only: true },
 ];
 
-// Odoo models copied by default when connecting a new Odoo source.
+// Odoo models Genie may read when none are ticked explicitly.
 export const DEFAULT_ODOO_MODELS = "res.partner, crm.lead";
 
 // Odoo Online addresses (<name>.odoo.com) use <name> as the database name.

@@ -1,5 +1,5 @@
-// The agent's tools. Same names and behaviour as the MCP server's tools; executed through the
-// agent_tool() database function as the signed-in member (shared/ migration 20261015000800).
+// The agent's tools. Same names and behaviour as the MCP server's tools. With Odoo switched on
+// they read Odoo live (lib/odoo/source.ts); otherwise agent_tool() over the demo data.
 
 export type ToolSpec = {
   name: string;
@@ -16,7 +16,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
   {
     name: "search_records",
     description:
-      "Keyword search over the company's synced records (contacts, products, sales orders, listings, policies, ...). " +
+      "Keyword search over the company's records (contacts, products, sales orders, listings, policies, ...). " +
       "Matches titles, text and field values, including Chinese. Optionally limit to one object_type from workspace_info. " +
       "Returns id, type, title and a snippet; call get_record for all fields.",
     input_schema: {
@@ -34,7 +34,7 @@ export const AGENT_TOOLS: ToolSpec[] = [
     description: "All fields of one record, by the id from search_records or find_contact.",
     input_schema: {
       type: "object",
-      properties: { id: { type: "string", description: "Record id (UUID)." } },
+      properties: { id: { type: "string", description: "Record id exactly as returned, e.g. \"res.partner:42\"." } },
       required: ["id"],
       additionalProperties: false,
     },

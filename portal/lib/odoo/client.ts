@@ -32,6 +32,15 @@ export class OdooClient {
     return legacy;
   }
 
+  // A client for a source already checked at connect time: JSON-2 needs no handshake; the older
+  // API still has to log in for its user id.
+  static async open(cfg: OdooConfig, mode: OdooMode): Promise<OdooClient> {
+    if (mode === "json2") return new OdooClient(cfg, "json2");
+    const legacy = new OdooClient(cfg, "jsonrpc");
+    await legacy.login();
+    return legacy;
+  }
+
   async call<T = unknown>(model: string, method: string, kwargs: Record<string, unknown>): Promise<T> {
     return this.mode === "json2" ? this.callJson2<T>(model, method, kwargs) : this.callJsonRpc<T>(model, method, kwargs);
   }
