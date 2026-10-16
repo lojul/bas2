@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
-import { SLACK_SIGNING_SECRET, SLACK_TOKEN_SECRET, type SlackSettings, slackApi, validFallbackUrl } from "@/lib/slack/slack";
+import { SLACK_SIGNING_SECRET, SLACK_TOKEN_SECRET, type SlackSettings, slackApi } from "@/lib/slack/slack";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
@@ -54,10 +54,6 @@ export async function connectSlack(_prev: FormState, formData: FormData): Promis
     if (error) return { error: `Could not save the signing secret: ${error.message}` };
   }
 
-  const fallbackRaw = String(formData.get("fallback_url") ?? "").trim();
-  const fallback = fallbackRaw ? validFallbackUrl(fallbackRaw) : null;
-  if (fallbackRaw && !fallback) return { error: "The previous bot's address must be an https:// address outside Genie." };
-
   const settings = await readSettings(supabase, workspace.id);
   const channels = (settings.channels as Record<string, unknown> | undefined) ?? {};
   const before = (channels.slack as SlackSettings | undefined) ?? {};
@@ -68,7 +64,6 @@ export async function connectSlack(_prev: FormState, formData: FormData): Promis
     bot_name: auth.user,
     connected_at: before.connected_at ?? new Date().toISOString(),
     enabled: before.enabled ?? true,
-    fallback_url: fallback,
   };
   const { error } = await supabase.from("tenants").update({ settings: { ...settings, channels: { ...channels, slack } } }).eq("id", workspace.id);
   if (error) return { error: `Could not save: ${error.message}` };
@@ -99,7 +94,7 @@ export async function testSlack(_prev: FormState, formData: FormData): Promise<F
   return { ok: `✓ Connected in ${((Date.now() - started) / 1000).toFixed(1)} s — ${auth.team}, bot @${auth.user}.` };
 }
 
-// The on/off switch: who answers in Slack — Genie, or (off) the previous bot / nobody. Keys stay.
+// The Slack on/off switch. Keys stay saved, so switching back on is instant.
 export async function setSlackEnabled(formData: FormData) {
   const slug = String(formData.get("slug"));
   const { supabase, workspace } = await context(slug);
