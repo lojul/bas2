@@ -1,6 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { type AiModelSettings, BYOK_ORDER } from "./models";
 import type { ToolSpec } from "./tools";
 
 // Model gateway: picks the AI provider and key for a workspace, then runs one tool-use loop on it.
@@ -31,17 +32,18 @@ export type LoopResult = {
 const OPENROUTER_HK_MODELS = ["qwen/qwen3.8-max-0902", "deepseek/deepseek-v4-pro-0813", "z-ai/glm-5.3"];
 const OPENROUTER_MAX_MODELS = 3;
 
-function openRouterModels(): string[] {
+// The workspace's choice (Settings → AI model keys) comes first, then GENIE_OPENROUTER_MODEL, then the
+// Hong Kong-safe list as fallbacks.
+function openRouterModels(chosen?: string): string[] {
   const configured = (process.env.GENIE_OPENROUTER_MODEL ?? "").split(",").map((m) => m.trim()).filter(Boolean);
-  return [...new Set([...configured, ...OPENROUTER_HK_MODELS])].slice(0, OPENROUTER_MAX_MODELS);
+  return [...new Set([...(chosen ? [chosen] : []), ...configured, ...OPENROUTER_HK_MODELS])].slice(0, OPENROUTER_MAX_MODELS);
 }
 
 const MODELS: Record<ProviderId, string> = {
   anthropic: process.env.GENIE_ANTHROPIC_MODEL ?? "claude-opus-5-5",
   openrouter: openRouterModels().join(","),
-  xai: process.env.GENIE_XAI_MODEL ?? "grok-4",
+  xai: process.env.GENIE_XAI_MODEL ?? "grok-4.7",
 };
-const BYOK_ORDER: ProviderId[] = ["anthropic", "openrouter", "xai"];
 const MAX_STEPS = 8;
 const MAX_TOKENS = 4096;
 
@@ -49,13 +51,16 @@ export class GatewayError extends Error {}
 
 export async function resolveRoute(tenantId: string): Promise<Route> {
   const admin = createAdminClient();
+  const { data: tenant } = await admin.from("tenants").select("settings").eq("id", tenantId).maybeSingle<{ settings: { ai_models?: AiModelSettings } | null }>();
+  const chosen = tenant?.settings?.ai_models ?? {};
+  const modelFor = (provider: ProviderId) => (provider === "openrouter" ? openRouterModels(chosen.openrouter).join(",") : chosen[provider] ?? MODELS[provider]);
   for (const provider of BYOK_ORDER) {
     const { data, error } = await admin.rpc("get_tenant_secret", { p_tenant_id: tenantId, p_name: `ai_${provider}` });
     if (error) throw new GatewayError(`Could not read workspace AI keys: ${error.message}`);
-    if (typeof data === "string" && data) return { provider, apiKey: data, model: MODELS[provider], keySource: "byok" };
+    if (typeof data === "string" && data) return { provider, apiKey: data, model: modelFor(provider), keySource: "byok" };
   }
   if (process.env.OPENROUTER_API_KEY) {
-    return { provider: "openrouter", apiKey: process.env.OPENROUTER_API_KEY, model: MODELS.openrouter, keySource: "platform" };
+    return { provider: "openrouter", apiKey: process.env.OPENROUTER_API_KEY, model: modelFor("openrouter"), keySource: "platform" };
   }
   throw new GatewayError(
     "No AI key available: add one under Settings → AI model keys, or set OPENROUTER_API_KEY on the server.",
