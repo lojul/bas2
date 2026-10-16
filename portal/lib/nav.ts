@@ -1,5 +1,5 @@
 // Workspace sidebar items and the page heading each one shows. Safe for client components.
-export type NavKey = "overview" | "ask" | "members" | "settings" | "help";
+export type NavKey = "ask" | "members" | "settings" | "help";
 
 export type NavItem = {
   key: NavKey;
@@ -11,8 +11,14 @@ export type NavItem = {
 };
 
 export const NAV: NavItem[] = [
-  { key: "overview", path: "", label: "Overview", title: "Overview", subtitle: "Your workspace at a glance and what to set up next." },
-  { key: "ask", path: "/ask", label: "Ask", title: "Ask", subtitle: "Ask questions about your company's data in plain language." },
+  // Ask is the workspace's home page (/app/<slug> redirects here; the Overview page was removed 2026-10-16).
+  {
+    key: "ask",
+    path: "/ask",
+    label: "Ask",
+    title: "Ask",
+    subtitle: "Ask about your company's data in plain language. Answers come only from your own systems; the conversation is not saved.",
+  },
   { key: "members", path: "/members", label: "Team", title: "Team", subtitle: "Who can use this workspace, and what they can change." },
   {
     key: "settings",

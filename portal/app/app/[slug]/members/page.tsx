@@ -34,6 +34,10 @@ export default async function MembersPage({ params }: PageProps<"/app/[slug]/mem
 
   return (
     <div className="space-y-6">
+      <p className="text-sm text-genie-muted">
+        {members.length} {members.length === 1 ? "member" : "members"} · <span className="capitalize">{workspace.plan}</span> plan
+        {workspace.document_addon ? " + documents" : ""}
+      </p>
       {manage && (
         <section className="card">
           <h2 className="font-medium">Invite someone</h2>
