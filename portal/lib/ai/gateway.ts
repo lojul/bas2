@@ -20,6 +20,7 @@ export type LoopResult = {
   inputTokens: number;
   outputTokens: number;
   toolCalls: string[];
+  steps: { modelMs: number; toolMs: number }[];
   stopped?: "max_steps" | "refusal";
 };
 
@@ -74,9 +75,10 @@ export function runLoop(route: Route, system: string, history: ChatTurn[], tools
 async function runAnthropic(route: Route, system: string, history: ChatTurn[], tools: ToolSpec[], run: ToolRunner) {
   const client = new Anthropic({ apiKey: route.apiKey });
   const messages: Anthropic.Beta.BetaMessageParam[] = history.map((t) => ({ role: t.role, content: t.content }));
-  const result: LoopResult = { text: "", model: route.model, inputTokens: 0, outputTokens: 0, toolCalls: [] };
+  const result: LoopResult = { text: "", model: route.model, inputTokens: 0, outputTokens: 0, toolCalls: [], steps: [] };
 
   for (let step = 0; step < MAX_STEPS; step++) {
+    const t0 = Date.now();
     const response = await client.beta.messages.create({
       model: route.model,
       max_tokens: MAX_TOKENS,
@@ -88,6 +90,8 @@ async function runAnthropic(route: Route, system: string, history: ChatTurn[], t
       fallbacks: "default",
       betas: ["server-side-fallback-2026-07-01"],
     });
+    const timing = { modelMs: Date.now() - t0, toolMs: 0 };
+    result.steps.push(timing);
     result.model = response.model;
     result.inputTokens += response.usage.input_tokens + (response.usage.cache_read_input_tokens ?? 0);
     result.outputTokens += response.usage.output_tokens;
@@ -109,17 +113,21 @@ async function runAnthropic(route: Route, system: string, history: ChatTurn[], t
       return result;
     }
 
-    const toolResults: Anthropic.Beta.BetaToolResultBlockParam[] = [];
-    for (const block of response.content) {
-      if (block.type !== "tool_use") continue;
-      result.toolCalls.push(block.name);
-      try {
-        const output = await run(block.name, (block.input ?? {}) as Record<string, unknown>);
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: JSON.stringify(output) });
-      } catch (e) {
-        toolResults.push({ type: "tool_result", tool_use_id: block.id, content: errorText(e), is_error: true });
-      }
-    }
+    // Run this step's lookups at the same time.
+    const t1 = Date.now();
+    const uses = response.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use");
+    const toolResults: Anthropic.Beta.BetaToolResultBlockParam[] = await Promise.all(
+      uses.map(async (block) => {
+        result.toolCalls.push(block.name);
+        try {
+          const output = await run(block.name, (block.input ?? {}) as Record<string, unknown>);
+          return { type: "tool_result" as const, tool_use_id: block.id, content: JSON.stringify(output) };
+        } catch (e) {
+          return { type: "tool_result" as const, tool_use_id: block.id, content: errorText(e), is_error: true };
+        }
+      }),
+    );
+    timing.toolMs = Date.now() - t1;
     messages.push({ role: "user", content: toolResults });
   }
   result.stopped = "max_steps";
@@ -148,9 +156,10 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
     type: "function" as const,
     function: { name: t.name, description: t.description, parameters: t.input_schema },
   }));
-  const result: LoopResult = { text: "", model: route.model, inputTokens: 0, outputTokens: 0, toolCalls: [] };
+  const result: LoopResult = { text: "", model: route.model, inputTokens: 0, outputTokens: 0, toolCalls: [], steps: [] };
 
   for (let step = 0; step < MAX_STEPS; step++) {
+    const t0 = Date.now();
     const res = await fetch(`${base}/chat/completions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${route.apiKey}`, "Content-Type": "application/json" },
@@ -171,6 +180,8 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
       usage?: { prompt_tokens?: number; completion_tokens?: number };
       choices: { finish_reason: string; message: { content: string | null; tool_calls?: OaiToolCall[] } }[];
     };
+    const timing = { modelMs: Date.now() - t0, toolMs: 0 };
+    result.steps.push(timing);
     result.model = body.model ?? route.model;
     result.inputTokens += body.usage?.prompt_tokens ?? 0;
     result.outputTokens += body.usage?.completion_tokens ?? 0;
@@ -183,17 +194,21 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
       return result;
     }
     messages.push({ role: "assistant", content: msg.content, tool_calls: calls });
-    for (const call of calls) {
-      result.toolCalls.push(call.function.name);
-      let content: string;
-      try {
-        const input = call.function.arguments ? JSON.parse(call.function.arguments) : {};
-        content = JSON.stringify(await run(call.function.name, input));
-      } catch (e) {
-        content = `Error: ${errorText(e)}`;
-      }
-      messages.push({ role: "tool", tool_call_id: call.id, content });
-    }
+    // Run this step's lookups at the same time; answers go back in the order they were asked.
+    const t1 = Date.now();
+    const outputs = await Promise.all(
+      calls.map(async (call) => {
+        result.toolCalls.push(call.function.name);
+        try {
+          const input = call.function.arguments ? JSON.parse(call.function.arguments) : {};
+          return JSON.stringify(await run(call.function.name, input));
+        } catch (e) {
+          return `Error: ${errorText(e)}`;
+        }
+      }),
+    );
+    timing.toolMs = Date.now() - t1;
+    calls.forEach((call, i) => messages.push({ role: "tool", tool_call_id: call.id, content: outputs[i] }));
   }
   result.stopped = "max_steps";
   result.text = "I couldn't finish within the step limit. Try a narrower question.";
@@ -205,7 +220,7 @@ async function runOpenAICompatible(route: Route, system: string, history: ChatTu
 function modelFields(route: Route) {
   if (route.provider !== "openrouter") return { model: route.model };
   const models = route.model.split(",").map((m) => m.trim()).filter(Boolean);
-  return { model: models[0], models, provider: { data_collection: "deny" } };
+  return { model: models[0], models, provider: { data_collection: "deny" }, reasoning: { effort: "low" }, parallel_tool_calls: true };
 }
 
 function errorText(e: unknown) {

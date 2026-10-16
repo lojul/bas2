@@ -103,7 +103,7 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
   return (
     <div className="flex h-full flex-col gap-4 py-4">
       <div>
-        <p className="mb-1 flex items-center gap-1 px-2 text-[11px] font-medium uppercase tracking-wide text-genie-muted">
+        <p className="mb-1 flex items-center gap-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">
           <ChevronDown size={12} /> Workspace
         </p>
         <nav className="space-y-px">
@@ -127,7 +127,7 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
       </div>
 
       <div>
-        <p className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wide text-genie-muted">Data sources</p>
+        <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">Data sources</p>
         <Link
           href={`${base}/settings#data-sources`}
           onClick={onNavigate}

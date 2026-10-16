@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Send } from "lucide-react";
 import { ask } from "./actions";
+import { Answer } from "./answer";
 
 type Turn = { role: "user" | "assistant"; content: string; meta?: string; error?: boolean };
 
@@ -56,20 +57,20 @@ export function Chat({ slug, initialQuestion = "" }: { slug: string; initialQues
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "flex justify-end" : ""}>
             <div
-              className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3.5 py-2.5 text-sm ${
+              className={`max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm ${
                 t.role === "user"
-                  ? "bg-genie-accent text-genie-ink"
+                  ? "whitespace-pre-wrap bg-genie-accent text-genie-ink"
                   : t.error
                     ? "border border-red-200 bg-red-50 text-red-800"
                     : "border border-genie-border bg-genie-card"
               }`}
             >
-              {t.content}
+              {t.role === "assistant" && !t.error ? <Answer text={t.content} /> : t.content}
               {t.meta && <div className="mt-2 text-xs text-genie-muted">{t.meta}</div>}
             </div>
           </div>
         ))}
-        {pending && <div className="text-sm text-genie-muted">Looking it up…</div>}
+        {pending && <div className="animate-pulse text-sm text-genie-muted">Looking it up in your data sources…</div>}
         <div ref={bottom} />
       </div>
 
