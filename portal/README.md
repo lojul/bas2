@@ -175,6 +175,9 @@ Served at **https://genie.infiniduo.com** by the Vercel project `nextjs-dashboar
 
 - Git repository `lojul/bas2`, production branch `main`
 - **Root Directory = `portal`**, framework preset Next.js, no build/output overrides
+- **Functions run in Singapore (`sin1`, `portal/vercel.json`)**, next to Supabase. Not Hong Kong:
+  Anthropic does not serve Hong Kong, and OpenRouter refused Claude requests from `hkg1` with
+  "prohibited due to a violation of provider Terms Of Service" (2026-10-16).
 - Environment variables: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
   `NEXT_PUBLIC_SITE_URL=https://genie.infiniduo.com` (production)
 
