@@ -2,10 +2,11 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
-import { type OdooModelChoice, guessOdooDb } from "@/lib/odoo/models";
+import { BRAND } from "@/lib/brand";
+import { guessOdooDb } from "@/lib/odoo/models";
 import { connectOdoo, connectSearch, removeSource } from "./actions";
 
-export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelChoice[] }) {
+export function OdooForm({ slug }: { slug: string }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
   const [url, setUrl] = useState("");
   // Hide the last result as soon as the user changes something, so an old error doesn't linger.
@@ -57,31 +58,19 @@ export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelCh
           <p className="mt-1 text-xs text-genie-muted">Older Odoo versions need the login together with the API key. Leave empty for Odoo 19 or newer.</p>
         </div>
       </details>
-      <fieldset>
-        <legend className="label">What to copy into Genie</legend>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {choices.map((c) => (
-            <label key={c.model} className="flex cursor-pointer items-start gap-2 rounded-lg border border-genie-border bg-white p-3 text-sm has-[:checked]:border-genie-green">
-              <input type="checkbox" name="models" value={c.model} defaultChecked className="mt-0.5 accent-genie-green" />
-              <span>
-                <span className="block font-medium">{c.label}</span>
-                <span className="block text-xs text-genie-muted">{c.hint}</span>
-              </span>
-            </label>
-          ))}
-        </div>
-        <details className="mt-2 text-sm">
-          <summary className="cursor-pointer text-genie-muted">More Odoo data (advanced)</summary>
-          <label htmlFor="extra_models" className="mt-2 block text-xs text-genie-muted">
-            Odoo&apos;s internal names, separated by commas — e.g. <span className="font-mono">sale.order, product.template</span>. Your Odoo administrator can find them under Settings → Technical → Models.
-          </label>
-          <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" />
-        </details>
-      </fieldset>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-genie-muted">Other Odoo data (optional)</summary>
+        <p className="mt-2 text-xs text-genie-muted">
+          {BRAND.name}{" "}reads contacts, CRM leads and listings by itself. To add other Odoo data, list Odoo&apos;s internal
+          names, separated by commas — e.g. <span className="font-mono">sale.order, product.template</span> (Settings →
+          Technical → Models in Odoo).
+        </p>
+        <input id="extra_models" name="extra_models" className="input mt-1 font-mono" placeholder="sale.order, product.template" aria-label="Other Odoo data" />
+      </details>
       <button type="submit" className="btn" disabled={pending}>
         {pending ? "Checking with Odoo…" : "Turn on"}
       </button>
-      <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo first. Afterwards Ask and AI agents read Odoo live; nothing is copied into Genie.</p>
+      <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo first. It can then read whatever that Odoo user may see — live, nothing copied.</p>
       {!stale && <FormMessage state={state} />}
     </form>
   );
@@ -107,7 +96,7 @@ export function Switch({ on, onClick, label, disabled }: { on: boolean; onClick?
 }
 
 // Odoo when off: the switch opens the connection form.
-export function OdooOff({ slug, choices, intro }: { slug: string; choices: OdooModelChoice[]; intro: React.ReactNode }) {
+export function OdooOff({ slug, intro }: { slug: string; intro: React.ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="space-y-4">
@@ -121,7 +110,7 @@ export function OdooOff({ slug, choices, intro }: { slug: string; choices: OdooM
       {open && (
         <div className="space-y-3 border-t border-genie-border pt-4">
           {intro}
-          <OdooForm slug={slug} choices={choices} />
+          <OdooForm slug={slug} />
         </div>
       )}
     </div>
