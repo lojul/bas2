@@ -5,7 +5,7 @@ import { BRAND } from "@/lib/brand";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 
-async function count(table: "sources" | "records" | "documents" | "tenant_members", tenantId: string) {
+async function count(table: "sources" | "tenant_members", tenantId: string) {
   const supabase = await createClient();
   const { count } = await supabase.from(table).select("*", { count: "exact", head: true }).eq("tenant_id", tenantId);
   return count ?? 0;
@@ -18,10 +18,8 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
   const workspace = (await getWorkspace(user.id, slug))!;
 
   const supabase = await createClient();
-  const [sources, records, documents, members, keys] = await Promise.all([
+  const [sources, members, keys] = await Promise.all([
     count("sources", workspace.id),
-    count("records", workspace.id),
-    count("documents", workspace.id),
     count("tenant_members", workspace.id),
     canManage(workspace.role)
       ? supabase.from("tenant_secrets").select("id", { count: "exact", head: true }).eq("tenant_id", workspace.id).eq("kind", "ai_key").then((r) => r.count ?? 0)
@@ -30,9 +28,7 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
 
   const stats = [
     { label: "Members", value: members },
-    { label: "Connected sources", value: sources },
-    { label: "Synced records", value: records },
-    { label: "Documents", value: documents },
+    { label: "Data sources (read live)", value: sources },
   ];
 
   const steps = [
@@ -41,13 +37,13 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
     ...(keys !== null
       ? [{ done: keys > 0, text: "Add your own AI key (optional — the platform key is used otherwise)", href: `/app/${slug}/settings#ai-keys` }]
       : []),
-    { done: sources > 0, text: "Connect a data source — Odoo now; SQL database and spreadsheet next", href: `/app/${slug}/settings#data-sources` },
+    { done: sources > 0, text: "Turn on a data source — Odoo now; SQL databases next", href: `/app/${slug}/settings#data-sources` },
   ];
 
   const shortcuts = [
     { href: `/app/${slug}/ask`, icon: MessagesSquare, title: "Ask a question", text: "Search your data in plain language" },
     ...(canManage(workspace.role)
-      ? [{ href: `/app/${slug}/settings#data-sources`, icon: Database, title: "Data sources", text: "Connect Odoo and sync records" }]
+      ? [{ href: `/app/${slug}/settings#data-sources`, icon: Database, title: "Data sources", text: "Turn Odoo on — read live, nothing stored" }]
       : []),
     { href: `/app/${slug}/members`, icon: Users, title: "Team", text: "Invite colleagues and set roles" },
     { href: `/app/${slug}/help`, icon: CircleHelp, title: "Help", text: "Step-by-step guides and beta limits" },
@@ -55,7 +51,7 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4">
         {stats.map((s) => (
           <div key={s.label} className="card p-4">
             <div className="text-2xl font-semibold">{s.value.toLocaleString()}</div>

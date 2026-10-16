@@ -3,12 +3,16 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { BRAND } from "@/lib/brand";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
+import type { LiveOdoo } from "@/lib/odoo/live";
+import { liveOdooFor, meterToolCall, runLiveTool } from "@/lib/odoo/source";
+import { createAdminClient, hasAdminClient } from "@/lib/supabase/admin";
 
-// The Genie MCP server: read tools over one workspace's synced data.
+// The Genie MCP server: read tools over one workspace's data.
 //
-// Every tool is a single call to a SECURITY DEFINER database function (shared/ migration
-// 20261015000700_mcp.sql) that resolves the API key to its workspace, meters the call and only
-// reads that workspace's rows. This server holds no database secret; it uses the public key.
+// With Odoo switched on, tools read Odoo live with the workspace's key from Vault (service role)
+// and nothing is stored (decided 2026-10-16). Otherwise each tool is a SECURITY DEFINER database
+// function over the workspace's demo data (shared/ migrations 20261015000700/0800), which checks
+// the API key and meters the call itself.
 
 type RpcError = { code?: string; message: string };
 
@@ -38,16 +42,52 @@ async function call(fn: string, args: Record<string, unknown>) {
   return asText(data ?? null);
 }
 
+type Live = { tenantId: string; workspaceName: string; odoo: LiveOdoo } | null;
+
+// Resolves the key to its workspace and live Odoo once per request (the server is per request).
+function liveResolver(apiKey: string) {
+  let pending: Promise<Live | RpcError> | null = null;
+  return () =>
+    (pending ??= (async () => {
+      if (!hasAdminClient()) return null;
+      const admin = createAdminClient();
+      const { data: tenantId } = await admin.rpc("mcp_key_tenant", { p_key: apiKey });
+      if (!tenantId) return { code: "28000", message: "invalid api key" };
+      try {
+        const odoo = await liveOdooFor(tenantId as string);
+        if (!odoo) return null;
+        const { data: t } = await admin.from("tenants").select("name").eq("id", tenantId).single<{ name: string }>();
+        return { tenantId: tenantId as string, workspaceName: t?.name ?? "", odoo };
+      } catch (e) {
+        return { message: e instanceof Error ? e.message : String(e) };
+      }
+    })());
+}
+
 const readOnly = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 
 export function createGenieMcpServer(apiKey: string) {
+  const resolve = liveResolver(apiKey);
+  // Live Odoo when switched on, else the database function over demo data.
+  const run = async (tool: string, args: Record<string, unknown>, fn: string, rpcArgs: Record<string, unknown>) => {
+    const live = await resolve();
+    if (live && "message" in live) return asError(live);
+    if (!live) return call(fn, { p_key: apiKey, ...rpcArgs });
+    await meterToolCall(live.tenantId, tool, "mcp");
+    try {
+      return asText(await runLiveTool(live.odoo, live.workspaceName, tool, args));
+    } catch (e) {
+      return asError({ message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
   const server = new McpServer(
     { name: `${BRAND.name.toLowerCase()}-mcp`, version: "0.1.0" },
     {
       instructions:
         `${BRAND.name} gives read access to one company's own business data (customers, contacts, products, ` +
-        `orders, listings, policies and documents), synced from its systems such as SQL databases, spreadsheets ` +
-        `or Odoo. Start with workspace_info to see what record types exist, then use search_records, ` +
+        `orders, listings, policies and documents), read live from its systems such as Odoo. ` +
+        `Nothing is copied into ${BRAND.name}, so results are current. Start with workspace_info to see what record types exist, then use search_records, ` +
         `find_contact or search_knowledge, and get_record for full details. Quote the record title or id ` +
         `when you use a fact, and say when nothing relevant was found instead of guessing.`,
     },
@@ -61,7 +101,7 @@ export function createGenieMcpServer(apiKey: string) {
       inputSchema: {},
       annotations: readOnly,
     },
-    () => call("mcp_workspace", { p_key: apiKey }),
+    () => run("workspace_info", {}, "mcp_workspace", {}),
   );
 
   server.registerTool(
@@ -69,7 +109,7 @@ export function createGenieMcpServer(apiKey: string) {
     {
       title: "Search records",
       description:
-        "Keyword search over the company's synced records (e.g. contacts, products, sales orders, listings, policies). " +
+        "Keyword search over the company's records (e.g. contacts, products, sales orders, listings, policies). " +
         "Matches titles, text and field values; works for Chinese too. Optionally limit to one object_type from workspace_info. " +
         "Returns id, type, title and a snippet; use get_record for all fields.",
       inputSchema: {
@@ -80,7 +120,11 @@ export function createGenieMcpServer(apiKey: string) {
       annotations: readOnly,
     },
     ({ query, object_type, limit }) =>
-      call("mcp_search_records", { p_key: apiKey, p_query: query ?? null, p_object_type: object_type ?? null, p_limit: limit ?? 10 }),
+      run("search_records", { query, object_type, limit }, "mcp_search_records", {
+        p_query: query ?? null,
+        p_object_type: object_type ?? null,
+        p_limit: limit ?? 10,
+      }),
   );
 
   server.registerTool(
@@ -88,10 +132,10 @@ export function createGenieMcpServer(apiKey: string) {
     {
       title: "Get record",
       description: "All fields of one record, by the id returned from search_records or find_contact.",
-      inputSchema: { id: z.uuid().describe("Record id.") },
+      inputSchema: { id: z.string().min(1).max(200).describe('Record id exactly as returned, e.g. "res.partner:42".') },
       annotations: readOnly,
     },
-    ({ id }) => call("mcp_get_record", { p_key: apiKey, p_id: id }),
+    ({ id }) => run("get_record", { id }, "mcp_get_record", { p_id: id }),
   );
 
   server.registerTool(
@@ -105,7 +149,7 @@ export function createGenieMcpServer(apiKey: string) {
       },
       annotations: readOnly,
     },
-    ({ query, limit }) => call("mcp_find_contact", { p_key: apiKey, p_query: query, p_limit: limit ?? 10 }),
+    ({ query, limit }) => run("find_contact", { query, limit }, "mcp_find_contact", { p_query: query, p_limit: limit ?? 10 }),
   );
 
   server.registerTool(
@@ -121,7 +165,7 @@ export function createGenieMcpServer(apiKey: string) {
       },
       annotations: readOnly,
     },
-    ({ query, limit }) => call("mcp_search_knowledge", { p_key: apiKey, p_query: query, p_limit: limit ?? 8 }),
+    ({ query, limit }) => run("search_knowledge", { query, limit }, "mcp_search_knowledge", { p_query: query, p_limit: limit ?? 8 }),
   );
 
   return server;

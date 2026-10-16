@@ -1,8 +1,8 @@
 // The newest change, shown once in the sidebar until the user closes it. Change `id` to show it again.
 export const WHATS_NEW = {
-  id: "2026-10-16-help-microsoft",
+  id: "2026-10-16-live",
   date: "16 Oct",
-  title: "New: Help, sidebar and sign-in options",
-  text: "Step-by-step help for connecting Odoo, AI keys and AI agents. Sign in with Google or Microsoft, and reset a forgotten password yourself.",
+  title: "New: Genie reads Odoo live",
+  text: "Turn Odoo on in Settings and Ask answers from your live Odoo data. Nothing is copied into Genie. Also new: Help, and sign-in with Google or Microsoft.",
   path: "/help", // relative to /app/<slug>
 } as const;

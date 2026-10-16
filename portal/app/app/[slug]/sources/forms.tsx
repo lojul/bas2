@@ -2,9 +2,8 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
-import { SubmitButton } from "@/components/submit-button";
-import { type OdooModelChoice, guessOdooDb } from "@/lib/sync/models";
-import { connectOdoo, syncSource } from "./actions";
+import { type OdooModelChoice, guessOdooDb } from "@/lib/odoo/models";
+import { connectOdoo, removeSource } from "./actions";
 
 export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelChoice[] }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
@@ -80,22 +79,77 @@ export function OdooForm({ slug, choices }: { slug: string; choices: OdooModelCh
         </details>
       </fieldset>
       <button type="submit" className="btn" disabled={pending}>
-        {pending ? "Checking the connection…" : "Connect and save"}
+        {pending ? "Checking with Odoo…" : "Turn on"}
       </button>
-      <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo, then saves them. Nothing is copied until you press Sync now.</p>
+      <p className="text-xs text-genie-muted">Genie checks the address and key with Odoo first. Afterwards Ask and AI agents read Odoo live; nothing is copied into Genie.</p>
       {!stale && <FormMessage state={state} />}
     </form>
   );
 }
 
-export function SyncButton({ slug, sourceId }: { slug: string; sourceId: string }) {
-  const [state, action] = useActionState(syncSource, undefined);
+// Visual on/off switch (a button: turning on opens the form, turning off asks to confirm).
+export function Switch({ on, onClick, label, disabled }: { on: boolean; onClick?: () => void; label: string; disabled?: boolean }) {
   return (
-    <form action={action}>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+        on ? "bg-genie-green" : "bg-genie-border"
+      }`}
+    >
+      <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : "translate-x-0.5"}`} />
+    </button>
+  );
+}
+
+// Odoo when off: the switch opens the connection form.
+export function OdooOff({ slug, choices, intro }: { slug: string; choices: OdooModelChoice[]; intro: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="font-medium">Odoo</h3>
+          <p className="text-sm text-genie-muted">Off — Genie can&apos;t see your Odoo.</p>
+        </div>
+        <Switch on={open} onClick={() => setOpen(!open)} label="Turn Odoo on" />
+      </div>
+      {open && (
+        <div className="space-y-3 border-t border-genie-border pt-4">
+          {intro}
+          <OdooForm slug={slug} choices={choices} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Odoo when on: the switch asks once, then turns it off (forgets the address and key).
+export function OdooOffSwitch({ slug, sourceId }: { slug: string; sourceId: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  if (!confirming) return <Switch on onClick={() => setConfirming(true)} label="Turn Odoo off" />;
+  return (
+    <form
+      action={async (data) => {
+        setPending(true);
+        await removeSource(data);
+      }}
+      className="flex items-center gap-2 text-sm"
+    >
       <input type="hidden" name="slug" value={slug} />
       <input type="hidden" name="source_id" value={sourceId} />
-      <SubmitButton className="btn-secondary" pendingText="Syncing… (can take a minute)">Sync now</SubmitButton>
-      <FormMessage state={state} />
+      <span className="text-genie-muted">Turn off and forget the key?</span>
+      <button type="submit" disabled={pending} className="btn-secondary px-3 py-1 text-genie-danger">
+        {pending ? "Turning off…" : "Turn off"}
+      </button>
+      <button type="button" onClick={() => setConfirming(false)} className="text-genie-muted underline underline-offset-2">
+        Cancel
+      </button>
     </form>
   );
 }

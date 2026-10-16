@@ -15,13 +15,13 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
     listMyWorkspaces(user.id),
     supabase
       .from("sources")
-      .select("name, status, last_synced_at")
+      .select("name, status")
       .eq("tenant_id", workspace.id)
-      .order("last_synced_at", { ascending: false, nullsFirst: false })
+      .order("created_at")
       .limit(1),
   ]);
   const first = sources?.[0];
-  const source: SourceStatus = first ? { name: first.name, status: first.status, lastSyncedAt: first.last_synced_at } : null;
+  const source: SourceStatus = first ? { name: first.name, status: first.status } : null;
 
   return (
     <WorkspaceShell

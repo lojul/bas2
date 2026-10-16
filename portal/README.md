@@ -22,7 +22,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/[slug]/help` | members | Help centre: searchable articles by topic (`lib/help.ts`) |
 | `/app/[slug]/ask` | members | Chat with the workspace's data (agent + model gateway, below) |
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
-| `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (connect Odoo, Sync now), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
+| `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (Odoo on/off, read live), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
 | `/api/mcp` | API key | Genie MCP server (see below) |
 | `/invite/[token]` | signed in | Accept an invitation (`accept_invitation`); must be signed in with the invited email |
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
@@ -65,9 +65,10 @@ comes later, together with a custom SMTP sender (see below).
 | `find_contact` | `mcp_find_contact` | people/companies by name, email or phone digits |
 | `search_knowledge` | `mcp_search_knowledge` | passages from policies and documents |
 
-All tools are read-only. The server holds no database secret: it calls the `mcp_*` functions with
-the public key, and the database checks the API key and limits every query to that workspace.
-Each call is metered as a `tool_call` usage event.
+All tools are read-only. With Odoo on, the server turns the API key into its workspace
+(`mcp_key_tenant`, service role), reads Odoo live with the workspace's key from Vault and stores
+nothing. Without Odoo it calls the `mcp_*` database functions with the public key over the demo
+data. Each call is metered as a `tool_call` usage event.
 
 Claude Desktop (`claude_desktop_config.json`), via `mcp-remote`:
 
@@ -95,20 +96,26 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
 - Server-only env vars: `SUPABASE_SECRET_KEY`, `OPENROUTER_API_KEY` — mark them
   Sensitive in Vercel, never `NEXT_PUBLIC_`.
 
-## Data sources (`lib/sync`)
+## Data sources (`lib/odoo`) — read live, nothing stored
 
-**Odoo** (`lib/sync/odoo.ts`, `lib/sync/odoo-sync.ts`), read-only:
-- Connect with address, database, API key (and login email for Odoo 18 or older). The client tries
-  the JSON-2 API (`/json/2/<model>/<method>`, Odoo 19+) and falls back to the legacy JSON-RPC
-  endpoint (`/jsonrpc`, `execute_kw`). The key goes to Vault (`tenant_secrets`, kind `connector`);
-  the source row keeps only non-secret settings.
-- **Sync now** copies each listed model into `records` with the service role: stored text, number,
-  date, selection and many2one fields (many2one -> name, selection -> label, HTML -> text), up to
-  5,000 rows per model per run, then only rows changed since the last sync (`write_date`).
-  Object types: `res.partner` -> `contact`, `crm.lead` -> `lead`, `x_c21_listing` -> `listing`,
-  others keep the model name. Meters `synced_record`.
-- Not yet: scheduled sync, deletions (rows removed in Odoo stay until the source is removed),
-  field mapping screen, SQL and CSV sources.
+**Decided 2026-10-16: Genie keeps no copy of customer business data.** Tools read the customer's
+system at question time; Genie stores only the connection (address, settings) and the API key (Vault).
+
+**Odoo** (`lib/odoo/client.ts`, `lib/odoo/live.ts`, `lib/odoo/source.ts`), read-only:
+- Settings → Data sources shows an on/off card. Turning it on asks for the address and API key
+  (database name only for self-hosted Odoo; login email only for Odoo 18 or older), checks them with
+  Odoo, and saves the source (`status = active`) and the key in Vault. Turning it off deletes both.
+- The client tries the JSON-2 API (`/json/2/<model>/<method>`, Odoo 19+) and falls back to the
+  legacy JSON-RPC endpoint (`/jsonrpc`, `execute_kw`).
+- Tools (`runLiveTool`): `workspace_info` (types + live counts), `search_records` (every word must
+  match one of up to 8 text fields, `ilike`, newest first), `get_record` (id `<model>:<odoo id>`, all
+  readable stored fields, many2one → name, selection → label, HTML → text, plus a link to Odoo),
+  `find_contact` (`res.partner` by name/email/phone, phone also on the last 8 digits),
+  `search_knowledge` (empty until a document source exists). Field lists are cached 10 minutes.
+- Used by Ask (`lib/ai/agent.ts`) and the MCP server (`lib/mcp/server.ts`) whenever the workspace has
+  Odoo on; each call is metered as `tool_call`. Workspaces without Odoo (the demo tenant) still use
+  the database tools over `records`.
+- Not yet: SQL databases (live, read-only), meaning-based search.
 
 ## Run locally
 

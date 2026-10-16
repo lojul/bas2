@@ -7,11 +7,11 @@ import { KeysSection } from "../keys/section";
 import { SourcesSection } from "../sources/section";
 
 export const metadata: Metadata = { title: "Settings" };
-// "Sync now" (data sources) runs inside this page's server action.
-export const maxDuration = 300;
+// Turning Odoo on checks the connection with Odoo inside this page's server action.
+export const maxDuration = 60;
 
 const SECTIONS = [
-  { id: "data-sources", title: "Data sources", hint: "Where the workspace's data comes from (Odoo, and later SQL and CSV)." },
+  { id: "data-sources", title: "Data sources", hint: "Systems Genie reads live when someone asks. Nothing is copied into Genie." },
   { id: "ai-keys", title: "AI model keys", hint: "Optional: your own Anthropic, OpenRouter or xAI key instead of the platform key." },
   { id: "ai-agents", title: "AI agent access (MCP)", hint: "API keys that let Claude, ChatGPT or your own agents read this workspace." },
 ] as const;

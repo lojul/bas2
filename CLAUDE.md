@@ -12,9 +12,16 @@ https://claude.ai/code/artifact/90d4a48f-0eab-4a0e-b01e-0fbfed1edef5
 Full reasoning, connector catalog and pricing: tab "SaaS, connectors and Odoo" in the plan doc above.
 
 **What BAS 2.0 is:** the AI layer over a company's own data. It reads the customer's systems
-(SQL database, documents, or a business system such as Odoo) into one searchable store, and
-staff talk to it on web, Slack, WhatsApp and Teams; outside AI agents use the same tools
+(SQL database, documents, or a business system such as Odoo) **live, at the moment a question is
+asked**, and staff talk to it on web, Slack, WhatsApp and Teams; outside AI agents use the same tools
 through the BAS MCP server. The customer's system stays the system of record.
+
+**No copy of customer data (user decision 2026-10-16):** "we don't store stuff in Genie, we should
+not." Genie stores only accounts, workspaces, members, connection details, encrypted keys (Vault) and
+usage counts — never the customer's records. The earlier "copy into one searchable store" design
+(sync, `records` table) is retired for customer data; `records` only holds the synthetic demo tenant
+until it gets its own demo SQL database. Consequences: no sync jobs, no embedding index of customer
+data; CSV upload and the document add-on need a design that reads files where they live.
 
 **Decisions**
 - Product working name: **Genie** (genie.infiniduo.com). Final name chosen before public launch;
@@ -33,7 +40,7 @@ through the BAS MCP server. The customer's system stays the system of record.
   ordinary tenant by connecting its own Odoo — no data migration into our Odoo 20.
 - AI: bring-your-own-key (Anthropic, xAI/Grok, OpenRouter, Azure OpenAI) through one model
   gateway, plus our own metered key as the default.
-- Billing: Stripe Billing + customer portal; meter messages, OCR pages, tokens and synced
+- Billing: Stripe Billing + customer portal; meter messages, OCR pages, tokens and tool
   records per tenant from day one.
 
 **Demo data (proposed, to confirm)** — tenant B is seeded in `genie` as *Harbour Supplies (Demo)*
@@ -57,12 +64,11 @@ through the BAS MCP server. The customer's system stays the system of record.
    Still open: email sending (custom SMTP, e.g. Resend) — until then Supabase only emails members of the
    Supabase organisation, so invites/resets/sign-up confirmations don't reach customers; Google sign-in
    is in Testing mode (only listed test users) until published.
-3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
-   **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo
-   (workspace `Century 21 (C21)`, slug `c21`): portal → workspace → Settings → Data sources. Read-only, JSON-2 with
-   JSON-RPC fallback, key in Vault, manual "Sync now". Lives in `portal/lib/sync` for now. The Connect
-   form uses plain checkboxes (Contacts, CRM leads, Listings) and fills the database name from
-   `<name>.odoo.com` (C21: `c21net`). Still to come: scheduled sync, deletions, mapping screen, SQL/CSV.
+3. Data sources — Odoo first, then SQL; read live, nothing stored.
+   **Odoo live (2026-10-16)**: portal → workspace → Settings → Data sources → switch Odoo on (C21:
+   workspace `c21`, address `https://c21net.odoo.com`, database taken from the address). Ask and the MCP
+   server read Odoo at question time (`portal/lib/odoo`). The copy/sync design of 2026-10-15 is removed.
+   Still to come: SQL database (live, read-only); a way to handle CSV/documents without storing them.
 4. `outbound/` — BAS MCP server + agent: source-neutral versions of the property-chatbot tools
    (search records, search knowledge, find contact, create lead/record, web search),
    model gateway, per-tenant guardrails.
@@ -93,18 +99,18 @@ through the BAS MCP server. The customer's system stays the system of record.
   their own Anthropic key. Model: `GENIE_OPENROUTER_MODEL` (default `anthropic/claude-opus-5.5`).
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
-**Next (agreed 2026-10-16), in this order**
-0. User: connect C21's Odoo (workspace `c21` → Settings → Data sources → Sync now) and try 5–10 real
-   questions on Ask; their results decide what to fix first. *Not done yet.*
-1. Automatic daily sync (Vercel cron) + remove records deleted in Odoo.
-2. Fix what the C21 test questions show (e.g. listing search quality).
+**Next (updated 2026-10-16 after the no-copy decision), in this order**
+0. User: switch Odoo on for C21 and try 5–10 real questions on Ask; their results decide what to fix
+   first. *Not done yet.*
+1. Fix what the C21 test questions show (search quality on listings, speed).
+2. Turn "AI agent access (MCP)" into an on/off card like Odoo (proposed, not yet confirmed).
 3. Email sending via Resend (needs a Resend account + infiniduo.com DNS records) for invites, password
    resets and sign-up confirmations.
-4. CSV/spreadsheet upload and read-only SQL connector (needed for demo tenant B and the gate).
-5. Meaning-based search (embedding job + pgvector), so differently worded questions still match.
-6. Slack app + Stripe plans (build step 5).
-Also open: rotate the n8n keys (see Secrets); Supabase Pro before the first paying tenant; publish the
-Google consent screen when ready.
+4. Live read-only SQL connector; move demo tenant B's synthetic data into its own demo SQL database.
+5. Slack app + Stripe plans (build step 5).
+Dropped by the no-copy decision: scheduled sync, embedding index over customer data, CSV upload into
+Genie. Also open: rotate the n8n keys (see Secrets); Supabase Pro before the first paying tenant;
+publish the Google consent screen when ready.
 
 ## Which folder to use
 
@@ -118,7 +124,7 @@ Google consent screen when ready.
 | `legacy/document-processor-notes/` | Loose planning notes and the Obsidian vault that sat beside the document processor | — | Reference | — |
 | `shared/` | BAS 2.0 database schema: Supabase migrations, isolation test. See `shared/README.md`. | Supabase project `genie` (`xhaqzwznduxoosqtcrrm`) | Step 1 done | — |
 | `portal/` | Genie sign-up and workspace admin (Next.js 16 + Supabase Auth). See `portal/README.md`. | Vercel project `nextjs-dashboard` (team Infinity Duo Technology) → **genie.infiniduo.com**, Root Directory `portal` | Step 2 in progress | — |
-| `sync/`, `documents/`, `outbound/` | Reserved for BAS 2.0 parts that move out of the portal later. The Odoo sync, MCP server and agent currently live in `portal/` (`lib/sync`, `lib/mcp`, `lib/ai`). | Supabase + Vercel | Empty | — |
+| `sync/`, `documents/`, `outbound/` | Reserved for BAS 2.0 parts that move out of the portal later. The live Odoo reader, MCP server and agent currently live in `portal/` (`lib/odoo`, `lib/mcp`, `lib/ai`). | Supabase + Vercel | Empty | — |
 
 **Not in this repo, on purpose:**
 - `c21-leasing` (www.c21net.com) — the public website; different audience and lifecycle.
