@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleHelp,
   KeyRound,
-  LayoutDashboard,
   LayoutGrid,
   LogOut,
   Menu,
@@ -30,8 +29,7 @@ import { WHATS_NEW } from "@/lib/whats-new";
 // bar with breadcrumbs, a command box and the account menu; a plain left sidebar; a page head with
 // a toggle and the title. On phones the sidebar opens as a drawer.
 
-const ICONS: Record<NavKey, typeof LayoutDashboard> = {
-  overview: LayoutDashboard,
+const ICONS: Record<NavKey, typeof MessagesSquare> = {
   ask: MessagesSquare,
   members: Users,
   settings: Settings,
@@ -258,17 +256,13 @@ export function WorkspaceShell({
     <div className="flex min-h-screen flex-col bg-white">
       <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
-          <Link href={base} className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={BRAND.name}>
+          <Link href={`${base}/ask`} className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={BRAND.name}>
             <Sparkles size={14} />
           </Link>
           <ChevronRight size={14} className="text-genie-muted" />
           <WorkspaceSwitcher workspace={workspace} workspaces={workspaces} />
-          {page.key !== "overview" && (
-            <>
-              <ChevronRight size={14} className="text-genie-muted" />
-              <span className="truncate text-sm text-genie-muted">{page.title}</span>
-            </>
-          )}
+          <ChevronRight size={14} className="text-genie-muted" />
+          <span className="truncate text-sm text-genie-muted">{page.title}</span>
           <div className="ml-auto flex items-center gap-3">
             <CommandBox slug={workspace.slug} />
             <Link href={`${base}/help`} className="hidden text-sm text-genie-ink hover:underline sm:inline">
