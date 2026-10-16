@@ -52,7 +52,8 @@ through the BAS MCP server. The customer's system stays the system of record.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
    **In progress**, live at genie.infiniduo.com: Google or email + password sign-in (email links
    dropped — they failed on the live site), workspaces, members and invite links, one Settings page
-   (data sources, AI model keys, AI agent access). Microsoft sign-in and password reset next.
+   (data sources, AI model keys, AI agent access), forgot-password (2026-10-16). Microsoft sign-in is
+   built but appears only once the Azure provider is set up in Supabase (`portal/README.md`).
    See `portal/README.md`.
 3. `sync/` — SQL + CSV connectors, then Odoo 20 (JSON-2); one mapping screen.
    **Odoo connector started early** (branch `bas2/sync`, 2026-10-15) so C21 can connect its real Odoo

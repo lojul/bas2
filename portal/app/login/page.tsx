@@ -20,6 +20,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { user } = await getUser();
   if (user) redirect(next);
   const settings = await getAuthSettings();
+  const social = [settings.google && "Google", settings.microsoft && "Microsoft"].filter(Boolean).join(" or ");
 
   return (
     <main className="flex flex-1 items-center justify-center px-6 py-16">
@@ -27,14 +28,16 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
         <Logo />
         <div className="card mt-6">
           <h1 className="text-xl font-semibold">Sign in to {BRAND.name}</h1>
-          <p className="mb-5 mt-1 text-sm text-genie-muted">New here? Choose &ldquo;Create account&rdquo;{settings.google ? " or continue with Google" : ""}.</p>
+          <p className="mb-5 mt-1 text-sm text-genie-muted">
+            New here? Choose &ldquo;Create account&rdquo;{social ? ` or continue with ${social}` : ""}.
+          </p>
           {failed && (
             <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-genie-danger">
               Sign-in didn&apos;t complete. Please try again.
               {reason && <span className="mt-1 block font-mono text-xs opacity-70">Reason: {reason}</span>}
             </p>
           )}
-          <AuthPanel next={next} google={settings.google} autoconfirm={settings.autoconfirm} />
+          <AuthPanel next={next} google={settings.google} microsoft={settings.microsoft} autoconfirm={settings.autoconfirm} />
           <p className="mt-5 text-xs text-genie-muted">
             By continuing you agree to the <Link href="/terms" className="underline underline-offset-2">Terms of Service</Link>{" "}
             and acknowledge the <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.
