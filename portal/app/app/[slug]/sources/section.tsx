@@ -59,7 +59,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-medium">Odoo</h3>
-                <p className="text-sm text-genie-green-deep">On — read live, nothing stored in {BRAND.name}</p>
+                <p className="text-sm text-genie-green">On — read live, nothing stored in {BRAND.name}</p>
               </div>
               <OffSwitch slug={slug} sourceId={odoo.id} />
             </div>
@@ -83,7 +83,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="font-medium">Document search index</h3>
-                <p className="text-sm text-genie-green-deep">On — searched live, nothing stored in {BRAND.name}</p>
+                <p className="text-sm text-genie-green">On — searched live, nothing stored in {BRAND.name}</p>
               </div>
               <OffSwitch slug={slug} sourceId={index.id} />
             </div>

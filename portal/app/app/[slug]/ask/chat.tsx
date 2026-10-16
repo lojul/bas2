@@ -8,9 +8,10 @@ type Turn = { role: "user" | "assistant"; content: string; meta?: string; error?
 
 const EXAMPLES = ["What data do we have?", "Find the contact Wong Mei Ling", "What is our delivery policy?"];
 
-export function Chat({ slug }: { slug: string }) {
+// initialQuestion comes from the top bar's "Search or ask" box; it is filled in, ready to send.
+export function Chat({ slug, initialQuestion = "" }: { slug: string; initialQuestion?: string }) {
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(initialQuestion);
   const [pending, start] = useTransition();
   const bottom = useRef<HTMLDivElement>(null);
 
@@ -55,9 +56,9 @@ export function Chat({ slug }: { slug: string }) {
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "flex justify-end" : ""}>
             <div
-              className={`max-w-[85%] whitespace-pre-wrap rounded-xl px-4 py-2.5 text-sm ${
+              className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3.5 py-2.5 text-sm ${
                 t.role === "user"
-                  ? "bg-genie-green-deep text-white"
+                  ? "bg-genie-accent text-genie-ink"
                   : t.error
                     ? "border border-red-200 bg-red-50 text-red-800"
                     : "border border-genie-border bg-genie-card"
@@ -86,6 +87,7 @@ export function Chat({ slug }: { slug: string }) {
           placeholder="Ask about your customers, products, orders or policies…"
           maxLength={4000}
           aria-label="Your question"
+          autoFocus={initialQuestion !== ""}
         />
         <button type="submit" className="btn" disabled={pending || !input.trim()} aria-label="Send">
           <Send size={16} />

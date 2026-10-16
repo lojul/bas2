@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowRight, CheckCircle2, Circle, CircleHelp, Database, MessagesSquare, Users } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, Circle } from "lucide-react";
 import { BRAND } from "@/lib/brand";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
@@ -40,62 +40,95 @@ export default async function OverviewPage({ params }: PageProps<"/app/[slug]">)
     { done: sources > 0, text: "Turn on a data source — Odoo now; SQL databases next", href: `/app/${slug}/settings#data-sources` },
   ];
 
+  const base = `/app/${slug}`;
+  const manage = canManage(workspace.role);
   const shortcuts = [
-    { href: `/app/${slug}/ask`, icon: MessagesSquare, title: "Ask a question", text: "Search your data in plain language" },
-    ...(canManage(workspace.role)
-      ? [{ href: `/app/${slug}/settings#data-sources`, icon: Database, title: "Data sources", text: "Turn Odoo on — read live, nothing stored" }]
+    { href: `${base}/ask`, label: "Ask a question" },
+    ...(manage ? [{ href: `${base}/settings#data-sources`, label: "Data sources" }] : []),
+    { href: `${base}/members`, label: "Team" },
+    { href: `${base}/help`, label: "Help" },
+  ];
+  // Link lists, like ERPNext's "Reports & Masters" cards.
+  const groups = [
+    { title: "Ask", links: [{ href: `${base}/ask`, label: "Ask a question" }, { href: `${base}/help`, label: "How to ask good questions" }] },
+    ...(manage
+      ? [
+          {
+            title: "Settings",
+            links: [
+              { href: `${base}/settings#data-sources`, label: "Data sources" },
+              { href: `${base}/settings#ai-keys`, label: "AI model keys" },
+              { href: `${base}/settings#ai-agents`, label: "AI agent access (MCP)" },
+            ],
+          },
+        ]
       : []),
-    { href: `/app/${slug}/members`, icon: Users, title: "Team", text: "Invite colleagues and set roles" },
-    { href: `/app/${slug}/help`, icon: CircleHelp, title: "Help", text: "Step-by-step guides and beta limits" },
+    { title: "Team", links: [{ href: `${base}/members`, label: "Members and invitations" }] },
+    { title: "Help", links: [{ href: `${base}/help`, label: "Getting started" }, { href: `${base}/help`, label: "Beta limits" }] },
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        {stats.map((s) => (
+    <div className="space-y-8">
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[...stats, { label: "Plan", value: `${workspace.plan}${workspace.document_addon ? " + documents" : ""}` }].map((s) => (
           <div key={s.label} className="card p-4">
-            <div className="text-2xl font-semibold">{s.value.toLocaleString()}</div>
-            <div className="text-sm text-genie-muted">{s.label}</div>
+            <div className="text-xs text-genie-muted">{s.label}</div>
+            <div className="mt-1 text-2xl font-semibold capitalize">{typeof s.value === "number" ? s.value.toLocaleString() : s.value}</div>
           </div>
         ))}
       </div>
 
-      <div className="card">
-        <h2 className="font-medium">Getting started with {BRAND.name}</h2>
-        <ul className="mt-4 space-y-3">
+      <section>
+        <h2 className="mb-3 text-base font-semibold">Your shortcuts</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {shortcuts.map((s) => (
+            <Link key={s.href} href={s.href} className="card flex items-center justify-between px-4 py-3 text-sm font-medium hover:bg-genie-accent">
+              {s.label}
+              <ArrowUpRight size={14} className="text-genie-muted" />
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="card">
+        <h2 className="text-base font-semibold">Getting started with {BRAND.name}</h2>
+        <ul className="mt-3 divide-y divide-genie-border">
           {steps.map((step) => (
-            <li key={step.text} className="flex items-start gap-3 text-sm">
+            <li key={step.text} className="flex items-start gap-3 py-2.5 text-sm">
               {step.done ? (
-                <CheckCircle2 size={18} className="mt-0.5 shrink-0 text-genie-green" />
+                <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-genie-green" />
               ) : (
-                <Circle size={18} className="mt-0.5 shrink-0 text-genie-muted" />
+                <Circle size={17} className="mt-0.5 shrink-0 text-genie-muted" />
               )}
               {step.href && !step.done ? (
-                <Link href={step.href} className="underline underline-offset-2">{step.text}</Link>
+                <Link href={step.href} className="hover:underline">{step.text}</Link>
               ) : (
                 <span className={step.done ? "text-genie-muted line-through" : ""}>{step.text}</span>
               )}
             </li>
           ))}
         </ul>
-      </div>
+      </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        {shortcuts.map((s) => (
-          <Link key={s.href} href={s.href} className="card flex items-center gap-3 p-4 hover:border-genie-green">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-genie-accent text-genie-green-deep">
-              <s.icon size={18} />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">{s.title}</span>
-              <span className="block text-xs text-genie-muted">{s.text}</span>
-            </span>
-            <ArrowRight size={16} className="text-genie-muted" />
-          </Link>
-        ))}
-      </div>
-
-      <p className="text-xs text-genie-muted">Plan: {workspace.plan}{workspace.document_addon ? " + Document add-on" : ""}</p>
+      <section>
+        <h2 className="mb-3 text-base font-semibold">Pages</h2>
+        <div className="grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+          {groups.map((g) => (
+            <div key={g.title}>
+              <h3 className="mb-2 text-sm font-semibold">{g.title}</h3>
+              <ul className="space-y-1.5">
+                {g.links.map((l) => (
+                  <li key={l.label}>
+                    <Link href={l.href} className="inline-flex items-center gap-1 text-sm text-genie-ink/80 hover:text-genie-ink hover:underline">
+                      {l.label} <ArrowUpRight size={12} className="text-genie-muted" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

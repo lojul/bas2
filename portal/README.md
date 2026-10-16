@@ -29,12 +29,13 @@ signed-in user's session, so row-level security decides what every page can see 
 
 The product name lives only in `lib/brand.ts`.
 
-**Workspace layout** (`components/workspace-shell.tsx`): dark-green sidebar with the workspace
-switcher, the pages from `lib/nav.ts` (Overview, Ask, Team, Settings for owners/admins, Help), a
-"what's new" note (`lib/whats-new.ts`; change its `id` to show a new one, closing it is remembered in
-the browser), the data-source sync status, and the account menu (change password, sign out). On
-phones the sidebar opens from a menu button. `/app` and `/app/new` keep the simple top bar
-(`app/app/(home)/layout.tsx`).
+**Look and feel: ERPNext / Frappe desk** (user request 2026-10-16). Tokens in `app/globals.css` (white page,
+near-black ink `#1f272e`, grey `#f3f3f3` fills, black primary buttons, colour only for status), Inter font,
+14px base. **Workspace layout** (`components/workspace-shell.tsx`): top bar with logo, breadcrumbs (workspace
+switcher › page), a "Search or ask Genie" box (opens Ask with the question filled in) and the account menu;
+plain left sidebar (pages from `lib/nav.ts`, data-source status, closable "what's new" note from
+`lib/whats-new.ts`); page head with a sidebar toggle and the title. Phones get the sidebar as a drawer.
+`/app` and `/app/new` keep the simple top bar (`app/app/(home)/layout.tsx`).
 
 **Sign-in runs in the browser** (`app/login/auth-panel.tsx`, `lib/supabase/browser.ts`) with
 Supabase's implicit flow. Email sign-in links are no longer used. The PKCE flow failed on

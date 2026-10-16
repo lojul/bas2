@@ -1,24 +1,24 @@
 @import "tailwindcss";
 
 :root {
-  /* Genie palette (same as the legacy dashboard): warm cream, deep ink, genie-green accent */
-  --genie-bg: #f8f6ee;
-  --genie-card: #fdfcf7;
-  --genie-ink: #16241c;
-  --genie-muted: #6b7a70;
-  --genie-border: #16241c1f;
-  --genie-accent: #d7ecd9;
-  --genie-green: #3f8f5c;
-  --genie-green-deep: #24462f;
-  --genie-danger: #b42318;
-  /* sidebar: active item and "new" badges */
-  --genie-lime: #dcef9a;
+  /* ERPNext / Frappe desk look (user request 2026-10-16): white page, near-black ink, neutral greys,
+     black primary buttons, colour only for status. Token names are kept from the first theme. */
+  --genie-bg: #ffffff;
+  --genie-card: #ffffff;
+  --genie-ink: #1f272e;
+  --genie-muted: #7c7c7c;
+  --genie-border: #ededed;
+  --genie-accent: #f3f3f3; /* filled inputs, secondary buttons, active nav, pills */
+  --genie-hover: #ebebeb;
+  --genie-green: #278f5e; /* success / "on" */
+  --genie-green-deep: #171717; /* primary actions */
+  --genie-danger: #e03636;
 }
 
 @theme inline {
   /* Chinese uses fonts already on the device; a downloaded CJK web font is large and its
      next/font download made Vercel builds fail intermittently. */
-  --font-sans: var(--font-geist-sans), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC",
+  --font-sans: var(--font-inter), "PingFang TC", "Microsoft JhengHei", "Noto Sans TC",
     "Noto Sans CJK TC", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
   --color-genie-bg: var(--genie-bg);
@@ -30,7 +30,7 @@
   --color-genie-green: var(--genie-green);
   --color-genie-green-deep: var(--genie-green-deep);
   --color-genie-danger: var(--genie-danger);
-  --color-genie-lime: var(--genie-lime);
+  --color-genie-hover: var(--genie-hover);
 }
 
 body {
@@ -38,23 +38,30 @@ body {
   color: var(--genie-ink);
 }
 
+html {
+  font-size: 14px;
+}
+
 @layer components {
   .card {
-    @apply rounded-xl border border-genie-border bg-genie-card p-6;
+    @apply rounded-lg border border-genie-border bg-genie-card p-5;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-genie-green-deep px-4 py-2 text-sm font-medium text-white hover:bg-genie-ink disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-green-deep px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-50;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-genie-border bg-white px-4 py-2 text-sm font-medium text-genie-ink hover:bg-genie-bg disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-accent px-3 py-1.5 text-sm font-medium text-genie-ink hover:bg-genie-hover disabled:opacity-50;
   }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-genie-danger hover:bg-red-50 disabled:opacity-50;
   }
   .input {
-    @apply w-full rounded-lg border border-genie-border bg-white px-3 py-2 text-sm outline-none focus:border-genie-green focus:ring-2 focus:ring-genie-accent;
+    @apply w-full rounded-md border border-transparent bg-genie-accent px-2.5 py-1.5 text-sm outline-none placeholder:text-genie-muted focus:border-[#c7c7c7] focus:bg-white;
   }
   .label {
-    @apply mb-1 block text-sm font-medium;
+    @apply mb-1 block text-xs text-genie-muted;
+  }
+  .pill {
+    @apply inline-flex items-center rounded-full bg-genie-accent px-2 py-0.5 text-xs text-genie-ink;
   }
 }

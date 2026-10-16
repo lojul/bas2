@@ -22,7 +22,7 @@ export default async function WorkspacesPage() {
       <ul className="mt-6 divide-y divide-genie-border rounded-xl border border-genie-border bg-genie-card">
         {workspaces.map((w) => (
           <li key={w.id}>
-            <Link href={`/app/${w.slug}`} className="flex items-center justify-between px-5 py-4 hover:bg-genie-bg">
+            <Link href={`/app/${w.slug}`} className="flex items-center justify-between px-5 py-4 hover:bg-genie-accent">
               <div>
                 <div className="font-medium">{w.name}</div>
                 <div className="text-sm text-genie-muted">{ROLE_LABEL[w.role]} · {w.plan} plan</div>
