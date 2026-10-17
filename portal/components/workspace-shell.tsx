@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleHelp,
   KeyRound,
@@ -102,9 +101,6 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
   return (
     <div className="flex h-full flex-col gap-4 py-4">
       <div>
-        <p className="mb-1 flex items-center gap-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">
-          <ChevronDown size={12} /> Workspace
-        </p>
         <nav className="space-y-px">
           {items.map((item) => {
             const Icon = ICONS[item.key];
@@ -284,21 +280,18 @@ export function WorkspaceShell({
     <div className="flex min-h-screen flex-col bg-white">
       <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
+          {/* The workspace name is the home link (Ask); on Ask it starts a fresh conversation. */}
           <Link
             href={`${base}/ask`}
             title={`Home — ${workspace.name}`}
-            // Already on Ask: a full reload starts a fresh conversation.
             onClick={(e) => {
               if (pathname === `${base}/ask`) {
                 e.preventDefault();
                 window.location.assign(`${base}/ask`);
               }
             }}
-            className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={`Home — ${workspace.name}`}>
-            <Sparkles size={14} />
-          </Link>
-          <ChevronRight size={14} className="text-genie-muted" />
-          <Link href={`${base}/ask`} className="max-w-[14rem] truncate rounded-md px-1.5 py-1 text-sm text-genie-ink hover:bg-genie-accent">
+            className="-ml-1.5 max-w-[16rem] truncate rounded-md px-1.5 py-1 text-sm font-medium text-genie-ink hover:bg-genie-accent"
+          >
             {workspace.name}
           </Link>
           <ChevronRight size={14} className="text-genie-muted" />
