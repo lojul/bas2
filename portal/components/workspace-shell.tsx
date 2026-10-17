@@ -269,7 +269,7 @@ export function WorkspaceShell({
         <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
           <Link
             href={`${base}/ask`}
-            title="New question"
+            title={`Home — ${workspace.name}`}
             // Already on Ask: a full reload starts a fresh conversation.
             onClick={(e) => {
               if (pathname === `${base}/ask`) {
@@ -277,7 +277,7 @@ export function WorkspaceShell({
                 window.location.assign(`${base}/ask`);
               }
             }}
-            className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={BRAND.name}>
+            className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={`Home — ${workspace.name}`}>
             <Sparkles size={14} />
           </Link>
           <ChevronRight size={14} className="text-genie-muted" />
