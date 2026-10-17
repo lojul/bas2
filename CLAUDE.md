@@ -115,6 +115,13 @@ data; CSV upload and the document add-on need a design that reads files where th
   C21 needs a workspace's own Anthropic key or a non-HK platform account.
 - Step 5: a Slack app for the Genie install; Stripe test-mode keys (Infinity Duo Technology).
 
+**Done 2026-10-16/17 (PRs #19–#41):** live Odoo + C21's document index as data sources (on/off cards, Save,
+Test connection, keys masked with show/copy); per-workspace model choice (platform OpenRouter account is in
+Hong Kong → Qwen default, no Claude/GPT/Gemini on it); Copilot-style Ask as the home page (Overview removed);
+ERPNext look, 16px base; Slack channel (Settings → Channels) connected to C21's `c21_property_chatbot` — first
+real Slack question still to be confirmed; usage metering fixed; faster navigation (one auth check per
+request, loading screen, Settings builds one tab). Demo tenant B deleted.
+
 **Next (updated 2026-10-16 after the no-copy decision), in this order**
 0. User: switch Odoo on for C21 and try 5–10 real questions on Ask; their results decide what to fix
    first. *Not done yet.*
