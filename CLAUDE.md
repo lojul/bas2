@@ -145,10 +145,27 @@ invitation history with "New link"; Twilio-console-like larger text and spacing 
 to Private (Team: "Write @Genie to ask Genie"); sidebar Data sources / Channels are plain status lines (no link,
 no hover).
 
+**WhatsApp research (2026-10-17)** — how to take Genie beyond the Twilio Sandbox:
+| Option | What | For | Needs |
+|---|---|---|---|
+| A. Twilio, own number | Same code as today (Twilio Messages API) with a real sender | **C21 now** | Meta Business Portfolio (admin), Meta business verification (~1–2+ weeks), approved display name, a number not active on regular WhatsApp |
+| B. Meta Cloud API + Embedded Signup **v4** | Infinity Duo as Meta Tech Provider; "Connect WhatsApp" popup per workspace (like Slack); new webhook with X-Hub-Signature-256 | **Genie SaaS** later | Infinity Duo business verification + Meta app review; v2 signup retired 2026-10-15 |
+| C. Reseller (360dialog, YCloud …) | Like A, other pricing / HK support | Alternative to Twilio | Similar to A |
+Rules: Meta bars *general-purpose* AI chatbots on the Business Platform since 2026-01-15 (AI as the product); task-bound
+business bots over a company's own data are fine → **each customer uses its own number, never one shared "Genie"
+number**. Separate "AI Providers" pricing policy since 2026-02-16 (updated 2026-05-12) — check before going live.
+Pricing: per message since 2025-07; replies inside the 24-hour window free (Meta page); Genie-initiated messages need
+paid templates (HK higher utility rates since 2026-07-01; ~US$0.026 utility / ~0.073 marketing per secondary sources;
+one blog claims service replies charged from 2026-10-01 — unconfirmed). "Coexistence" (B) lets a company keep its
+WhatsApp Business app on the same number (no groups; broadcast lists read-only). Odoo changes on WhatsApp need a phone
+number on each member's profile. Recommendation: A for C21 now; start Infinity Duo's Meta verification; then build B.
+Open: which number C21 uses (existing Business-app number → coexistence/B, or new → A); start verification?
+
 *Waiting on the user (built, not yet confirmed working end to end):*
 | Item | What's needed |
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
+| WhatsApp (real number) | Decide C21's number + start Meta business verification (see WhatsApp research above) |
 | WhatsApp | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text + a photo test |
 | Changes in Odoo | Set up and switched on for C21 (same key pasted). Test on Ask in a Private chat with "TEST …" records (create lead → Confirm → note → follow-up), check Settings → Activity, then delete the TEST records in Odoo |
 | Team chat | Two members in one Team chat: live updates + @Genie answer |
