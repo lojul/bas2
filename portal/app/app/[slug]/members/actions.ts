@@ -92,3 +92,26 @@ export async function removeMember(_prev: FormState, formData: FormData): Promis
   revalidatePath(`/app/${slug}/members`);
   return { ok: "Removed." };
 }
+
+// "New link" on a pending or expired invitation: a fresh token for the same email and role, valid for
+// 7 days again. Only the token's hash is stored, so the old link can't be shown — and it stops working.
+export async function renewInvitation(_prev: InviteState, formData: FormData): Promise<InviteState> {
+  const slug = String(formData.get("slug"));
+  const { supabase, workspace } = await context(slug);
+  if (!canManage(workspace.role)) return { error: "Only owners and admins can manage invitations." };
+  const token = randomBytes(24).toString("base64url");
+  const { data, error } = await supabase
+    .from("invitations")
+    .update({
+      token_hash: createHash("sha256").update(token).digest("hex"),
+      expires_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+    })
+    .eq("id", String(formData.get("id")))
+    .eq("tenant_id", workspace.id)
+    .is("accepted_at", null)
+    .select("email")
+    .maybeSingle();
+  if (error || !data) return { error: error?.message ?? "This invitation was already accepted or removed." };
+  revalidatePath(`/app/${slug}/members`);
+  return { ok: `New link for ${data.email} — valid 7 days. The previous link no longer works.`, link: `${SITE_URL}/invite/${token}` };
+}
