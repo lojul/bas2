@@ -4,6 +4,8 @@ This repository holds every project we own in the document-processing / property
 area, so there is one place to look. It was created on 2026-10-08 by importing the
 existing repositories with their full git history (no code changes).
 
+**Concept and technical overview of what is built (Genie): `docs/genie-overview.md`** — start there.
+
 Plan for BAS 2.0 (one-page summary, architecture, document add-on, implementation plan):
 https://claude.ai/code/artifact/90d4a48f-0eab-4a0e-b01e-0fbfed1edef5
 
