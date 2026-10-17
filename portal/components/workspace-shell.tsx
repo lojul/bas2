@@ -151,7 +151,7 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
   );
 }
 
-function AccountMenu({ email, slug }: { email: string; slug: string }) {
+export function AccountMenu({ email, slug }: { email: string; slug?: string }) {
   return (
     <details className="relative">
       <summary
@@ -165,9 +165,14 @@ function AccountMenu({ email, slug }: { email: string; slug: string }) {
         <Link href="/reset-password" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
           <KeyRound size={14} /> Change password
         </Link>
-        <Link href={`/app/${slug}/help`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
-          <CircleHelp size={14} /> Help
+        <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+          <LayoutGrid size={14} /> All workspaces
         </Link>
+        {slug && (
+          <Link href={`/app/${slug}/help`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+            <CircleHelp size={14} /> Help
+          </Link>
+        )}
         <form action="/auth/signout" method="post">
           <button type="submit" className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left hover:bg-genie-accent">
             <LogOut size={14} /> Sign out
@@ -197,7 +202,7 @@ function WorkspaceSwitcher({ workspace, workspaces }: { workspace: ShellWorkspac
           </Link>
         ))}
         <div className="my-1 h-px bg-genie-border" />
-        <Link href="/app" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+        <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
           <LayoutGrid size={14} /> All workspaces
         </Link>
         <Link href="/app/new" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
@@ -233,6 +238,38 @@ function CommandBox({ slug }: { slug: string }) {
   );
 }
 
+// Close any open menu (workspace switcher, account menu) on a click outside it or after navigating.
+function useCloseMenus() {
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      document.querySelectorAll("details[open]").forEach((d) => {
+        if (!d.contains(e.target as Node) || (e.target as HTMLElement).closest("a")) d.removeAttribute("open");
+      });
+    };
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, []);
+}
+
+// Top bar outside a workspace (the workspace list, new workspace): same look as inside.
+export function HomeTopBar({ email, crumb }: { email: string; crumb: string }) {
+  useCloseMenus();
+  return (
+    <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
+      <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
+        <Link href="/app?all=1" className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={`${BRAND.name} — all workspaces`}>
+          <Sparkles size={14} />
+        </Link>
+        <ChevronRight size={14} className="text-genie-muted" />
+        <span className="text-sm text-genie-ink">{crumb}</span>
+        <div className="ml-auto">
+          <AccountMenu email={email} />
+        </div>
+      </div>
+    </header>
+  );
+}
+
 export function WorkspaceShell({
   workspace,
   workspaces,
@@ -252,16 +289,7 @@ export function WorkspaceShell({
   const page = activeNav(pathname, workspace.slug);
   const base = `/app/${workspace.slug}`;
 
-  // Close any open menu (workspace switcher, account menu) on a click outside it or after navigating.
-  useEffect(() => {
-    const close = (e: MouseEvent) => {
-      document.querySelectorAll("details[open]").forEach((d) => {
-        if (!d.contains(e.target as Node) || (e.target as HTMLElement).closest("a")) d.removeAttribute("open");
-      });
-    };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
-  }, []);
+  useCloseMenus();
 
   return (
     <div className="flex min-h-screen flex-col bg-white">
