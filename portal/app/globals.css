@@ -15,6 +15,17 @@
   --genie-danger: #e03636;
 }
 
+/* Roomier type scale, like the Twilio console (user request 2026-10-17): every text-xs / text-sm /
+   text-base in the app grows one step, so small grey print is 14px and normal text 16–17px. */
+@theme {
+  --text-xs: 0.875rem;
+  --text-xs--line-height: 1.35rem;
+  --text-sm: 1rem;
+  --text-sm--line-height: 1.6rem;
+  --text-base: 1.0625rem;
+  --text-base--line-height: 1.7rem;
+}
+
 @theme inline {
   /* Chinese uses fonts already on the device; a downloaded CJK web font is large and its
      next/font download made Vercel builds fail intermittently. */
@@ -45,22 +56,22 @@ html {
 
 @layer components {
   .card {
-    @apply rounded-lg border border-genie-border bg-genie-card p-5;
+    @apply rounded-lg border border-genie-border bg-genie-card p-6;
   }
   .btn {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-green-deep px-3 py-1.5 text-sm font-medium text-white hover:bg-black disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-green-deep px-4 py-2 text-sm font-medium text-white hover:bg-black disabled:opacity-50;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-accent px-3 py-1.5 text-sm font-medium text-genie-ink hover:bg-genie-hover disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-accent px-4 py-2 text-sm font-medium text-genie-ink hover:bg-genie-hover disabled:opacity-50;
   }
   .btn-danger {
     @apply inline-flex items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-genie-danger hover:bg-red-50 disabled:opacity-50;
   }
   .input {
-    @apply w-full rounded-md border border-transparent bg-genie-accent px-2.5 py-1.5 text-sm outline-none placeholder:text-genie-muted focus:border-[#c7c7c7] focus:bg-white;
+    @apply w-full rounded-md border border-transparent bg-genie-accent px-3.5 py-2.5 text-sm outline-none placeholder:text-genie-muted focus:border-[#c7c7c7] focus:bg-white;
   }
   .label {
-    @apply mb-1 block text-xs text-genie-muted;
+    @apply mb-1.5 block text-sm text-genie-ink;
   }
   .pill {
     @apply inline-flex items-center rounded-full bg-genie-accent px-2 py-0.5 text-xs text-genie-ink;
