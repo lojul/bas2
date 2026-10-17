@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
@@ -14,7 +14,6 @@ import {
   Menu,
   MessagesSquare,
   Plus,
-  Search,
   Settings,
   Sparkles,
   Users,
@@ -37,7 +36,8 @@ const ICONS: Record<NavKey, typeof MessagesSquare> = {
 };
 
 export type ShellWorkspace = { slug: string; name: string; role: Role };
-export type SourceStatus = { name: string; status: string } | null;
+// One line in the sidebar status lists (data sources, channels).
+export type StatusItem = { name: string; state: "on" | "off" | "error" };
 
 const DISMISS_KEY = "genie.whatsNew.dismissed";
 
@@ -91,12 +91,33 @@ function WhatsNew({ slug, onNavigate }: { slug: string; onNavigate: () => void }
   );
 }
 
-function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace; source: SourceStatus; onNavigate: () => void }) {
+const DOT: Record<StatusItem["state"], string> = { on: "bg-genie-green", off: "bg-gray-300", error: "bg-genie-danger" };
+const STATE_TEXT: Record<StatusItem["state"], string> = { on: "On", off: "Off", error: "Can't reach it" };
+
+// A sidebar list: one line per item with its own dot (green on, grey off, red can't reach).
+function StatusList({ title, items, href, onNavigate }: { title: string; items: StatusItem[]; href: string; onNavigate: () => void }) {
+  return (
+    <div>
+      <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">{title}</p>
+      <Link href={href} onClick={onNavigate} className="block space-y-1 rounded-md px-2 py-1.5 text-sm hover:bg-genie-accent">
+        {items.length === 0 && <span className="text-xs text-genie-muted">None switched on</span>}
+        {items.map((item) => (
+          <span key={item.name} className="flex items-center gap-2" title={STATE_TEXT[item.state]}>
+            <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[item.state]}`} />
+            <span className={`truncate ${item.state === "on" ? "text-genie-ink" : "text-genie-muted"}`}>{item.name}</span>
+            {item.state === "error" && <span className="text-xs text-genie-danger">· can&apos;t reach</span>}
+          </span>
+        ))}
+      </Link>
+    </div>
+  );
+}
+
+function Sidebar({ workspace, sources, channels, onNavigate }: { workspace: ShellWorkspace; sources: StatusItem[]; channels: StatusItem[]; onNavigate: () => void }) {
   const pathname = usePathname();
   const active = activeNav(pathname, workspace.slug);
   const items = NAV.filter((n) => !n.managersOnly || canManage(workspace.role));
   const base = `/app/${workspace.slug}`;
-  const sourceOk = source && source.status !== "error";
 
   return (
     <div className="flex h-full flex-col gap-4 py-4">
@@ -121,25 +142,8 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
         </nav>
       </div>
 
-      <div>
-        <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">Data sources</p>
-        <Link
-          href={`${base}/settings?tab=data-sources`}
-          onClick={onNavigate}
-          className="flex items-start gap-2 rounded-md px-2 py-1.5 text-xs text-genie-muted hover:bg-genie-accent"
-        >
-          <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${source ? (sourceOk ? "bg-genie-green" : "bg-genie-danger") : "bg-gray-300"}`} />
-          {source ? (
-            <span>
-              <span className="text-genie-ink">{source.name}</span>
-              <br />
-              {source.status === "error" ? "Can't reach it — see Settings" : "On · read live"}
-            </span>
-          ) : (
-            <span>None switched on</span>
-          )}
-        </Link>
-      </div>
+      <StatusList title="Data sources" items={sources} href={`${base}/settings?tab=data-sources`} onNavigate={onNavigate} />
+      <StatusList title="Channels" items={channels} href={`${base}/settings?tab=channels`} onNavigate={onNavigate} />
 
       <div className="mt-auto">
         <WhatsNew slug={workspace.slug} onNavigate={onNavigate} />
@@ -198,31 +202,6 @@ export function AccountMenu({ email, slug, workspaces = [] }: { email: string; s
 }
 
 
-// "Search or ask Genie" box, like ERPNext's awesome bar: Enter opens Ask with the question filled in.
-function CommandBox({ slug }: { slug: string }) {
-  const router = useRouter();
-  const [q, setQ] = useState("");
-  return (
-    <form
-      className="relative hidden w-72 sm:block"
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (q.trim()) router.push(`/app/${slug}/ask?q=${encodeURIComponent(q.trim())}`);
-        setQ("");
-      }}
-    >
-      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-genie-muted" />
-      <input
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder={`Search or ask ${BRAND.name}…`}
-        className="input h-8 pl-8"
-        aria-label={`Search or ask ${BRAND.name}`}
-      />
-    </form>
-  );
-}
-
 // Close any open menu (workspace switcher, account menu) on a click outside it or after navigating.
 function useCloseMenus() {
   useEffect(() => {
@@ -259,13 +238,15 @@ export function WorkspaceShell({
   workspace,
   workspaces,
   email,
-  source,
+  sources,
+  channels,
   children,
 }: {
   workspace: ShellWorkspace;
   workspaces: ShellWorkspace[];
   email: string;
-  source: SourceStatus;
+  sources: StatusItem[];
+  channels: StatusItem[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -295,7 +276,6 @@ export function WorkspaceShell({
             {workspace.name}
           </Link>
           <div className="ml-auto flex items-center gap-3">
-            <CommandBox slug={workspace.slug} />
             <Link href={`${base}/help`} className="hidden text-sm text-genie-ink hover:underline sm:inline">
               Help
             </Link>
@@ -309,7 +289,7 @@ export function WorkspaceShell({
         <div className="fixed inset-0 z-40 md:hidden">
           <button type="button" className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] overflow-y-auto bg-white px-3">
-            <Sidebar workspace={workspace} source={source} onNavigate={() => setDrawer(false)} />
+            <Sidebar workspace={workspace} sources={sources} channels={channels} onNavigate={() => setDrawer(false)} />
           </aside>
         </div>
       )}
@@ -317,7 +297,7 @@ export function WorkspaceShell({
       <div className="mx-auto flex w-full max-w-7xl flex-1 px-4">
         {!collapsed && (
           <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-56 shrink-0 overflow-y-auto pr-4 md:block">
-            <Sidebar workspace={workspace} source={source} onNavigate={() => {}} />
+            <Sidebar workspace={workspace} sources={sources} channels={channels} onNavigate={() => {}} />
           </aside>
         )}
         <main className={`min-w-0 flex-1 py-4 ${collapsed ? "" : "md:pl-4"}`}>
