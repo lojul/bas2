@@ -42,9 +42,9 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
   const hasOdoo = kinds?.some((k) => k.kind.startsWith("odoo")) ?? false;
   const hasDocs = kinds?.some((k) => k.kind === "azure_search") ?? false;
   const suggestions: Suggestion[] = [
-    ...(hasOdoo ? [{ kind: "contact" as const, title: "Find a contact", prompt: "Find the phone number of the owner Chan Tai Man" }] : []),
-    ...(hasOdoo ? [{ kind: "listing" as const, title: "Search listings", prompt: "3-bedroom flats for rent in Taikoo Shing" }] : []),
-    ...(hasDocs ? [{ kind: "document" as const, title: "Search documents", prompt: "What do we have at SOHO East in Sai Wan Ho?" }] : []),
+    ...(hasOdoo ? [{ kind: "contact" as const, title: "Find a contact", prompt: "Find the phone number of the landlord of our office listing at Millennium City" }] : []),
+    ...(hasOdoo ? [{ kind: "listing" as const, title: "Search listings", prompt: "Offices for lease in Kwun Tong, 2,000 to 3,000 sq ft" }] : []),
+    ...(hasDocs ? [{ kind: "document" as const, title: "Search documents", prompt: "What do we have on One Island East in Quarry Bay?" }] : []),
     { kind: "idea" as const, title: "Get started", prompt: "What data can you see?" },
   ].slice(0, 3);
 
