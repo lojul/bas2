@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 
@@ -22,8 +23,10 @@ export async function createClient() {
   });
 }
 
-export async function getUser() {
+// Once per request: layouts, the page and each Settings tab all ask for the user, and every
+// auth.getUser() is a round trip to Supabase. React's cache() shares one answer within a request.
+export const getUser = cache(async () => {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   return { supabase, user: data.user };
-}
+});
