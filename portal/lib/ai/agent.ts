@@ -37,7 +37,7 @@ export async function askAgent(
   workspace: { id: string; name: string },
   userId: string | null,
   history: ChatTurn[],
-  opts: { channel?: "web" | "slack" } = {},
+  opts: { channel?: "web" | "slack" | "whatsapp" } = {},
 ): Promise<AgentAnswer> {
   const channel = opts.channel ?? "web";
   const turns = history

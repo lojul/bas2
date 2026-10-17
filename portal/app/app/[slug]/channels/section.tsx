@@ -3,7 +3,8 @@ import { SITE_URL } from "@/lib/env";
 import type { SlackSettings } from "@/lib/slack/slack";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
-import { CopyField, SlackActions, SlackEnabledSwitch, SlackOff } from "./forms";
+import { CopyField, SlackActions, SlackEnabledSwitch, SlackOff, WhatsAppActions, type WhatsAppDefaults, WhatsAppEnabledSwitch, WhatsAppOff } from "./forms";
+import type { WhatsAppSettings } from "@/lib/whatsapp/twilio";
 
 // Settings → Channels: where staff can talk to Genie besides the web (Slack now; WhatsApp and
 // Teams later).
@@ -14,10 +15,19 @@ export async function ChannelsSection({ slug }: { slug: string }) {
   if (!canManage(workspace.role)) return <p className="text-sm text-genie-muted">Only owners and admins can see this page.</p>;
 
   const supabase = await createClient();
-  const { data: tenant } = await supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { channels?: { slack?: SlackSettings } } | null }>();
+  const { data: tenant } = await supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { channels?: { slack?: SlackSettings; whatsapp?: WhatsAppSettings } } | null }>();
   const slack = tenant?.settings?.channels?.slack;
   const eventsUrl = `${SITE_URL}/api/slack/${slug}/events`;
   const enabled = slack?.enabled !== false;
+  const wa = tenant?.settings?.channels?.whatsapp;
+  const waEnabled = wa?.enabled !== false;
+  const inboundUrl = `${SITE_URL}/api/whatsapp/${slug}/inbound`;
+  // C21: the Twilio Sandbox number and its n8n document intake (the Sandbox's previous webhook).
+  const waDefaults: WhatsAppDefaults = {
+    accountSid: wa?.account_sid ?? "",
+    number: wa?.number ?? (slug === "c21" ? "+14155238886" : ""),
+    filesUrl: wa?.files_url ?? (slug === "c21" ? "https://c21net.app.n8n.cloud/webhook/twilio-whatsapp" : ""),
+  };
 
   return (
     <div className="space-y-4">
@@ -69,7 +79,40 @@ export async function ChannelsSection({ slug }: { slug: string }) {
           <SlackOff slug={slug} />
         )}
       </section>
-      <p className="text-xs text-genie-muted">WhatsApp and Microsoft Teams come later.</p>
+      <section className="card">
+        {wa ? (
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-medium">WhatsApp</h3>
+                {waEnabled ? (
+                  <p className="text-sm text-genie-green">On — text questions to {wa.number} are answered by Genie</p>
+                ) : (
+                  <p className="text-sm text-genie-muted">Off — Genie doesn&apos;t answer on WhatsApp. Details are kept; switch on to resume.</p>
+                )}
+              </div>
+              <WhatsAppEnabledSwitch slug={slug} enabled={waEnabled} />
+            </div>
+            <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
+              <p className="font-medium">Last step, in Twilio (console.twilio.com → Messaging → Try it out → Send a WhatsApp message → Sandbox settings):</p>
+              <ol className="list-decimal space-y-1 pl-5 text-genie-ink/90">
+                <li>
+                  <b>When a message comes in</b> → paste, method <b>POST</b>:
+                  <div className="mt-1.5">
+                    <CopyField value={inboundUrl} />
+                  </div>
+                </li>
+                <li>Save. Phones that joined the Sandbox (&quot;join …&quot; code) can now ask by text; photos and files still go to the address above.</li>
+              </ol>
+              <p className="text-xs text-genie-muted">Sandbox limits: only joined phones, and about 50 messages a day on a trial account.</p>
+            </div>
+            <WhatsAppActions slug={slug} d={waDefaults} />
+          </div>
+        ) : (
+          <WhatsAppOff slug={slug} d={waDefaults} />
+        )}
+      </section>
+      <p className="text-xs text-genie-muted">Microsoft Teams comes later.</p>
     </div>
   );
 }
