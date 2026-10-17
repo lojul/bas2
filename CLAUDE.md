@@ -96,8 +96,9 @@ data; CSV upload and the document add-on need a design that reads files where th
    **Slack built 2026-10-16** (Settings → Channels; `portal/README.md` → Slack). C21's existing bot is
    `c21_property_chatbot` in Slack workspace C21net, today served by Azure Function
    `c21net-bas-func-chatbot-slack-ea-prod` (`/api/slack/events`); moving it to Genie = paste its keys in Genie and
-   change the app's Request URL. WhatsApp later: C21 only has Twilio's shared Sandbox number (+1 415 523 8886,
-   trial account, keys in n8n) used for document intake.
+   change the app's Request URL. **WhatsApp built 2026-10-17** on Twilio's shared Sandbox (+1 415 523 8886, trial
+   account): text → Genie, photos/files → forwarded unchanged to C21's n8n document intake, so that keeps working.
+   A real C21 WhatsApp number (Meta-approved) is needed before staff use it.
 6. Gate: both demo tenants pass a fixed question set; then the first paying customer.
 7. Phase 2: WhatsApp (Meta Cloud API, Embedded Signup), Teams, email intake, Odoo MCP mode.
    Phase 3: document add-on moved from `legacy/document-processor`.

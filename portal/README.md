@@ -113,6 +113,19 @@ click, by `revealSecret` (owners/admins, key must belong to the workspace). Typi
 dots keep it. Workspace API keys for agents (`gnk_…`) can't be shown — only their hash is kept. (Decided
 2026-10-16 at the user's request; previously keys could never be read back. Privacy policy updated.)
 
+## WhatsApp (`lib/whatsapp`, `app/api/whatsapp/[slug]/inbound`)
+
+Settings → Channels → WhatsApp, through **Twilio** (the WhatsApp Sandbox for now). Account SID, number and a
+"photos and files go to" address in `tenants.settings.channels.whatsapp`; the Auth Token in Vault
+(`twilio_auth_token`). In Twilio's Sandbox settings, "When a message comes in" → POST
+`https://genie.infiniduo.com/api/whatsapp/<slug>/inbound`. The route checks Twilio's signature (HMAC-SHA1 of the
+public URL + sorted params; verified against the official `twilio` library), then: a message **with media** is
+passed on unchanged to the files address (C21: n8n `https://c21net.app.n8n.cloud/webhook/twilio-whatsapp`, the
+document intake); a **text** question gets an empty TwiML ack and the answer is sent in `after()` via Twilio's
+Messages API (split at ~1,500 chars, WhatsApp formatting). Single question per message — no history (nothing
+stored). Switch off = ack and ignore. C21: Sandbox +1 415 523 8886, trial account (≈50 messages/day, only
+phones that joined the Sandbox).
+
 ## Slack (`lib/slack`, `app/api/slack/[slug]/events`)
 
 Settings → **Channels** → Slack: a workspace connects **its own Slack app** (new, or an existing bot such as C21's
