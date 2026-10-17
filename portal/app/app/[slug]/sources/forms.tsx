@@ -262,31 +262,14 @@ export function TestConnection({ slug, sourceId }: { slug: string; sourceId: str
   );
 }
 
-// A switched-on source's box body: details with Edit + Test connection at the bottom right, or the
-// form (filled in) while editing.
+// A switched-on source's box body: its details, then the form filled in (keys masked), then Test
+// connection at the bottom right. No separate edit mode.
 export function EditableSource({ view, form, test }: { view: React.ReactNode; form: React.ReactNode; test: React.ReactNode }) {
-  const [editing, setEditing] = useState(false);
-  if (editing) {
-    return (
-      <div className="space-y-3 border-t border-genie-border pt-4">
-        {form}
-        <div className="flex justify-end">
-          <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>
-            Close
-          </button>
-        </div>
-      </div>
-    );
-  }
   return (
     <>
       {view}
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>
-          Edit
-        </button>
-        {test}
-      </div>
+      <div className="border-t border-genie-border pt-4">{form}</div>
+      <div className="flex flex-wrap items-center justify-end gap-2">{test}</div>
     </>
   );
 }

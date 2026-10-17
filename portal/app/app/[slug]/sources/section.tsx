@@ -75,12 +75,9 @@ export async function SourcesSection({ slug }: { slug: string }) {
             <EditableSource
               view={
                 <>
-                  <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-                    <dt className="text-genie-muted">Address</dt>
-                    <dd>{odoo.config.url}</dd>
-                    <dt className="text-genie-muted">{BRAND.name}{" "}can read</dt>
-                    <dd>{(odoo.config.models ?? []).map(label).join(", ")}</dd>
-                  </dl>
+                  <p className="text-sm">
+                    <span className="text-genie-muted">{BRAND.name}{" "}can read:</span> {(odoo.config.models ?? []).map(label).join(", ")}
+                  </p>
                   {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
                 </>
               }
@@ -119,12 +116,6 @@ export async function SourcesSection({ slug }: { slug: string }) {
             <EditableSource
               view={
                 <>
-                  <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-[max-content_1fr]">
-                    <dt className="text-genie-muted">Name</dt>
-                    <dd>{index.name}</dd>
-                    <dt className="text-genie-muted">Index</dt>
-                    <dd>{index.config.index} · {index.config.endpoint}</dd>
-                  </dl>
                   {index.last_error && <p className="text-sm text-genie-danger">Last check failed: {index.last_error}</p>}
                 </>
               }

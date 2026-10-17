@@ -134,32 +134,25 @@ export function CopyField({ value }: { value: string }) {
   );
 }
 
-// Edit + Test connection at the bottom right; the form (keys optional) while editing.
+// Connected Slack: the form filled in (keys masked), then Disconnect and Test connection.
 export function SlackActions({ slug }: { slug: string }) {
-  const [editing, setEditing] = useState(false);
   const [state, action, pending] = useActionState(testSlack, undefined);
-  if (editing) {
-    return (
-      <div className="space-y-3 border-t border-genie-border pt-4">
-        <SlackForm slug={slug} editing />
-        <div className="flex justify-end">
-          <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Close</button>
-        </div>
-      </div>
-    );
-  }
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <DisconnectSlack slug={slug} />
-      <form action={action} className="flex flex-wrap items-center justify-end gap-2">
-      <input type="hidden" name="slug" value={slug} />
-      {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
-      {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
-      <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Edit</button>
-      <button type="submit" disabled={pending} className="inline-flex items-center justify-center rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
-        {pending ? "Testing…" : "Test connection"}
-      </button>
-      </form>
-    </div>
+    <>
+      <div className="border-t border-genie-border pt-4">
+        <SlackForm slug={slug} editing />
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <DisconnectSlack slug={slug} />
+        <form action={action} className="flex flex-wrap items-center justify-end gap-2">
+          <input type="hidden" name="slug" value={slug} />
+          {state?.ok && <span className="text-sm text-genie-green">{state.ok}</span>}
+          {state?.error && <span className="text-sm text-genie-danger">{state.error}</span>}
+          <button type="submit" disabled={pending} className="inline-flex items-center justify-center rounded-md bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50">
+            {pending ? "Testing…" : "Test connection"}
+          </button>
+        </form>
+      </div>
+    </>
   );
 }
