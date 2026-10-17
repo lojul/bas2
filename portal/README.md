@@ -16,7 +16,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/reset-password` | signed in | Choose a new password. The reset email signs the user in through `/auth/confirm` and lands here |
 | `/auth/confirm` | — | Return page for Google sign-in and email-confirmation links: reads the session from the URL fragment (implicit flow), stores it in this browser's cookies, wipes it from the address bar |
 | `/auth/callback` | — | Server-side finish for PKCE `code` or `token_hash` links (kept for OAuth and future custom email templates) |
-| `/app` | signed in | Your workspaces; with none, goes to `/app/new` |
+| `/app` | signed in | The level above workspaces. One workspace → straight into it; several → pick one (cards with role, plan, sources). `?all=1` always shows the list ("All workspaces" links). None → `/app/new` |
 | `/app/new` | signed in | Create a workspace (`create_tenant`); you become its owner |
 | `/app/[slug]` | members | Redirects to Ask — the workspace's home (Overview page removed 2026-10-16) |
 | `/app/[slug]/help` | members | Help centre: searchable articles by topic (`lib/help.ts`) |
