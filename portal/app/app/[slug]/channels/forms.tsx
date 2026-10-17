@@ -3,6 +3,8 @@
 import { startTransition, useActionState, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { FormMessage } from "@/components/form-message";
+import { SecretInput } from "@/components/secret-input";
+import { SLACK_SIGNING_SECRET, SLACK_TOKEN_SECRET } from "@/lib/slack/names";
 import { Switch } from "../sources/forms";
 import { connectSlack, disconnectSlack, setSlackEnabled, testSlack } from "./actions";
 
@@ -25,12 +27,12 @@ function SlackForm({ slug, editing }: { slug: string; editing: boolean }) {
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
           <label htmlFor="bot_token" className="label">Bot User OAuth Token</label>
-          <input id="bot_token" name="bot_token" type="password" autoComplete="off" required={!editing} className="input font-mono" placeholder={editing ? "Leave empty to keep the saved token" : "xoxb-…"} />
+          <SecretInput id="bot_token" name="bot_token" required placeholder="xoxb-…" saved={editing ? { slug, secretName: SLACK_TOKEN_SECRET } : null} />
           <p className="mt-1 text-xs text-genie-muted">api.slack.com/apps → your app → OAuth &amp; Permissions.</p>
         </div>
         <div>
           <label htmlFor="signing_secret" className="label">Signing Secret</label>
-          <input id="signing_secret" name="signing_secret" type="password" autoComplete="off" required={!editing} className="input font-mono" placeholder={editing ? "Leave empty to keep the saved secret" : "Paste the signing secret"} />
+          <SecretInput id="signing_secret" name="signing_secret" required placeholder="Paste the signing secret" saved={editing ? { slug, secretName: SLACK_SIGNING_SECRET } : null} />
           <p className="mt-1 text-xs text-genie-muted">Same app → Basic Information → App Credentials.</p>
         </div>
       </div>

@@ -2,12 +2,13 @@
 
 import { startTransition, useActionState, useState } from "react";
 import { FormMessage } from "@/components/form-message";
+import { SecretInput } from "@/components/secret-input";
 import { BRAND } from "@/lib/brand";
 import { guessOdooDb } from "@/lib/odoo/models";
 import { connectOdoo, connectSearch, removeSource, testSource } from "./actions";
 
 // Values of a saved source, for editing it in the same form.
-export type OdooExisting = { id: string; url: string; db: string; name: string; login: string; extraModels: string };
+export type OdooExisting = { id: string; url: string; db: string; name: string; login: string; extraModels: string; secretName: string };
 
 export function OdooForm({ slug, existing }: { slug: string; existing?: OdooExisting }) {
   const [state, action, pending] = useActionState(connectOdoo, undefined);
@@ -38,14 +39,12 @@ export function OdooForm({ slug, existing }: { slug: string; existing?: OdooExis
         </div>
         <div>
           <label htmlFor="api_key" className="label">API key</label>
-          <input
+          <SecretInput
             id="api_key"
             name="api_key"
-            type="password"
-            autoComplete="off"
-            required={!existing}
-            className="input font-mono"
-            placeholder={existing ? "Leave empty to keep the saved key" : "Paste the Odoo API key"}
+            required
+            placeholder="Paste the Odoo API key"
+            saved={existing ? { slug, secretName: existing.secretName } : null}
           />
           <p className="mt-1 text-xs text-genie-muted">In Odoo: your avatar → Preferences → Account Security → New API Key.</p>
         </div>
@@ -131,7 +130,7 @@ export function OdooOff({ slug, intro }: { slug: string; intro: React.ReactNode 
 
 export type SearchDefaults = { endpoint: string; index: string; name: string; semantic: string; vectorField: string };
 
-export function SearchForm({ slug, d, sourceId }: { slug: string; d: SearchDefaults; sourceId?: string }) {
+export function SearchForm({ slug, d, sourceId, secretName }: { slug: string; d: SearchDefaults; sourceId?: string; secretName?: string }) {
   const [state, action, pending] = useActionState(connectSearch, undefined);
   const [stale, setStale] = useState(false);
   return (
@@ -158,14 +157,12 @@ export function SearchForm({ slug, d, sourceId }: { slug: string; d: SearchDefau
         </div>
         <div>
           <label htmlFor="query_key" className="label">Query key</label>
-          <input
+          <SecretInput
             id="query_key"
             name="query_key"
-            type="password"
-            autoComplete="off"
-            required={!sourceId}
-            className="input font-mono"
-            placeholder={sourceId ? "Leave empty to keep the saved key" : "Paste the query key"}
+            required
+            placeholder="Paste the query key"
+            saved={sourceId && secretName ? { slug, secretName } : null}
           />
           <p className="mt-1 text-xs text-genie-muted">Azure portal → your search service → Keys → Manage query keys. A query key can only search, never change anything.</p>
         </div>
