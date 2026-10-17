@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { BRAND } from "@/lib/brand";
 import { safeNextPath } from "@/lib/env";
-import { getAuthSettings } from "@/lib/auth-settings";
+import { SOCIAL_SIGNIN_READY, getAuthSettings } from "@/lib/auth-settings";
 import { getUser } from "@/lib/supabase/server";
 import { AuthPanel } from "./auth-panel";
 
@@ -20,7 +20,9 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const { user } = await getUser();
   if (user) redirect(next);
   const settings = await getAuthSettings();
-  const social = [settings.google && "Google", settings.microsoft && "Microsoft"].filter(Boolean).join(" or ");
+  const google = SOCIAL_SIGNIN_READY && settings.google;
+  const microsoft = SOCIAL_SIGNIN_READY && settings.microsoft;
+  const social = [google && "Google", microsoft && "Microsoft"].filter(Boolean).join(" or ");
 
   return (
     <main className="flex flex-1 items-center justify-center px-6 py-16">
@@ -37,7 +39,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
               {reason && <span className="mt-1 block font-mono text-xs opacity-70">Reason: {reason}</span>}
             </p>
           )}
-          <AuthPanel next={next} google={settings.google} microsoft={settings.microsoft} autoconfirm={settings.autoconfirm} />
+          <AuthPanel next={next} google={google} microsoft={microsoft} comingSoon={!SOCIAL_SIGNIN_READY} autoconfirm={settings.autoconfirm} />
           <p className="mt-5 text-xs text-genie-muted">
             By continuing you agree to the <Link href="/terms" className="underline underline-offset-2">Terms of Service</Link>{" "}
             and acknowledge the <Link href="/privacy" className="underline underline-offset-2">Privacy Policy</Link>.

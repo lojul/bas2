@@ -52,10 +52,6 @@ export default async function InvitePage({ params }: PageProps<"/invite/[token]"
             Already have an account?{" "}
             <Link href={signIn} className="text-genie-ink underline underline-offset-2">Sign in</Link>
           </p>
-          <p>
-            Or <Link href={signIn} className="text-genie-ink underline underline-offset-2">continue with Microsoft or Google</Link> using{" "}
-            {invite.email}.
-          </p>
         </div>
       </>
     );

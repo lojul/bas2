@@ -58,8 +58,9 @@ data; CSV upload and the document add-on need a design that reads files where th
    **Done 2026-10-15** (branch `bas2/shared-schema`): project `genie`, ref `xhaqzwznduxoosqtcrrm`,
    ap-southeast-1, free tier. See `shared/README.md`.
 2. `portal/` — Genie sign-up, invites, Microsoft/Google sign-in; replace the browser-stored token.
-   **In progress**, live at genie.infiniduo.com: sign-in with Google, Microsoft (Entra client secret
-   expires 2028-10-15 — renew before then) or email + password, forgot-password; workspaces, members and
+   **In progress**, live at genie.infiniduo.com: sign-in with email + password, forgot-password; invitees set
+   their password on the invite link. Google and Microsoft are set up (Entra client secret expires 2028-10-15) but
+   shown as **"Coming soon"** until ready (`SOCIAL_SIGNIN_READY` in `portal/lib/auth-settings.ts`, user 2026-10-17); workspaces, members and
    invite links; sidebar layout with Help centre; one Settings page (data sources, AI model keys, AI agent
    access). Email sign-in links were dropped (they failed on the live site). See `portal/README.md`.
    Still open: email sending (custom SMTP, e.g. Resend) — until then Supabase only emails members of the

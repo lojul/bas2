@@ -191,7 +191,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         summary: "Send an invite link; it works once, for 7 days.",
         body: [
           "Owners and admins: Team → Invite someone → enter their email and role. Copy the link and send it yourself (by email, Slack, WhatsApp …).",
-          "On the link they choose a password (no confirmation email needed), or continue with Microsoft or Google using that same email address. The link works once and expires after 7 days.",
+          "On the link they choose a password for that email address — no confirmation email needed. The link works once and expires after 7 days.",
         ],
         link: { label: "Open Team", path: "/members" },
       },
@@ -226,10 +226,10 @@ export const HELP_TOPICS: HelpTopic[] = [
       },
       {
         id: "signin",
-        title: "Sign in with Google, Microsoft or email",
-        summary: "Use whichever account your company uses.",
+        title: "Sign in with email and password",
+        summary: "Google and Microsoft sign-in are coming soon.",
         body: [
-          "Use Continue with Google, Continue with Microsoft (work, school or personal account), or an email address and password.",
+          "Sign in with your email address and password. Google and Microsoft sign-in are coming soon.",
           "If you were invited, sign in with the address the invite was sent to.",
         ],
       },

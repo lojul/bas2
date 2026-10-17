@@ -59,11 +59,13 @@ export function AuthPanel({
   next,
   google,
   microsoft,
+  comingSoon = false,
   autoconfirm,
 }: {
   next: string;
   google: boolean;
   microsoft: boolean;
+  comingSoon?: boolean;
   autoconfirm: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("signin");
@@ -242,6 +244,19 @@ export function AuthPanel({
         >
           {mode === "forgot" ? "Back to sign in" : "Forgot your password?"}
         </button>
+      )}
+      {comingSoon && mode !== "forgot" && (
+        <div className="mt-5 border-t border-genie-border pt-4">
+          <p className="mb-2 text-xs text-genie-muted">Coming soon</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button type="button" disabled className="btn-secondary w-full cursor-not-allowed opacity-50" title="Coming soon">
+              <GoogleIcon /> Google
+            </button>
+            <button type="button" disabled className="btn-secondary w-full cursor-not-allowed opacity-50" title="Coming soon">
+              <MicrosoftIcon /> Microsoft
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

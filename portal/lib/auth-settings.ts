@@ -1,5 +1,9 @@
 import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from "@/lib/env";
 
+// Google and Microsoft sign-in are set up in Supabase but not ready for users yet (decided 2026-10-17):
+// the sign-in page shows them as "Coming soon". Set to true to switch them on.
+export const SOCIAL_SIGNIN_READY = false;
+
 export type AuthSettings = {
   google: boolean;
   // Supabase calls Microsoft (Entra ID) sign-in "azure".
