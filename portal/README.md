@@ -24,7 +24,7 @@ signed-in user's session, so row-level security decides what every page can see 
 | `/app/[slug]/members` | members | Member list; owners/admins invite by link, change roles, remove people |
 | `/app/[slug]/settings` | owners/admins | One page for workspace configuration: **Data sources** (Odoo on/off, read live), **AI model keys** (bring-your-own, Supabase Vault), **AI agent access (MCP)** (create/revoke API keys, Claude Desktop config). `/sources`, `/keys` and `/agents` redirect to its sections |
 | `/api/mcp` | API key | Genie MCP server (see below) |
-| `/invite/[token]` | signed in | Accept an invitation (`accept_invitation`); must be signed in with the invited email |
+| `/invite/[token]` | anyone with the link | Shows the workspace and invited email. Signed in with that email → Accept. No account → **choose a password and join** (account created already confirmed — the link proves the invite reached them; `lib/invites.ts`), or sign in / Microsoft / Google |
 | `/privacy`, `/terms` | anyone | Privacy Policy and Terms of Service (drafts; company details in `lib/legal.ts`, to be confirmed and legally reviewed) |
 
 The product name lives only in `lib/brand.ts`.

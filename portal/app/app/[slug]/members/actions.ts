@@ -44,7 +44,7 @@ export async function inviteMember(_prev: InviteState, formData: FormData): Prom
 
   revalidatePath(`/app/${slug}/members`);
   return {
-    ok: `Invitation for ${email} created. Send them this link — it works once, for 7 days, and only for that email address.`,
+    ok: `Invitation for ${email} created. Send them this link — it works once, for 7 days, only for that email. They can create a password on the link, or use Microsoft or Google.`,
     link: `${SITE_URL}/invite/${token}`,
   };
 }
