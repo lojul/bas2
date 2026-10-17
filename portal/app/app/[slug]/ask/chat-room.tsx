@@ -237,7 +237,7 @@ export function ChatRoom({
           </div>
           <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-genie-muted">
             <VisibilityToggle value={visibility} onChange={setVisibility} />
-            <span>{visibility === "team" ? "Everyone in the workspace sees it · write @Genie to ask Genie" : "Only you see it · Genie answers every message"}</span>
+            {visibility === "team" && <span>Write @Genie to ask Genie</span>}
           </div>
           <Composer
             value={input}
