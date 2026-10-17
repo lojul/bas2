@@ -42,6 +42,7 @@ export default function PrivacyPage() {
           <li><strong>Account and workspace details:</strong> your email address, the workspaces you belong to, your role, invitations you send or receive, and sign-in records.</li>
           <li><strong>Customer data:</strong> records and documents read from the systems a Customer connects, the text and search index we build from them, and the questions staff ask and the answers given.</li>
           <li><strong>Keys and connection details:</strong> AI provider keys and connector credentials a Customer saves. These are stored encrypted in a secrets vault. Only the workspace&apos;s owners and admins can display or copy a saved key, one key at a time, when they ask for it.</li>
+          <li><strong>Chats:</strong> messages people write on Ask and Genie&apos;s answers, which can include details read from the Customer&apos;s systems. Team chats are visible to all members of the workspace, private chats only to their author. Chats are deleted automatically 90 days after their last message and can be deleted earlier by their author or a workspace owner or admin. We do not otherwise keep copies of the Customer&apos;s records.</li>
           <li><strong>Usage records:</strong> counts of messages, AI tokens, tool calls and pages read by text recognition (OCR), used for billing and plan limits.</li>
           <li><strong>Billing details:</strong> handled by our payment provider, Stripe. We do not store card numbers.</li>
           <li><strong>Technical data:</strong> server logs (such as IP address, browser type and time of request) kept for security and troubleshooting.</li>
@@ -51,7 +52,7 @@ export default function PrivacyPage() {
       <section>
         <h2>3. How we use it</h2>
         <ul>
-          <li>To provide the Service: sign you in, run your workspace, answer questions over your company&apos;s data by reading your connected systems at the moment a question is asked. We do not keep a copy of the records we read.</li>
+          <li>To provide the Service: sign you in, run your workspace, answer questions over your company&apos;s data by reading your connected systems at the moment a question is asked. We do not keep a copy of the records we read, apart from what appears in saved chats (see above).</li>
           <li>To bill for the Service and enforce plan limits.</li>
           <li>To keep the Service secure, prevent abuse and fix problems.</li>
           <li>To contact you about your account, security, or changes to the Service.</li>

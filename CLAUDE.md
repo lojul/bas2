@@ -22,6 +22,10 @@ usage counts — never the customer's records. The earlier "copy into one search
 (sync, `records` table) is retired for customer data; `records` only holds the synthetic demo tenant
 until it gets its own demo SQL database. Consequences: no sync jobs, no embedding index of customer
 data; CSV upload and the document add-on need a design that reads files where they live.
+**Exception — saved chats (user decision 2026-10-17):** Ask keeps chats (`chats`, `chat_messages`) so members can
+share them: Team chats (all members, Genie answers on @Genie) and Private chats (author only, Genie answers every
+message). Deleted automatically 90 days after the last message (pg_cron `genie-chat-retention`), or earlier by the
+author / an owner or admin. Live updates via Supabase Realtime. Privacy policy updated.
 
 **Decisions**
 - Product working name: **Genie** (genie.infiniduo.com). Final name chosen before public launch;

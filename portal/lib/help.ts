@@ -52,7 +52,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Search is keyword search inside Odoo: every word you type must appear in the record (name, address, notes …). Differently worded questions may miss.",
           "Answers are as fast as your Odoo: usually a few seconds per question.",
           "Genie can read and search, but cannot yet create leads or records, or search the web.",
-          "Conversations on the Ask page are not saved.",
+          "Chats on Ask are kept for 90 days after their last message, then deleted automatically.",
           "Slack, WhatsApp and Teams are on the way.",
         ],
       },
@@ -112,6 +112,17 @@ export const HELP_TOPICS: HelpTopic[] = [
     title: "Ask and AI models",
     icon: "ask",
     articles: [
+      {
+        id: "team-chats",
+        title: "Team chats and private chats",
+        summary: "Talk with colleagues and Genie in one place.",
+        body: [
+          "On Ask, choose Private (only you; Genie answers every message) or Team (everyone in the workspace, including people who join later).",
+          "In a team chat, people talk to each other; write @Genie in a message when you want Genie to answer. Messages appear live for everyone in the chat.",
+          "Start a new chat with New chat; the chat is named after its first message. Delete a chat with Delete at the top — for everyone.",
+          "Chats are deleted automatically 90 days after their last message.",
+        ],
+      },
       {
         id: "asking",
         title: "Ask questions about your data",
@@ -219,7 +230,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         summary: "Account details and encrypted keys — not your business records.",
         body: [
           "Genie stores your account, workspace and team, the connection details of your data sources and AI keys (encrypted in a vault), and usage counts for billing. It does not keep a copy of your business records.",
-          "Records are read from your system when a question is asked and passed to the AI provider that writes the answer. Conversations on Ask are not saved.",
+          "Records are read from your system when a question is asked and passed to the AI provider that writes the answer. Chats on Ask are kept for 90 days after the last message (team chats are visible to every member; private chats only to you), and can be deleted any time by the person who started them or an owner/admin.",
           "Genie is hosted in Singapore; each workspace is kept apart from every other by the database itself.",
         ],
         link: { label: "Privacy Policy", path: "/privacy", abs: true },
