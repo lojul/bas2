@@ -132,17 +132,25 @@ request, loading screen, Settings builds one tab). Demo tenant B deleted.
 
 **Pending and next (updated 2026-10-17, end of day)** — overview of what's built: `docs/genie-overview.md`.
 
-**Changes in Odoo from Ask (built 2026-10-17, user decision: dedicated Genie Odoo user, test on C21 live):** off by
+**Changes in Odoo from Ask (PR #59, 2026-10-17; test on C21 live):** off by
 default; Settings → Data sources → Changes in Odoo; every change is a draft confirmed by the requester or an
 owner/admin; log in Settings → Activity; web only. Details `portal/README.md`. Second exception to "no copy": a
 draft's values for ≤24 h, then only who/what/which record for a year.
+Writes use their own Vault key (`odoo_write_key`, card field "API key of the Genie Odoo user"), kept separate from
+the reading key on purpose (user decision 2026-10-17). C21 has only one Odoo user, so the user pasted **the same
+key** into both; a dedicated user's key can replace it later without touching reading. C21 status: switched on,
+create lead / contact / note / follow-up on for members, update fields off, limit 50 — no change tested yet.
+**UI tweaks 2026-10-17 (PRs #53–#61):** saved team/private chats listed under Ask in the sidebar; Team page keeps
+invitation history with "New link"; Twilio-console-like larger text and spacing (text-sm 16px); no hint text next
+to Private (Team: "Write @Genie to ask Genie"); sidebar Data sources / Channels are plain status lines (no link,
+no hover).
 
 *Waiting on the user (built, not yet confirmed working end to end):*
 | Item | What's needed |
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
 | WhatsApp | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text + a photo test |
-| Changes in Odoo | Create Odoo user "Genie" + API key → paste in the card → Save → test on Ask with "TEST …" records, then delete them in Odoo |
+| Changes in Odoo | Set up and switched on for C21 (same key pasted). Test on Ask in a Private chat with "TEST …" records (create lead → Confirm → note → follow-up), check Settings → Activity, then delete the TEST records in Odoo |
 | Team chat | Two members in one Team chat: live updates + @Genie answer |
 | Usage metering | One answer on Ask, then check `usage_events` has `message` / token rows (fix shipped, unverified) |
 | C21 trial | 3–5 agents use Ask/Slack/WhatsApp for a week; collect wrong / missing / slow answers |
