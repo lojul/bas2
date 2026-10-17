@@ -41,7 +41,7 @@ export default function PrivacyPage() {
         <ul>
           <li><strong>Account and workspace details:</strong> your email address, the workspaces you belong to, your role, invitations you send or receive, and sign-in records.</li>
           <li><strong>Customer data:</strong> records and documents read from the systems a Customer connects, the text and search index we build from them, and the questions staff ask and the answers given.</li>
-          <li><strong>Keys and connection details:</strong> AI provider keys and connector credentials a Customer saves. These are stored encrypted in a secrets vault; nobody can read them back through the website.</li>
+          <li><strong>Keys and connection details:</strong> AI provider keys and connector credentials a Customer saves. These are stored encrypted in a secrets vault. Only the workspace&apos;s owners and admins can display or copy a saved key, one key at a time, when they ask for it.</li>
           <li><strong>Usage records:</strong> counts of messages, AI tokens, tool calls and pages read by text recognition (OCR), used for billing and plan limits.</li>
           <li><strong>Billing details:</strong> handled by our payment provider, Stripe. We do not store card numbers.</li>
           <li><strong>Technical data:</strong> server logs (such as IP address, browser type and time of request) kept for security and troubleshooting.</li>

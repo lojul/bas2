@@ -6,8 +6,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // and points the app's Event Subscriptions at /api/slack/<workspace slug>/events. Messages are read
 // from Slack and answered there; Genie stores nothing but the keys and the usage counts.
 
-export const SLACK_TOKEN_SECRET = "slack_bot_token";
-export const SLACK_SIGNING_SECRET = "slack_signing_secret";
+import { SLACK_SIGNING_SECRET, SLACK_TOKEN_SECRET } from "./names";
+
+export { SLACK_SIGNING_SECRET, SLACK_TOKEN_SECRET };
 
 // enabled: the Slack switch in Settings → Channels. Off = the bot doesn't answer (keys are kept).
 export type SlackSettings = {

@@ -13,6 +13,7 @@ type Source = {
   status: string;
   last_error: string | null;
   config: {
+    secret_name?: string;
     url?: string;
     db?: string;
     login?: string | null;
@@ -93,6 +94,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
                     name: odoo.name,
                     login: odoo.config.login ?? "",
                     extraModels: (odoo.config.extra_models ?? []).join(", "),
+                    secretName: odoo.config.secret_name ?? "",
                   }}
                 />
               }
@@ -130,6 +132,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
                 <SearchForm
                   slug={slug}
                   sourceId={index.id}
+                  secretName={index.config.secret_name}
                   d={{
                     endpoint: index.config.endpoint ?? "",
                     index: index.config.index ?? "",
@@ -158,7 +161,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
 
       <p className="flex items-start gap-1.5 text-xs text-genie-muted">
         <ShieldCheck size={14} className="mt-px shrink-0" />
-        {BRAND.name}{" "}stores only the connection details: the address and the API key (encrypted, can&apos;t be shown again).
+        {BRAND.name}{" "}stores only the connection details: the address and the API key (encrypted; owners and admins can show or copy it).
         Your records and documents stay in your own systems. SQL databases come next.
       </p>
     </div>

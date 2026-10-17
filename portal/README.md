@@ -105,6 +105,14 @@ The Ask page sends the conversation to a server action (`app/app/[slug]/ask/acti
 - Server-only env vars: `SUPABASE_SECRET_KEY`, `OPENROUTER_API_KEY` — mark them
   Sensitive in Vercel, never `NEXT_PUBLIC_`.
 
+## Saved keys: show and copy (`components/secret-input.tsx`, `app/app/[slug]/reveal-action.ts`)
+
+Every key field (Odoo API key, search query key, Slack token and signing secret) shows a saved key as dots with
+👁 show and ⧉ copy; saved AI keys have the same icons in their list. The value is fetched from Vault only on
+click, by `revealSecret` (owners/admins, key must belong to the workspace). Typing replaces the key; untouched
+dots keep it. Workspace API keys for agents (`gnk_…`) can't be shown — only their hash is kept. (Decided
+2026-10-16 at the user's request; previously keys could never be read back. Privacy policy updated.)
+
 ## Slack (`lib/slack`, `app/api/slack/[slug]/events`)
 
 Settings → **Channels** → Slack: a workspace connects **its own Slack app** (new, or an existing bot such as C21's

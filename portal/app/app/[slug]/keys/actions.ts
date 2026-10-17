@@ -36,7 +36,7 @@ export async function saveAiKey(_prev: FormState, formData: FormData): Promise<F
   });
   if (error) return { error: `Could not save the key: ${error.message}` };
   revalidatePath(`/app/${slug}`, "layout");
-  return { ok: "Key saved. It is stored encrypted and can't be shown again." };
+  return { ok: "Key saved — stored encrypted. Owners and admins can show or copy it below." };
 }
 
 export async function deleteAiKey(formData: FormData) {

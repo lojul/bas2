@@ -5,6 +5,7 @@ import { providerLabel } from "@/lib/providers";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { deleteAiKey } from "./actions";
+import { SecretView } from "@/components/secret-input";
 import { KeyForm } from "./key-form";
 import { ModelForm } from "./model-form";
 import { type AiModelSettings, BYOK_ORDER, MODEL_OPTIONS, PROVIDER_NAME } from "@/lib/ai/models";
@@ -59,7 +60,7 @@ export async function KeysSection({ slug }: { slug: string }) {
         </p>
         <KeyForm slug={slug} />
         <p className="mt-4 flex items-center gap-1.5 text-xs text-genie-muted">
-          <Lock size={12} /> Keys are encrypted in Supabase Vault. Nobody can read them back in the portal — only{" "}
+          <Lock size={12} /> Keys are encrypted in Supabase Vault. Owners and admins can show or copy a saved key below;{" "}
           {BRAND.name}&apos;s servers use them when calling the provider.
         </p>
       </section>
@@ -74,8 +75,9 @@ export async function KeysSection({ slug }: { slug: string }) {
                   <KeyRound size={16} className="text-genie-green" />
                   <div>
                     <div className="font-medium">{providerLabel(k.provider)}</div>
-                    <div className="font-mono text-xs text-genie-muted">
-                      ••••{k.hint} · updated {new Date(k.updated_at).toLocaleDateString()}
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-genie-muted">
+                      <SecretView slug={slug} secretName={k.name} hint={k.hint} />
+                      <span>· updated {new Date(k.updated_at).toLocaleDateString()}</span>
                     </div>
                   </div>
                 </div>
