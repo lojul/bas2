@@ -127,7 +127,7 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
       <div>
         <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">Data sources</p>
         <Link
-          href={`${base}/settings#data-sources`}
+          href={`${base}/settings?tab=data-sources`}
           onClick={onNavigate}
           className="flex items-start gap-2 rounded-md px-2 py-1.5 text-xs text-genie-muted hover:bg-genie-accent"
         >
