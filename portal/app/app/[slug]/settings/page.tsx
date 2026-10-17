@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
+import { ActivitySection } from "../activity/section";
 import { AgentsSection } from "../agents/section";
 import { KeysSection } from "../keys/section";
 import { ChannelsSection } from "../channels/section";
@@ -17,6 +18,7 @@ const SECTIONS = [
   { id: "ai-keys", title: "AI model keys", hint: "Optional: your own Anthropic, OpenRouter or xAI key instead of the platform key." },
   { id: "ai-agents", title: "AI agent access (MCP)", hint: "API keys that let Claude, ChatGPT or your own agents read this workspace." },
   { id: "channels", title: "Channels", hint: "Ask Genie from Slack or WhatsApp (Teams later)." },
+  { id: "activity", title: "Activity", hint: "Changes in Odoo that Genie prepared or made: who asked, who confirmed, which record. Kept one year." },
 ] as const;
 
 type TabId = (typeof SECTIONS)[number]["id"];
@@ -39,6 +41,7 @@ export default async function SettingsPage({ params, searchParams }: PageProps<"
     "ai-keys": <KeysSection slug={slug} />,
     "ai-agents": <AgentsSection slug={slug} />,
     channels: <ChannelsSection slug={slug} />,
+    activity: <ActivitySection slug={slug} />,
   };
   return (
     <div>

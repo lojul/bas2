@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BRAND } from "@/lib/brand";
 import { liveSourcesFor, meterToolCall, runLiveTool } from "@/lib/live";
+import { type Actor, type ChangeAction, CHANGE_TOOL_NAMES, changeToolsFor, proposeChange } from "@/lib/odoo/changes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { type ChatTurn, type LoopResult, resolveRoute, runLoop } from "./gateway";
 import { AGENT_TOOLS, TOOL_NAMES } from "./tools";
@@ -9,7 +10,7 @@ import { AGENT_TOOLS, TOOL_NAMES } from "./tools";
 const MAX_HISTORY = 20;
 const MAX_MESSAGE_CHARS = 4000;
 
-function systemPrompt(workspaceName: string, sources: string | null) {
+function systemPrompt(workspaceName: string, sources: string | null, changes: string[], channel: string) {
   const today = new Date().toISOString().slice(0, 10);
   return `You are ${BRAND.name}, the AI assistant for the staff of "${workspaceName}". Today is ${today}.
 
@@ -22,10 +23,16 @@ ${sources ? `Switched-on data sources: ${sources}. Don't call workspace_info to 
 - For questions about properties, buildings or anything that may be in documents, use search_knowledge as well as search_records, and give the document link when you use one.
 - Be quick: when several lookups are needed, request them together in one step rather than one after another. Usually one or two lookups are enough.
 - Format answers with short Markdown (bold, bullet lists, small tables).
-- You can read data but not change it. If asked to create or update something, explain that this is not available yet.`;
+${
+    changes.length
+      ? `- You may prepare these changes in Odoo: ${changes.join(", ")}. Each such tool only makes a draft; the person must press Confirm under your answer before anything is saved. Never say a change is done — say it's ready to confirm. Look up the record first when the change is about an existing one, and ask for missing essentials (e.g. the client's name) before preparing a draft. One draft per change.`
+      : channel === "web"
+        ? "- You can read data but not change it here. If asked to create or update something, say that changes in Odoo are switched off or not allowed for this person (an admin can change that in Settings → Data sources)."
+        : "- You can read data but not change it in this channel. If asked to create or update something in Odoo, say this can be done on Ask at the Genie website, where the person confirms each change."
+  }`;
 }
 
-export type AgentAnswer = LoopResult & { keySource: "byok" | "platform"; provider: string };
+export type AgentAnswer = LoopResult & { keySource: "byok" | "platform"; provider: string; proposals: string[] };
 
 // One question in a workspace chat, run as the signed-in member (the page checked membership).
 // With data sources switched on (Odoo, a search index), tools read them live and nothing is stored; otherwise they go through
@@ -37,7 +44,8 @@ export async function askAgent(
   workspace: { id: string; name: string },
   userId: string | null,
   history: ChatTurn[],
-  opts: { channel?: "web" | "slack" | "whatsapp" } = {},
+  // actor: the signed-in member on Ask — needed for drafts of changes in Odoo (web only).
+  opts: { channel?: "web" | "slack" | "whatsapp"; actor?: Actor } = {},
 ): Promise<AgentAnswer> {
   const channel = opts.channel ?? "web";
   const turns = history
@@ -48,7 +56,8 @@ export async function askAgent(
   while (turns[0].role !== "user") turns.shift();
 
   const started = Date.now();
-  const [route, live] = await Promise.all([resolveRoute(workspace.id), liveSourcesFor(workspace.id)]);
+  const actor = channel === "web" ? (opts.actor ?? null) : null;
+  const [route, live, changes] = await Promise.all([resolveRoute(workspace.id), liveSourcesFor(workspace.id), changeToolsFor(workspace.id, actor)]);
   // Offer only tools that can work with the switched-on sources; the prompt already names them.
   const tools = live
     ? AGENT_TOOLS.filter(
@@ -58,8 +67,17 @@ export async function askAgent(
           (live.search || t.name !== "search_knowledge"),
       )
     : AGENT_TOOLS;
+  const allTools = [...tools, ...changes.tools];
+  const proposals: string[] = [];
   const sourceNames = live ? [live.odoo && `${live.odoo.name} (records)`, live.search && `${live.search.name} (documents)`].filter(Boolean).join(", ") : null;
   const runTool = async (name: string, input: Record<string, unknown>) => {
+    if (CHANGE_TOOL_NAMES.has(name)) {
+      if (!actor || !changes.tools.some((t) => t.name === name)) throw new Error("This change isn't allowed here.");
+      void meterToolCall(workspace.id, name, channel, userId);
+      const draft = await proposeChange(workspace.id, actor, name as ChangeAction, input);
+      proposals.push(draft.draft_id);
+      return draft;
+    }
     if (!TOOL_NAMES.has(name)) throw new Error(`Unknown tool ${name}`);
     if (live) {
       void meterToolCall(workspace.id, name, channel, userId);
@@ -71,7 +89,7 @@ export async function askAgent(
     return data ?? null;
   };
 
-  const result = await runLoop(route, systemPrompt(workspace.name, sourceNames), turns, tools, runTool);
+  const result = await runLoop(route, systemPrompt(workspace.name, sourceNames, changes.tools.map((t) => t.name), channel), turns, allTools, runTool);
   console.info(
     `ask ${workspace.id} model=${result.model} steps=${result.steps.length} tools=${result.toolCalls.join(",") || "-"} ` +
       `total=${Date.now() - started}ms ${result.steps.map((s) => `[model ${s.modelMs}ms tools ${s.toolMs}ms]`).join(" ")}`,
@@ -89,5 +107,5 @@ export async function askAgent(
     ]);
   if (error) console.error("usage metering failed", error.message);
 
-  return { ...result, keySource: route.keySource, provider: route.provider };
+  return { ...result, keySource: route.keySource, provider: route.provider, proposals };
 }

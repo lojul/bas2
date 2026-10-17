@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { BRAND } from "@/lib/brand";
+import { actionOn, CHANGE_ACTIONS, type ChangeSettings, DEFAULT_DAILY_LIMIT, ODOO_WRITE_SECRET, updatableFields } from "@/lib/odoo/changes";
 import { ODOO_MODEL_CHOICES } from "@/lib/odoo/models";
+import { OdooChangesCard } from "./changes-form";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { EditableSource, OdooForm, OdooOff, OffSwitch, SearchForm, SearchOff, TestConnection, type SearchDefaults } from "./forms";
@@ -45,6 +47,30 @@ export async function SourcesSection({ slug }: { slug: string }) {
     .order("created_at")
     .returns<Source[]>();
   const odoo = sources?.find((s) => s.kind.startsWith("odoo"));
+
+  // "Changes in Odoo" card (user decision 2026-10-17): off by default, Ask only, Confirm every change.
+  let changes: React.ReactNode = null;
+  if (odoo) {
+    const [{ data: tenant }, { count: keyCount }] = await Promise.all([
+      supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { odoo_changes?: ChangeSettings } | null }>(),
+      supabase.from("tenant_secrets").select("id", { count: "exact", head: true }).eq("tenant_id", workspace.id).eq("name", ODOO_WRITE_SECRET),
+    ]);
+    const cs = tenant?.settings?.odoo_changes ?? {};
+    const keySaved = (keyCount ?? 0) > 0;
+    changes = (
+      <section className="card">
+        <OdooChangesCard
+          slug={slug}
+          enabled={!!cs.enabled && keySaved}
+          keySaved={keySaved}
+          actions={CHANGE_ACTIONS.map((a) => ({ id: a.id, label: a.label, hint: a.hint, ...actionOn(cs, a.id) }))}
+          dailyLimit={cs.daily_limit ?? DEFAULT_DAILY_LIMIT}
+          updateFields={cs.update_fields ?? []}
+          fieldChoices={keySaved ? await updatableFields(workspace.id) : []}
+        />
+      </section>
+    );
+  }
   const index = sources?.find((s) => s.kind === "azure_search");
   // C21's existing index on its own Azure (the SharePoint building folders, proposals and listings).
   const searchDefaults: SearchDefaults =
@@ -56,7 +82,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
   const intro = (
     <p className="text-sm text-genie-muted">
       Read-only and live: when someone asks a question, {BRAND.name}{" "}looks it up in Odoo at that moment. Nothing is copied
-      into {BRAND.name}{" "}and nothing in Odoo is changed. What it can see is what the Odoo user behind the API key may see — use a dedicated, read-only user.
+      into {BRAND.name}{" "}and nothing in Odoo is changed by reading. What it can see is what the Odoo user behind the API key may see — use a dedicated, read-only user. Changes are a separate switch (below, once Odoo is on).
     </p>
   );
 
@@ -102,6 +128,8 @@ export async function SourcesSection({ slug }: { slug: string }) {
           <OdooOff slug={slug} intro={intro} />
         )}
       </section>
+
+      {changes}
 
       <section className="card">
         {index ? (

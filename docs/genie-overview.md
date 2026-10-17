@@ -22,7 +22,7 @@ decisions and build order: root `CLAUDE.md`.
 
 1. **Read live, don't copy.** Answers are always current, and "we keep no copy of your data" is a selling point
    (PDPO). The one agreed exception: chats people save on Ask, deleted 90 days after the last message.
-2. **The customer's system stays the system of record.** Genie only reads (no writing back yet).
+2. **The customer's system stays the system of record.** Genie reads; changes (create lead/contact, note, follow-up, allowed field updates) only as drafts a person confirms on Ask, switched off by default.
 3. **Self-service setup.** A workspace owner connects sources and channels in Settings: an on/off card each,
    Save, Test connection, keys masked with show/copy.
 4. **Plain business software look.** ERPNext / Frappe-desk style; Ask in Microsoft Copilot style.
@@ -57,7 +57,7 @@ Roles: **Owner** (everything) · **Admin** (members, sources, keys) · **Member*
 - Search inside Odoo is keyword search; differently worded questions can miss.
 - The platform AI account is registered in Hong Kong → no Claude / GPT / Gemini on it (Qwen is the default);
   a workspace's own key lifts this.
-- Read-only: can't create leads or log viewings yet.
+- Changes in Odoo work on Ask only (Slack/WhatsApp still read-only), and need a dedicated Genie Odoo user.
 - WhatsApp is the Twilio Sandbox (test only, ~50 messages/day, no memory between messages).
 - No outgoing email yet (invites are links you send yourself; anyone holding an invite link can use it).
 - No billing yet.
@@ -131,6 +131,7 @@ Roles: **Owner** (everything) · **Admin** (members, sources, keys) · **Member*
 | `invitations` | Email, role, **token hash**, expiry, accepted date | owner/admin |
 | `tenant_secrets` | Key metadata (+ last 4); the value lives in **Vault** | owner/admin; values only via service role |
 | `sources` | Connected systems: kind (`odoo_json2`, `azure_search`, …), non-secret config, status | members read; owner/admin manage |
+| `odoo_actions` | Drafted / made changes in Odoo: who, what, which record (draft values ≤24 h) | owner/admin, or the requester |
 | `chats`, `chat_messages` | Saved Ask chats (team/private) and messages | team: members; private: author; Genie's messages written by the server |
 | `api_keys` | MCP keys (**hash only**) | owner/admin |
 | `usage_events` | Metering | service role writes |

@@ -79,6 +79,19 @@ Claude Desktop (`claude_desktop_config.json`), via `mcp-remote`:
   "env": { "GENIE_KEY": "gnk_…" } } } }
 ```
 
+## Changes in Odoo (`lib/odoo/changes.ts`, migration `20261018000100_odoo_actions.sql`)
+
+Off by default. Settings → Data sources → "Changes in Odoo": master switch, API key of a dedicated Genie Odoo user
+(Vault `odoo_write_key`; reading keeps using the Odoo card's key), per action on/off + who may ask
+(`create_lead`, `create_contact`, `add_note`, `schedule_follow_up`, `update_record`), fields allowed for updates
+(`model:field`, read from Odoo `fields_get`), daily limit (default 50). Stored in `tenants.settings.odoo_changes`.
+Flow: on Ask only (needs the signed-in member), the agent gets the allowed change tools → each call makes a draft
+row in `odoo_actions` (values in `draft`) → card with Confirm/Cancel under the answer (`proposal-card.tsx`) →
+`decideChange` re-checks switches + limit, claims the row, writes with JSON-2 (`create`, `write`, `message_post`,
+`activity_schedule`), sets the salesperson / to-do owner to the Odoo user with the member's email, posts "Done by
+Genie at the request of …" on the record. pg_cron `genie-odoo-actions-cleanup` (hourly) expires drafts after 24 h,
+clears `draft` once decided, deletes rows after a year. Log: Settings → Activity. Slack/WhatsApp/MCP: read only.
+
 ## Chats on Ask (`app/app/[slug]/ask`, migration `20261017000100_chats.sql`)
 
 Saved chats are listed in the main sidebar under Ask (team 👥 / private 🔒, newest first, "New chat"); Ask shows one at `?chat=<id>`. **Team**: every member reads and
