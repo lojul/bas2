@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { SetupStrip, type SetupStep } from "./setup-strip";
-import type { Suggestion } from "./chat";
-import { Chat } from "./chat";
+import type { ChatMessage } from "./actions";
+import { type ChatSummary, ChatRoom, type Suggestion } from "./chat-room";
 
 export const metadata: Metadata = { title: "Ask" };
 // A question can take several model and tool round trips.
@@ -12,7 +12,7 @@ export const maxDuration = 120;
 
 export default async function AskPage({ params, searchParams }: PageProps<"/app/[slug]/ask">) {
   const { slug } = await params;
-  const q = (await searchParams).q;
+  const { q, chat: chatParam } = await searchParams;
   const { user } = await getUser();
   if (!user) redirect("/login");
   const workspace = await getWorkspace(user.id, slug);
@@ -47,14 +47,44 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
     { kind: "idea" as const, title: "Get started", prompt: "What data can you see?" },
   ].slice(0, 3);
 
+  // Saved chats this person can see (team chats + their own private ones; row-level security), and the
+  // open one with its messages.
+  const { data: chatRows } = await supabaseForSources
+    .from("chats")
+    .select("id, title, visibility, created_by")
+    .eq("tenant_id", workspace.id)
+    .order("last_message_at", { ascending: false })
+    .limit(100)
+    .returns<ChatSummary[]>();
+  const chats = chatRows ?? [];
+  const chat = typeof chatParam === "string" ? (chats.find((c) => c.id === chatParam) ?? null) : null;
+  let messages: ChatMessage[] = [];
+  if (chat) {
+    const { data } = await supabaseForSources
+      .from("chat_messages")
+      .select("*")
+      .eq("chat_id", chat.id)
+      .order("created_at")
+      .limit(500)
+      .returns<ChatMessage[]>();
+    messages = data ?? [];
+  }
+  const canDelete = !!chat && (chat.created_by === user.id || canManage(workspace.role));
+
   return (
     <div className="space-y-4">
-      {steps && <SetupStrip slug={slug} steps={steps} />}
-      <Chat
+      {steps && !chat && <SetupStrip slug={slug} steps={steps} />}
+      <ChatRoom
+        key={chat?.id ?? "new"}
         slug={slug}
-        initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""}
+        me={{ id: user.id, email: user.email ?? "" }}
+        chats={chats}
+        chat={chat}
+        initialMessages={messages}
+        canDelete={canDelete}
         greeting="Hi, how can I help?"
         suggestions={suggestions}
+        initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""}
       />
     </div>
   );

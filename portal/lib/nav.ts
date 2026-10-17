@@ -18,7 +18,7 @@ export const NAV: NavItem[] = [
     path: "/ask",
     label: "Ask",
     title: "Ask",
-    subtitle: "Ask about your company's data in plain language. Answers come only from your own systems; the conversation is not saved.",
+    subtitle: "Ask about your company's data in plain language, alone or with your team. Chats are kept 90 days after the last message.",
     bare: true,
   },
   { key: "members", path: "/members", label: "Team", title: "Team", subtitle: "Who can use this workspace, and what they can change." },
