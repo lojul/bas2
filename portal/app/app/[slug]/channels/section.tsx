@@ -51,29 +51,30 @@ export async function ChannelsSection({ slug }: { slug: string }) {
               <dt className="text-genie-muted">Bot</dt>
               <dd>@{slack.bot_name}</dd>
             </dl>
-            <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
-              <p className="font-medium">Last step, in Slack (api.slack.com/apps → your app):</p>
-              <ol className="list-decimal space-y-1 pl-5 text-genie-ink/90">
-                <li>
-                  <b>Event Subscriptions</b> → Enable → Request URL:
-                  <div className="mt-1.5">
-                    <CopyField value={eventsUrl} />
-                  </div>
-                </li>
-                <li>Subscribe to bot events <code className="font-mono">app_mention</code> and <code className="font-mono">message.im</code> → Save.</li>
-                <li>
-                  <b>OAuth &amp; Permissions</b> → scopes <code className="font-mono">app_mentions:read</code>, <code className="font-mono">chat:write</code>,{" "}
-                  <code className="font-mono">im:history</code>, <code className="font-mono">channels:history</code> → reinstall the app if Slack asks.
-                </li>
-                <li>
-                  <b>App Home</b> → allow users to send messages. Then @mention the bot in a channel, or message it directly.
-                </li>
-              </ol>
-              <p className="text-xs text-genie-muted">
-                This is a one-time change in Slack. After it, the switch above turns Slack on and off.
-              </p>
-            </div>
-            <SlackActions slug={slug} />
+            <SlackActions slug={slug}>
+              <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
+                <p className="font-medium">Next step, in Slack (api.slack.com/apps → your app):</p>
+                <ol className="list-decimal space-y-1 pl-5 text-genie-ink/90">
+                  <li>
+                    <b>Event Subscriptions</b> → Enable → Request URL:
+                    <div className="mt-1.5">
+                      <CopyField value={eventsUrl} />
+                    </div>
+                  </li>
+                  <li>Subscribe to bot events <code className="font-mono">app_mention</code> and <code className="font-mono">message.im</code> → Save.</li>
+                  <li>
+                    <b>OAuth &amp; Permissions</b> → scopes <code className="font-mono">app_mentions:read</code>, <code className="font-mono">chat:write</code>,{" "}
+                    <code className="font-mono">im:history</code>, <code className="font-mono">channels:history</code> → reinstall the app if Slack asks.
+                  </li>
+                  <li>
+                    <b>App Home</b> → allow users to send messages. Then @mention the bot in a channel, or message it directly.
+                  </li>
+                </ol>
+                <p className="text-xs text-genie-muted">
+                  This is a one-time change in Slack. After it, the switch above turns Slack on and off.
+                </p>
+              </div>
+            </SlackActions>
           </div>
         ) : (
           <SlackOff slug={slug} />
@@ -93,20 +94,21 @@ export async function ChannelsSection({ slug }: { slug: string }) {
               </div>
               <WhatsAppEnabledSwitch slug={slug} enabled={waEnabled} />
             </div>
-            <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
-              <p className="font-medium">Last step, in Twilio (console.twilio.com → Messaging → Try it out → Send a WhatsApp message → Sandbox settings):</p>
-              <ol className="list-decimal space-y-1 pl-5 text-genie-ink/90">
-                <li>
-                  <b>When a message comes in</b> → paste, method <b>POST</b>:
-                  <div className="mt-1.5">
-                    <CopyField value={inboundUrl} />
-                  </div>
-                </li>
-                <li>Save. Phones that joined the Sandbox (&quot;join …&quot; code) can now ask by text; photos and files still go to the address above.</li>
-              </ol>
-              <p className="text-xs text-genie-muted">Sandbox limits: only joined phones, and about 50 messages a day on a trial account.</p>
-            </div>
-            <WhatsAppActions slug={slug} d={waDefaults} />
+            <WhatsAppActions slug={slug} d={waDefaults}>
+              <div className="space-y-2 rounded-lg bg-genie-accent/60 p-4 text-sm">
+                <p className="font-medium">Next step, in Twilio (console.twilio.com → Messaging → Try it out → Send a WhatsApp message → Sandbox settings):</p>
+                <ol className="list-decimal space-y-1 pl-5 text-genie-ink/90">
+                  <li>
+                    <b>When a message comes in</b> → paste, method <b>POST</b>:
+                    <div className="mt-1.5">
+                      <CopyField value={inboundUrl} />
+                    </div>
+                  </li>
+                  <li>Save. Phones that joined the Sandbox (&quot;join …&quot; code) can now ask by text; photos and files still go to the address above.</li>
+                </ol>
+                <p className="text-xs text-genie-muted">Sandbox limits: only joined phones, and about 50 messages a day on a trial account.</p>
+              </div>
+            </WhatsAppActions>
           </div>
         ) : (
           <WhatsAppOff slug={slug} d={waDefaults} />

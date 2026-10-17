@@ -136,13 +136,14 @@ export function CopyField({ value }: { value: string }) {
 }
 
 // Connected Slack: the form filled in (keys masked), then Disconnect and Test connection.
-export function SlackActions({ slug }: { slug: string }) {
+export function SlackActions({ slug, children }: { slug: string; children?: React.ReactNode }) {
   const [state, action, pending] = useActionState(testSlack, undefined);
   return (
     <>
       <div className="border-t border-genie-border pt-4">
         <SlackForm slug={slug} editing />
       </div>
+      {children}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <DisconnectSlack slug={slug} />
         <form action={action} className="flex flex-wrap items-center justify-end gap-2">
@@ -275,13 +276,14 @@ function DisconnectWhatsApp({ slug }: { slug: string }) {
 }
 
 // Connected WhatsApp: the form filled in, then Disconnect and Test connection.
-export function WhatsAppActions({ slug, d }: { slug: string; d: WhatsAppDefaults }) {
+export function WhatsAppActions({ slug, d, children }: { slug: string; d: WhatsAppDefaults; children?: React.ReactNode }) {
   const [state, action, pending] = useActionState(testWhatsApp, undefined);
   return (
     <>
       <div className="border-t border-genie-border pt-4">
         <WhatsAppForm slug={slug} d={d} saved />
       </div>
+      {children}
       <div className="flex flex-wrap items-center justify-end gap-2">
         <DisconnectWhatsApp slug={slug} />
         <form action={action} className="flex flex-wrap items-center justify-end gap-2">
