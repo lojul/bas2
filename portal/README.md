@@ -81,7 +81,7 @@ Claude Desktop (`claude_desktop_config.json`), via `mcp-remote`:
 
 ## Chats on Ask (`app/app/[slug]/ask`, migration `20261017000100_chats.sql`)
 
-Ask lists saved chats on the left (Team / Private) and shows one at `?chat=<id>`. **Team**: every member reads and
+Saved chats are listed in the main sidebar under Ask (team 👥 / private 🔒, newest first, "New chat"); Ask shows one at `?chat=<id>`. **Team**: every member reads and
 posts; Genie answers only messages containing `@Genie` (history sent to the model with each author's email).
 **Private**: only the author; Genie answers every message. People insert their own messages (RLS: `role = 'user'`,
 `author_id = auth.uid()`); Genie's answers are inserted by the server (service role). New messages reach other open

@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Building2, FileText, Lightbulb, Lock, Plus, Sparkles, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowUp, Building2, FileText, Lightbulb, Lock, Sparkles, Trash2, UserRound, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 import { type ChatMessage, createChat, deleteChat, postMessage } from "./actions";
 import { Answer } from "./answer";
 
-// Ask with saved chats (decided 2026-10-17), in the style of Microsoft Copilot: a list of chats on
-// the left (Team / Private), the conversation on the right, live updates from the other members.
+// Ask with saved chats (decided 2026-10-17), in the style of Microsoft Copilot. The chat list lives in
+// the main sidebar under Ask; this is the conversation, with live updates from the other members.
 // Team chats: Genie answers when someone writes @Genie. Private chats: Genie answers every message.
 
 export type ChatSummary = { id: string; title: string; visibility: "team" | "private"; created_by: string | null };
@@ -85,36 +84,6 @@ function VisibilityToggle({ value, onChange }: { value: "team" | "private"; onCh
   );
 }
 
-function ChatList({ slug, chats, activeId }: { slug: string; chats: ChatSummary[]; activeId: string | null }) {
-  const groups = [
-    { title: "Team", items: chats.filter((c) => c.visibility === "team") },
-    { title: "Private", items: chats.filter((c) => c.visibility === "private") },
-  ];
-  return (
-    <div className="space-y-4">
-      <Link href={`/app/${slug}/ask`} className="btn-secondary w-full justify-start">
-        <Plus size={15} /> New chat
-      </Link>
-      {groups.map((g) => (
-        <div key={g.title}>
-          <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">{g.title}</p>
-          {g.items.length === 0 && <p className="px-2 text-xs text-genie-muted">None yet</p>}
-          {g.items.map((c) => (
-            <Link
-              key={c.id}
-              href={`/app/${slug}/ask?chat=${c.id}`}
-              className={`block truncate rounded-md px-2 py-1.5 text-sm ${c.id === activeId ? "bg-genie-accent font-medium" : "text-genie-ink/80 hover:bg-genie-accent"}`}
-            >
-              {c.title}
-            </Link>
-          ))}
-        </div>
-      ))}
-      <p className="px-2 text-xs text-genie-muted">Chats are deleted 90 days after the last message.</p>
-    </div>
-  );
-}
-
 function Message({ m, meId, team }: { m: ChatMessage; meId: string; team: boolean }) {
   if (m.role === "assistant") {
     return (
@@ -148,7 +117,6 @@ function Message({ m, meId, team }: { m: ChatMessage; meId: string; team: boolea
 export function ChatRoom({
   slug,
   me,
-  chats,
   chat,
   initialMessages,
   canDelete,
@@ -158,7 +126,6 @@ export function ChatRoom({
 }: {
   slug: string;
   me: { id: string; email: string };
-  chats: ChatSummary[];
   chat: ChatSummary | null;
   initialMessages: ChatMessage[];
   canDelete: boolean;
@@ -237,13 +204,10 @@ export function ChatRoom({
     });
   }
 
-  const list = <ChatList slug={slug} chats={chats} activeId={chatId} />;
-
   // New chat: greeting, Private/Team, big box, suggestions.
   if (!chat) {
     return (
-      <div className="flex gap-6">
-        <aside className="hidden w-56 shrink-0 lg:block">{list}</aside>
+      <div className="flex">
         <div className="mx-auto flex min-h-[60vh] max-w-3xl flex-1 flex-col justify-center gap-5 py-6">
           <div className="text-center">
             <span className="mx-auto mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-genie-border bg-white shadow-sm">
@@ -290,8 +254,7 @@ export function ChatRoom({
   }
 
   return (
-    <div className="flex gap-6">
-      <aside className="hidden w-56 shrink-0 lg:block">{list}</aside>
+    <div className="flex">
       <div className="mx-auto flex max-w-3xl flex-1 flex-col">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-genie-border pb-3">
           <div className="min-w-0">

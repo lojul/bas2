@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   Check,
@@ -10,6 +10,7 @@ import {
   CircleHelp,
   KeyRound,
   LayoutGrid,
+  Lock,
   LogOut,
   Menu,
   MessagesSquare,
@@ -36,6 +37,9 @@ const ICONS: Record<NavKey, typeof MessagesSquare> = {
 };
 
 export type ShellWorkspace = { slug: string; name: string; role: Role };
+// A saved chat, listed under Ask in the sidebar.
+export type SidebarChat = { id: string; title: string; visibility: "team" | "private" };
+
 // One line in the sidebar status lists (data sources, channels).
 export type StatusItem = { name: string; state: "on" | "off" | "error" };
 
@@ -113,7 +117,20 @@ function StatusList({ title, items, href, onNavigate }: { title: string; items: 
   );
 }
 
-function Sidebar({ workspace, sources, channels, onNavigate }: { workspace: ShellWorkspace; sources: StatusItem[]; channels: StatusItem[]; onNavigate: () => void }) {
+function Sidebar({
+  workspace,
+  sources,
+  channels,
+  chats,
+  onNavigate,
+}: {
+  workspace: ShellWorkspace;
+  sources: StatusItem[];
+  channels: StatusItem[];
+  chats: SidebarChat[];
+  onNavigate: () => void;
+}) {
+  const openChat = useSearchParams().get("chat");
   const pathname = usePathname();
   const active = activeNav(pathname, workspace.slug);
   const items = NAV.filter((n) => !n.managersOnly || canManage(workspace.role));
@@ -138,7 +155,43 @@ function Sidebar({ workspace, sources, channels, onNavigate }: { workspace: Shel
                 <Icon size={15} strokeWidth={1.75} className="text-genie-muted" /> {item.label}
               </Link>
             );
-          })}
+          }).flatMap((link, i) =>
+            // Chats sit under Ask as its sub-navigation.
+            items[i].key !== "ask"
+              ? [link]
+              : [
+                  link,
+                  <div key="chats" className="ml-[1.1rem] space-y-px border-l border-genie-border pl-2">
+                    <Link
+                      href={`${base}/ask`}
+                      onClick={onNavigate}
+                      className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+                        active.key === "ask" && !openChat ? "font-medium text-genie-ink" : "text-genie-muted hover:bg-genie-accent hover:text-genie-ink"
+                      }`}
+                    >
+                      <Plus size={14} /> New chat
+                    </Link>
+                    {chats.map((c) => (
+                      <Link
+                        key={c.id}
+                        href={`${base}/ask?chat=${c.id}`}
+                        onClick={onNavigate}
+                        title={c.visibility === "team" ? "Team chat" : "Private chat"}
+                        className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+                          openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
+                        }`}
+                      >
+                        {c.visibility === "team" ? (
+                          <Users size={13} className="shrink-0 text-genie-muted" />
+                        ) : (
+                          <Lock size={13} className="shrink-0 text-genie-muted" />
+                        )}
+                        <span className="truncate">{c.title}</span>
+                      </Link>
+                    ))}
+                  </div>,
+                ],
+          )}
         </nav>
       </div>
 
@@ -240,6 +293,7 @@ export function WorkspaceShell({
   email,
   sources,
   channels,
+  chats,
   children,
 }: {
   workspace: ShellWorkspace;
@@ -247,6 +301,7 @@ export function WorkspaceShell({
   email: string;
   sources: StatusItem[];
   channels: StatusItem[];
+  chats: SidebarChat[];
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -289,7 +344,7 @@ export function WorkspaceShell({
         <div className="fixed inset-0 z-40 md:hidden">
           <button type="button" className="absolute inset-0 bg-black/30" aria-label="Close menu" onClick={() => setDrawer(false)} />
           <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] overflow-y-auto bg-white px-3">
-            <Sidebar workspace={workspace} sources={sources} channels={channels} onNavigate={() => setDrawer(false)} />
+            <Sidebar workspace={workspace} sources={sources} channels={channels} chats={chats} onNavigate={() => setDrawer(false)} />
           </aside>
         </div>
       )}
@@ -297,7 +352,7 @@ export function WorkspaceShell({
       <div className="mx-auto flex w-full max-w-7xl flex-1 px-4">
         {!collapsed && (
           <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-56 shrink-0 overflow-y-auto pr-4 md:block">
-            <Sidebar workspace={workspace} sources={sources} channels={channels} onNavigate={() => {}} />
+            <Sidebar workspace={workspace} sources={sources} channels={channels} chats={chats} onNavigate={() => {}} />
           </aside>
         )}
         <main className={`min-w-0 flex-1 py-4 ${collapsed ? "" : "md:pl-4"}`}>

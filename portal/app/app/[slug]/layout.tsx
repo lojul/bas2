@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { type StatusItem, WorkspaceShell } from "@/components/workspace-shell";
+import { type SidebarChat, type StatusItem, WorkspaceShell } from "@/components/workspace-shell";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { getWorkspace, listMyWorkspaces } from "@/lib/workspaces";
 
@@ -11,7 +11,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
   if (!workspace) notFound();
 
   const supabase = await createClient();
-  const [workspaces, { data: sourceRows }, { data: tenant }] = await Promise.all([
+  const [workspaces, { data: sourceRows }, { data: tenant }, { data: chatRows }] = await Promise.all([
     listMyWorkspaces(user.id),
     supabase.from("sources").select("name, status").eq("tenant_id", workspace.id).order("created_at"),
     supabase
@@ -19,6 +19,14 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       .select("settings")
       .eq("id", workspace.id)
       .single<{ settings: { channels?: { slack?: { enabled?: boolean }; whatsapp?: { enabled?: boolean } } } | null }>(),
+    // Saved chats this person can see (team + own private), newest first, for the sidebar under Ask.
+    supabase
+      .from("chats")
+      .select("id, title, visibility")
+      .eq("tenant_id", workspace.id)
+      .order("last_message_at", { ascending: false })
+      .limit(30)
+      .returns<SidebarChat[]>(),
   ]);
   const sources: StatusItem[] = (sourceRows ?? []).map((s) => ({ name: s.name, state: s.status === "error" ? "error" : "on" }));
   const ch = tenant?.settings?.channels ?? {};
@@ -34,6 +42,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       email={user.email ?? ""}
       sources={sources}
       channels={channels}
+      chats={chatRows ?? []}
     >
       {children}
     </WorkspaceShell>
