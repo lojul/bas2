@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createClient, getUser } from "@/lib/supabase/server";
+import { proposalViews } from "@/lib/odoo/changes";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 import { SetupStrip, type SetupStep } from "./setup-strip";
 import type { ChatMessage } from "./actions";
@@ -69,6 +70,8 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
       .returns<ChatMessage[]>();
     messages = data ?? [];
   }
+  const proposalIds = messages.flatMap((m) => m.meta?.proposals ?? []);
+  const proposals = proposalIds.length ? await proposalViews(workspace.id, proposalIds, { userId: user.id, role: workspace.role }) : [];
   const canDelete = !!chat && (chat.created_by === user.id || canManage(workspace.role));
 
   return (
@@ -81,6 +84,7 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
         chat={chat}
         initialMessages={messages}
         canDelete={canDelete}
+        initialProposals={proposals}
         greeting="Hi, how can I help?"
         suggestions={suggestions}
         initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""}

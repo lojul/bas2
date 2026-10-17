@@ -113,6 +113,17 @@ export const HELP_TOPICS: HelpTopic[] = [
     icon: "ask",
     articles: [
       {
+        id: "odoo-changes",
+        title: "Changes in Odoo (create leads, notes, follow-ups)",
+        summary: "Genie prepares the change; you press Confirm.",
+        body: [
+          "An owner or admin switches it on in Settings → Data sources → Changes in Odoo, pastes the API key of a dedicated \"Genie\" Odoo user, and ticks what Genie may prepare: create a lead, create a contact, add a note, schedule a follow-up, update allowed fields. For each, choose who may ask (members and admins, or admins only). Viewers never can.",
+          "On Ask, write for example: \"Create a lead for Chan Tai Man, 9123 4567, wants a 3-bed in Taikoo Shing\". Genie shows a draft card. Nothing is saved in Odoo until you press Confirm; Cancel throws it away; a draft expires after 24 hours.",
+          "Only the person who asked, or an owner/admin, can confirm. The Odoo record gets a note \"Done by Genie at the request of …\", and the change is listed in Settings → Activity.",
+          "Changes work on Ask only for now. On Slack and WhatsApp Genie still only reads.",
+        ],
+      },
+      {
         id: "team-chats",
         title: "Team chats and private chats",
         summary: "Talk with colleagues and Genie in one place.",

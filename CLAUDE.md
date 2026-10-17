@@ -132,11 +132,17 @@ request, loading screen, Settings builds one tab). Demo tenant B deleted.
 
 **Pending and next (updated 2026-10-17, end of day)** — overview of what's built: `docs/genie-overview.md`.
 
+**Changes in Odoo from Ask (built 2026-10-17, user decision: dedicated Genie Odoo user, test on C21 live):** off by
+default; Settings → Data sources → Changes in Odoo; every change is a draft confirmed by the requester or an
+owner/admin; log in Settings → Activity; web only. Details `portal/README.md`. Second exception to "no copy": a
+draft's values for ≤24 h, then only who/what/which record for a year.
+
 *Waiting on the user (built, not yet confirmed working end to end):*
 | Item | What's needed |
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
 | WhatsApp | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text + a photo test |
+| Changes in Odoo | Create Odoo user "Genie" + API key → paste in the card → Save → test on Ask with "TEST …" records, then delete them in Odoo |
 | Team chat | Two members in one Team chat: live updates + @Genie answer |
 | Usage metering | One answer on Ask, then check `usage_events` has `message` / token rows (fix shipped, unverified) |
 | C21 trial | 3–5 agents use Ask/Slack/WhatsApp for a week; collect wrong / missing / slow answers |
@@ -150,7 +156,7 @@ request, loading screen, Settings builds one tab). Demo tenant B deleted.
 
 *Suggested build order:*
 1. Fix what the C21 trial shows (search quality on listings, speed, answer layout).
-2. Actions in Odoo from chat: create lead / contact, log a viewing or follow-up (needs a write-capable Odoo key).
+2. ~~Actions in Odoo from chat~~ built 2026-10-17 (web only); next: the same on Slack/WhatsApp once members are linked to their Slack user / phone.
 3. Email sending via Resend (Resend account + infiniduo.com DNS): emailed invites with a 6-digit code (closes the
    "held invite link = key" gap), password reset and sign-up confirmation for everyone.
 4. Stripe plans, limits and a usage page (Stripe test keys from Infinity Duo Technology).

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { askAgent } from "@/lib/ai/agent";
 import type { ChatTurn } from "@/lib/ai/gateway";
+import { decideChange, type ProposalView, proposalViews } from "@/lib/odoo/changes";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/supabase/server";
 import { getWorkspace } from "@/lib/workspaces";
@@ -17,7 +18,7 @@ export type ChatMessage = {
   author_id: string | null;
   author_email: string | null;
   content: string;
-  meta: { model?: string; key_source?: string; tools?: string[]; error?: boolean };
+  meta: { model?: string; key_source?: string; tools?: string[]; error?: boolean; proposals?: string[] };
   created_at: string;
 };
 
@@ -63,7 +64,7 @@ export async function postMessage(
   slug: string,
   chatId: string,
   text: string,
-): Promise<{ ok: true; mine: ChatMessage; answer: ChatMessage | null } | { ok: false; error: string }> {
+): Promise<{ ok: true; mine: ChatMessage; answer: ChatMessage | null; proposals: ProposalView[] } | { ok: false; error: string }> {
   const content = text.trim().slice(0, 4000);
   if (!content) return { ok: false, error: "Type a message first." };
   try {
@@ -79,7 +80,7 @@ export async function postMessage(
     if (error || !mine) return { ok: false, error: error?.message ?? "Could not send." };
 
     const askGenie = chat.visibility === "private" || MENTION.test(content);
-    if (!askGenie) return { ok: true, mine, answer: null };
+    if (!askGenie) return { ok: true, mine, answer: null, proposals: [] };
 
     // The conversation so far; in team chats each person's message says who wrote it.
     const { data: rows } = await supabase
@@ -101,9 +102,12 @@ export async function postMessage(
     let answerText: string;
     let meta: ChatMessage["meta"];
     try {
-      const result = await askAgent(supabase, { id: workspace.id, name: workspace.name }, user.id, history);
-      answerText = result.text || "(no answer)";
-      meta = { model: result.model, key_source: result.keySource, tools: [...new Set(result.toolCalls)] };
+      const result = await askAgent(supabase, { id: workspace.id, name: workspace.name }, user.id, history, {
+        channel: "web",
+        actor: { userId: user.id, email: user.email ?? "", role: workspace.role, chatId },
+      });
+      answerText = result.text || (result.proposals.length ? "Here is the draft — check it and press Confirm." : "(no answer)");
+      meta = { model: result.model, key_source: result.keySource, tools: [...new Set(result.toolCalls)], ...(result.proposals.length ? { proposals: result.proposals } : {}) };
     } catch (e) {
       answerText = `Sorry — I couldn't answer that: ${e instanceof Error ? e.message : String(e)}`;
       meta = { error: true };
@@ -114,9 +118,27 @@ export async function postMessage(
       .insert({ chat_id: chatId, tenant_id: workspace.id, role: "assistant", content: answerText.slice(0, 20000), meta })
       .select("*")
       .single<ChatMessage>();
-    return { ok: true, mine, answer: answer ?? null };
+    const proposals = meta.proposals ? await proposalViews(workspace.id, meta.proposals, { userId: user.id, role: workspace.role }) : [];
+    return { ok: true, mine, answer: answer ?? null, proposals };
   } catch (e) {
     console.error("chat post failed", e);
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// Draft cards (changes in Odoo) shown under Genie's answers.
+export async function loadProposals(slug: string, ids: string[]): Promise<ProposalView[]> {
+  const { user, workspace } = await context(slug);
+  return proposalViews(workspace.id, ids, { userId: user.id, role: workspace.role });
+}
+
+// Confirm → Genie writes the change to Odoo now; Cancel → nothing is written.
+export async function decideProposal(slug: string, id: string, confirm: boolean): Promise<{ ok: true; view: ProposalView } | { ok: false; error: string }> {
+  try {
+    const { user, workspace } = await context(slug);
+    const view = await decideChange(workspace.id, id, { userId: user.id, email: user.email ?? "", role: workspace.role, chatId: null }, confirm);
+    return { ok: true, view };
+  } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowUp, Building2, FileText, Lightbulb, Lock, Sparkles, Trash2, UserRound, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
-import { type ChatMessage, createChat, deleteChat, postMessage } from "./actions";
+import type { ProposalView } from "@/lib/odoo/changes";
+import { type ChatMessage, createChat, deleteChat, loadProposals, postMessage } from "./actions";
 import { Answer } from "./answer";
+import { ProposalCard } from "./proposal-card";
 
 // Ask with saved chats (decided 2026-10-17), in the style of Microsoft Copilot. The chat list lives in
 // the main sidebar under Ask; this is the conversation, with live updates from the other members.
@@ -84,7 +86,17 @@ function VisibilityToggle({ value, onChange }: { value: "team" | "private"; onCh
   );
 }
 
-function Message({ m, meId, team }: { m: ChatMessage; meId: string; team: boolean }) {
+function Message({
+  m,
+  meId,
+  team,
+  cards,
+}: {
+  m: ChatMessage;
+  meId: string;
+  team: boolean;
+  cards?: React.ReactNode;
+}) {
   if (m.role === "assistant") {
     return (
       <div className="flex gap-3">
@@ -93,6 +105,7 @@ function Message({ m, meId, team }: { m: ChatMessage; meId: string; team: boolea
         </span>
         <div className={`min-w-0 flex-1 ${m.meta?.error ? "rounded-lg bg-red-50 px-3 py-2 text-red-800" : ""}`}>
           {m.meta?.error ? m.content : <Answer text={m.content} />}
+          {cards}
           {m.meta?.model && (
             <div className="mt-2 text-xs text-genie-muted">
               {m.meta.model} · {m.meta.key_source === "byok" ? "your key" : "platform key"}
@@ -120,6 +133,7 @@ export function ChatRoom({
   chat,
   initialMessages,
   canDelete,
+  initialProposals = [],
   greeting,
   suggestions,
   initialQuestion = "",
@@ -129,6 +143,7 @@ export function ChatRoom({
   chat: ChatSummary | null;
   initialMessages: ChatMessage[];
   canDelete: boolean;
+  initialProposals?: ProposalView[];
   greeting: string;
   suggestions: Suggestion[];
   initialQuestion?: string;
@@ -141,6 +156,8 @@ export function ChatRoom({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, start] = useTransition();
+  const [proposals, setProposals] = useState<Record<string, ProposalView>>(() => Object.fromEntries(initialProposals.map((p) => [p.id, p])));
+  const putProposals = (list: ProposalView[]) => setProposals((cur) => ({ ...cur, ...Object.fromEntries(list.map((p) => [p.id, p])) }));
   const bottom = useRef<HTMLDivElement>(null);
   const chatId = chat?.id ?? null;
   const team = chat?.visibility === "team";
@@ -154,12 +171,14 @@ export function ChatRoom({
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "chat_messages", filter: `chat_id=eq.${chatId}` }, (payload) => {
         const m = payload.new as ChatMessage;
         setMessages((cur) => (cur.some((x) => x.id === m.id) ? cur : [...cur, m]));
+        // A draft change made for someone else's message: fetch its card.
+        if (m.meta?.proposals?.length) void loadProposals(slug, m.meta.proposals).then(putProposals);
       })
       .subscribe();
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [chatId]);
+  }, [chatId, slug]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
@@ -199,6 +218,7 @@ export function ChatRoom({
         router.refresh();
         return;
       }
+      putProposals(res.proposals);
       add([res.mine, res.answer]);
       router.refresh();
     });
@@ -292,7 +312,17 @@ export function ChatRoom({
         <div className="space-y-5 pb-6">
           {messages.length === 0 && <p className="text-sm text-genie-muted">No messages yet.</p>}
           {messages.map((m) => (
-            <Message key={m.id} m={m} meId={me.id} team={team} />
+            <Message
+              key={m.id}
+              m={m}
+              meId={me.id}
+              team={team}
+              cards={m.meta?.proposals
+                ?.filter((id) => proposals[id])
+                .map((id) => (
+                  <ProposalCard key={id} slug={slug} view={proposals[id]} onChange={(v) => putProposals([v])} />
+                ))}
+            />
           ))}
           {thinking && (
             <div className="flex items-center gap-3 text-sm text-genie-muted">
