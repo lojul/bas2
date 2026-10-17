@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
   ChevronRight,
   CircleHelp,
@@ -151,7 +152,9 @@ function Sidebar({ workspace, source, onNavigate }: { workspace: ShellWorkspace;
   );
 }
 
-export function AccountMenu({ email, slug }: { email: string; slug?: string }) {
+// The user level: who you are, your workspaces (switch / add), password, help, sign out.
+// Most people have one workspace, so switching lives here rather than in the page.
+export function AccountMenu({ email, slug, workspaces = [] }: { email: string; slug?: string; workspaces?: ShellWorkspace[] }) {
   return (
     <details className="relative">
       <summary
@@ -160,13 +163,28 @@ export function AccountMenu({ email, slug }: { email: string; slug?: string }) {
       >
         {email.slice(0, 1)}
       </summary>
-      <div className="absolute right-0 z-40 mt-2 w-60 rounded-lg border border-genie-border bg-white p-1 text-sm shadow-lg">
+      <div className="absolute right-0 z-40 mt-2 w-64 rounded-lg border border-genie-border bg-white p-1 text-sm shadow-lg">
         <p className="truncate px-3 py-2 text-xs text-genie-muted">{email}</p>
+        <div className="my-1 h-px bg-genie-border" />
+        <p className="px-3 pb-1 pt-1.5 text-[0.7rem] font-medium uppercase tracking-wide text-genie-muted">Workspaces</p>
+        {workspaces.map((w) => (
+          <Link key={w.slug} href={`/app/${w.slug}`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+            <Check size={14} className={w.slug === slug ? "text-genie-ink" : "invisible"} />
+            <span className="min-w-0 flex-1 truncate">{w.name}</span>
+            <span className="text-xs text-genie-muted">{ROLE_LABEL[w.role]}</span>
+          </Link>
+        ))}
+        <Link href="/app/new" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+          <Plus size={14} /> New workspace
+        </Link>
+        {workspaces.length > 1 && (
+          <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+            <LayoutGrid size={14} /> All workspaces
+          </Link>
+        )}
+        <div className="my-1 h-px bg-genie-border" />
         <Link href="/reset-password" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
           <KeyRound size={14} /> Change password
-        </Link>
-        <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
-          <LayoutGrid size={14} /> All workspaces
         </Link>
         {slug && (
           <Link href={`/app/${slug}/help`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
@@ -183,35 +201,6 @@ export function AccountMenu({ email, slug }: { email: string; slug?: string }) {
   );
 }
 
-function WorkspaceSwitcher({ workspace, workspaces }: { workspace: ShellWorkspace; workspaces: ShellWorkspace[] }) {
-  return (
-    <details className="relative">
-      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-1.5 py-1 text-sm text-genie-ink hover:bg-genie-accent">
-        <span className="max-w-[12rem] truncate">{workspace.name}</span>
-        <ChevronDown size={13} className="text-genie-muted" />
-      </summary>
-      <div className="absolute left-0 z-40 mt-2 w-64 rounded-lg border border-genie-border bg-white p-1 text-sm shadow-lg">
-        {workspaces.map((w) => (
-          <Link
-            key={w.slug}
-            href={`/app/${w.slug}`}
-            className={`flex items-center justify-between rounded-md px-3 py-1.5 hover:bg-genie-accent ${w.slug === workspace.slug ? "font-medium" : ""}`}
-          >
-            <span className="truncate">{w.name}</span>
-            <span className="text-xs text-genie-muted">{ROLE_LABEL[w.role]}</span>
-          </Link>
-        ))}
-        <div className="my-1 h-px bg-genie-border" />
-        <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
-          <LayoutGrid size={14} /> All workspaces
-        </Link>
-        <Link href="/app/new" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
-          <Plus size={14} /> New workspace
-        </Link>
-      </div>
-    </details>
-  );
-}
 
 // "Search or ask Genie" box, like ERPNext's awesome bar: Enter opens Ask with the question filled in.
 function CommandBox({ slug }: { slug: string }) {
@@ -252,7 +241,7 @@ function useCloseMenus() {
 }
 
 // Top bar outside a workspace (the workspace list, new workspace): same look as inside.
-export function HomeTopBar({ email, crumb }: { email: string; crumb: string }) {
+export function HomeTopBar({ email, crumb, workspaces }: { email: string; crumb: string; workspaces: ShellWorkspace[] }) {
   useCloseMenus();
   return (
     <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
@@ -263,7 +252,7 @@ export function HomeTopBar({ email, crumb }: { email: string; crumb: string }) {
         <ChevronRight size={14} className="text-genie-muted" />
         <span className="text-sm text-genie-ink">{crumb}</span>
         <div className="ml-auto">
-          <AccountMenu email={email} />
+          <AccountMenu email={email} workspaces={workspaces} />
         </div>
       </div>
     </header>
@@ -309,7 +298,9 @@ export function WorkspaceShell({
             <Sparkles size={14} />
           </Link>
           <ChevronRight size={14} className="text-genie-muted" />
-          <WorkspaceSwitcher workspace={workspace} workspaces={workspaces} />
+          <Link href={`${base}/ask`} className="max-w-[14rem] truncate rounded-md px-1.5 py-1 text-sm text-genie-ink hover:bg-genie-accent">
+            {workspace.name}
+          </Link>
           <ChevronRight size={14} className="text-genie-muted" />
           <span className="truncate text-sm text-genie-muted">{page.title}</span>
           <div className="ml-auto flex items-center gap-3">
@@ -317,7 +308,7 @@ export function WorkspaceShell({
             <Link href={`${base}/help`} className="hidden text-sm text-genie-ink hover:underline sm:inline">
               Help
             </Link>
-            <AccountMenu email={email} slug={workspace.slug} />
+            <AccountMenu email={email} slug={workspace.slug} workspaces={workspaces} />
           </div>
         </div>
       </header>
