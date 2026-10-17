@@ -78,7 +78,6 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
         key={chat?.id ?? "new"}
         slug={slug}
         me={{ id: user.id, email: user.email ?? "" }}
-        chats={chats}
         chat={chat}
         initialMessages={messages}
         canDelete={canDelete}
