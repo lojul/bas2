@@ -294,8 +294,6 @@ export function WorkspaceShell({
           >
             {workspace.name}
           </Link>
-          <ChevronRight size={14} className="text-genie-muted" />
-          <span className="truncate text-sm text-genie-muted">{page.title}</span>
           <div className="ml-auto flex items-center gap-3">
             <CommandBox slug={workspace.slug} />
             <Link href={`${base}/help`} className="hidden text-sm text-genie-ink hover:underline sm:inline">
