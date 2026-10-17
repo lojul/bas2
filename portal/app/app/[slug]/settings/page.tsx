@@ -19,8 +19,11 @@ const SECTIONS = [
   { id: "channels", title: "Channels", hint: "Ask Genie from Slack (WhatsApp and Teams later)." },
 ] as const;
 
-export default async function SettingsPage({ params }: PageProps<"/app/[slug]/settings">) {
+type TabId = (typeof SECTIONS)[number]["id"];
+
+export default async function SettingsPage({ params, searchParams }: PageProps<"/app/[slug]/settings">) {
   const { slug } = await params;
+  const requested = (await searchParams).tab;
   const { user } = await getUser();
   if (!user) redirect("/login");
   const workspace = await getWorkspace(user.id, slug);
@@ -29,15 +32,21 @@ export default async function SettingsPage({ params }: PageProps<"/app/[slug]/se
     return <p className="text-sm text-genie-muted">Only owners and admins can change settings.</p>;
   }
 
+  // Only the open tab is built (each tab reads its own data).
+  const active = SECTIONS.find((s) => s.id === requested) ?? SECTIONS[0];
+  const panels: Record<TabId, React.ReactNode> = {
+    "data-sources": <SourcesSection slug={slug} />,
+    "ai-keys": <KeysSection slug={slug} />,
+    "ai-agents": <AgentsSection slug={slug} />,
+    channels: <ChannelsSection slug={slug} />,
+  };
   return (
-    <SettingsTabs
-      tabs={[...SECTIONS]}
-      panels={{
-        "data-sources": <SourcesSection slug={slug} />,
-        "ai-keys": <KeysSection slug={slug} />,
-        "ai-agents": <AgentsSection slug={slug} />,
-        channels: <ChannelsSection slug={slug} />,
-      }}
-    />
+    <div>
+      <SettingsTabs slug={slug} tabs={SECTIONS.map(({ id, title }) => ({ id, title }))} active={active.id} />
+      <p className="mb-5 text-sm text-genie-muted">{active.hint}</p>
+      <section role="tabpanel" className="space-y-4">
+        {panels[active.id]}
+      </section>
+    </div>
   );
 }

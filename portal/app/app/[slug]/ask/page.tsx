@@ -29,9 +29,9 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
       count(supabase.from("tenant_secrets").select("id", { count: "exact", head: true }).eq("tenant_id", workspace.id).eq("kind", "ai_key")),
     ]);
     steps = [
-      { done: sources > 0, text: "Switch on a data source", href: `/app/${slug}/settings#data-sources` },
+      { done: sources > 0, text: "Switch on a data source", href: `/app/${slug}/settings?tab=data-sources` },
       { done: members > 1, text: "Invite your colleagues", href: `/app/${slug}/members` },
-      { done: keys > 0, text: "Add your own AI key (optional)", href: `/app/${slug}/settings#ai-keys` },
+      { done: keys > 0, text: "Add your own AI key (optional)", href: `/app/${slug}/settings?tab=ai-keys` },
     ];
   }
 

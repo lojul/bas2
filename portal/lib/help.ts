@@ -31,7 +31,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "3. Ask your first question on the Ask page, for example \"Which leads came in this week?\"",
           "4. Optional: add your own AI key, or give an outside AI agent (such as Claude Desktop) access under Settings → AI agent access.",
         ],
-        link: { label: "Open Settings", path: "/settings#data-sources" },
+        link: { label: "Open Settings", path: "/settings?tab=data-sources" },
       },
       {
         id: "what",
@@ -74,7 +74,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "4. Press Save. Genie reads the contacts, CRM leads and listings that this Odoo user may see — nothing to pick.",
           "The key is kept in an encrypted vault and is never shown again. Only owners and admins can connect sources.",
         ],
-        link: { label: "Connect Odoo", path: "/settings#data-sources" },
+        link: { label: "Connect Odoo", path: "/settings?tab=data-sources" },
       },
       {
         id: "live",
@@ -95,7 +95,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Enter the search service address, the index name and a query key (Azure portal → search service → Keys → Manage query keys). A query key can only search; it cannot change anything.",
           "Results are ranked by meaning when the index has a semantic configuration, and link back to the original file. Nothing is copied into Genie.",
         ],
-        link: { label: "Open Data sources", path: "/settings#data-sources" },
+        link: { label: "Open Data sources", path: "/settings?tab=data-sources" },
       },
       {
         id: "other-sources",
@@ -140,7 +140,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "Owners and admins: Settings → AI model keys → choose the provider and paste the key. It is stored in an encrypted vault and cannot be read back.",
           "Azure OpenAI keys can be saved but are not used by Ask yet.",
         ],
-        link: { label: "Add a key", path: "/settings#ai-keys" },
+        link: { label: "Add a key", path: "/settings?tab=ai-keys" },
       },
     ],
   },
@@ -158,7 +158,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "2. Point the agent at https://genie.infiniduo.com/api/mcp and send the key as \"Authorization: Bearer <key>\".",
           "3. Revoke the key on the same page when the agent no longer needs access.",
         ],
-        link: { label: "Create a key", path: "/settings#ai-agents" },
+        link: { label: "Create a key", path: "/settings?tab=ai-agents" },
       },
       {
         id: "claude-desktop",
