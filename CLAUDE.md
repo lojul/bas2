@@ -130,18 +130,38 @@ ERPNext look, 16px base; Slack channel (Settings → Channels) connected to C21'
 real Slack question still to be confirmed; usage metering fixed; faster navigation (one auth check per
 request, loading screen, Settings builds one tab). Demo tenant B deleted.
 
-**Next (updated 2026-10-16 after the no-copy decision), in this order**
-0. User: switch Odoo on for C21 and try 5–10 real questions on Ask; their results decide what to fix
-   first. *Not done yet.*
-1. Fix what the C21 test questions show (search quality on listings, speed).
-2. Turn "AI agent access (MCP)" into an on/off card like Odoo (proposed, not yet confirmed).
-3. Email sending via Resend (needs a Resend account + infiniduo.com DNS records) for invites, password
-   resets and sign-up confirmations.
-4. Live read-only SQL connector; move demo tenant B's synthetic data into its own demo SQL database.
-5. Slack app + Stripe plans (build step 5).
-Dropped by the no-copy decision: scheduled sync, embedding index over customer data, CSV upload into
-Genie. Also open: rotate the n8n keys (see Secrets); Supabase Pro before the first paying tenant;
-publish the Google consent screen when ready.
+**Pending and next (updated 2026-10-17, end of day)** — overview of what's built: `docs/genie-overview.md`.
+
+*Waiting on the user (built, not yet confirmed working end to end):*
+| Item | What's needed |
+|---|---|
+| Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
+| WhatsApp | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text + a photo test |
+| Team chat | Two members in one Team chat: live updates + @Genie answer |
+| Usage metering | One answer on Ask, then check `usage_events` has `message` / token rows (fix shipped, unverified) |
+| C21 trial | 3–5 agents use Ask/Slack/WhatsApp for a week; collect wrong / missing / slow answers |
+
+*Decisions the user still has to make:*
+- Answer layout: short answer, then "From Odoo (live)" / "From documents", Odoo wins on current facts (proposed).
+- Vector search on C21's index: add an Azure OpenAI vectorizer to `properties-index` (needs the user to run it or
+  approve a managed identity — Claude may not copy the OpenAI key).
+- AI agent access (MCP) as an on/off card like the others (proposed).
+- When to switch on Google / Microsoft sign-in (`SOCIAL_SIGNIN_READY`) and publish the Google consent screen.
+
+*Suggested build order:*
+1. Fix what the C21 trial shows (search quality on listings, speed, answer layout).
+2. Actions in Odoo from chat: create lead / contact, log a viewing or follow-up (needs a write-capable Odoo key).
+3. Email sending via Resend (Resend account + infiniduo.com DNS): emailed invites with a 6-digit code (closes the
+   "held invite link = key" gap), password reset and sign-up confirmation for everyone.
+4. Stripe plans, limits and a usage page (Stripe test keys from Infinity Duo Technology).
+5. Document add-on: flyer/photo → Odoo, rebuilt into Genie (today WhatsApp files go to the legacy n8n pipeline).
+6. More live sources (read-only SQL; SharePoint/OneDrive or Google Drive search), Teams, a real WhatsApp number.
+
+*Housekeeping:* rotate the n8n keys (see Secrets); Supabase Pro before the first paying tenant; archive the old
+`lojul/property-intelligence-dashboard` repo; keep legacy `odoo-bas-sync` and the old Slack Azure Function running
+(the first fills `properties-index`, the second is the fallback if Slack is pointed back); renew the Microsoft Entra
+client secret before 2028-10-15.
+Dropped by the no-copy decision: scheduled sync, embedding index over customer data, CSV upload into Genie.
 
 ## Which folder to use
 
