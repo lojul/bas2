@@ -96,23 +96,23 @@ function WhatsNew({ slug, onNavigate }: { slug: string; onNavigate: () => void }
 }
 
 const DOT: Record<StatusItem["state"], string> = { on: "bg-genie-green", off: "bg-gray-300", error: "bg-genie-danger" };
-const STATE_TEXT: Record<StatusItem["state"], string> = { on: "On", off: "Off", error: "Can't reach it" };
 
 // A sidebar list: one line per item with its own dot (green on, grey off, red can't reach).
-function StatusList({ title, items, href, onNavigate }: { title: string; items: StatusItem[]; href: string; onNavigate: () => void }) {
+// Plain status lines (user 2026-10-17: no link, no hover highlight); changes are made in Settings.
+function StatusList({ title, items }: { title: string; items: StatusItem[] }) {
   return (
     <div>
       <p className="mb-1.5 px-3 text-xs font-medium uppercase tracking-wide text-genie-muted">{title}</p>
-      <Link href={href} onClick={onNavigate} className="block space-y-2 rounded-md px-3 py-2 text-sm hover:bg-genie-accent">
+      <div className="space-y-2 px-3 py-2 text-sm">
         {items.length === 0 && <span className="text-xs text-genie-muted">None switched on</span>}
         {items.map((item) => (
-          <span key={item.name} className="flex items-center gap-2" title={STATE_TEXT[item.state]}>
+          <span key={item.name} className="flex items-center gap-2">
             <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[item.state]}`} />
             <span className={`truncate ${item.state === "on" ? "text-genie-ink" : "text-genie-muted"}`}>{item.name}</span>
             {item.state === "error" && <span className="text-xs text-genie-danger">· can&apos;t reach</span>}
           </span>
         ))}
-      </Link>
+      </div>
     </div>
   );
 }
@@ -195,8 +195,8 @@ function Sidebar({
         </nav>
       </div>
 
-      <StatusList title="Data sources" items={sources} href={`${base}/settings?tab=data-sources`} onNavigate={onNavigate} />
-      <StatusList title="Channels" items={channels} href={`${base}/settings?tab=channels`} onNavigate={onNavigate} />
+      <StatusList title="Data sources" items={sources} />
+      <StatusList title="Channels" items={channels} />
 
       <div className="mt-auto">
         <WhatsNew slug={workspace.slug} onNavigate={onNavigate} />
