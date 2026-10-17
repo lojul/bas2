@@ -102,8 +102,8 @@ const STATE_TEXT: Record<StatusItem["state"], string> = { on: "On", off: "Off", 
 function StatusList({ title, items, href, onNavigate }: { title: string; items: StatusItem[]; href: string; onNavigate: () => void }) {
   return (
     <div>
-      <p className="mb-1 px-2 text-xs font-medium uppercase tracking-wide text-genie-muted">{title}</p>
-      <Link href={href} onClick={onNavigate} className="block space-y-1 rounded-md px-2 py-1.5 text-sm hover:bg-genie-accent">
+      <p className="mb-1.5 px-3 text-xs font-medium uppercase tracking-wide text-genie-muted">{title}</p>
+      <Link href={href} onClick={onNavigate} className="block space-y-2 rounded-md px-3 py-2 text-sm hover:bg-genie-accent">
         {items.length === 0 && <span className="text-xs text-genie-muted">None switched on</span>}
         {items.map((item) => (
           <span key={item.name} className="flex items-center gap-2" title={STATE_TEXT[item.state]}>
@@ -148,11 +148,11 @@ function Sidebar({
                 key={item.key}
                 href={`${base}${item.path}`}
                 onClick={onNavigate}
-                className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm ${
+                className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm ${
                   on ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
                 }`}
               >
-                <Icon size={15} strokeWidth={1.75} className="text-genie-muted" /> {item.label}
+                <Icon size={18} strokeWidth={1.75} className="text-genie-muted" /> {item.label}
               </Link>
             );
           }).flatMap((link, i) =>
@@ -161,11 +161,11 @@ function Sidebar({
               ? [link]
               : [
                   link,
-                  <div key="chats" className="ml-[1.1rem] space-y-px border-l border-genie-border pl-2">
+                  <div key="chats" className="ml-[1.45rem] space-y-0.5 border-l border-genie-border pl-2">
                     <Link
                       href={`${base}/ask`}
                       onClick={onNavigate}
-                      className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+                      className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm ${
                         active.key === "ask" && !openChat ? "font-medium text-genie-ink" : "text-genie-muted hover:bg-genie-accent hover:text-genie-ink"
                       }`}
                     >
@@ -177,7 +177,7 @@ function Sidebar({
                         href={`${base}/ask?chat=${c.id}`}
                         onClick={onNavigate}
                         title={c.visibility === "team" ? "Team chat" : "Private chat"}
-                        className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+                        className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm ${
                           openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
                         }`}
                       >
@@ -211,7 +211,7 @@ export function AccountMenu({ email, slug, workspaces = [] }: { email: string; s
   return (
     <details className="relative">
       <summary
-        className="flex h-7 w-7 cursor-pointer list-none items-center justify-center rounded-full bg-genie-accent text-xs font-semibold uppercase text-genie-ink"
+        className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-full bg-genie-accent text-xs font-semibold uppercase text-genie-ink"
         title={email}
       >
         {email.slice(0, 1)}
@@ -221,26 +221,26 @@ export function AccountMenu({ email, slug, workspaces = [] }: { email: string; s
         <div className="my-1 h-px bg-genie-border" />
         <p className="px-3 pb-1 pt-1.5 text-[0.7rem] font-medium uppercase tracking-wide text-genie-muted">Workspaces</p>
         {workspaces.map((w) => (
-          <Link key={w.slug} href={`/app/${w.slug}`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+          <Link key={w.slug} href={`/app/${w.slug}`} className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-genie-accent">
             <Check size={14} className={w.slug === slug ? "text-genie-ink" : "invisible"} />
             <span className="min-w-0 flex-1 truncate">{w.name}</span>
             <span className="text-xs text-genie-muted">{ROLE_LABEL[w.role]}</span>
           </Link>
         ))}
-        <Link href="/app/new" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+        <Link href="/app/new" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-genie-accent">
           <Plus size={14} /> New workspace
         </Link>
         {workspaces.length > 1 && (
-          <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+          <Link href="/app?all=1" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-genie-accent">
             <LayoutGrid size={14} /> All workspaces
           </Link>
         )}
         <div className="my-1 h-px bg-genie-border" />
-        <Link href="/reset-password" className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+        <Link href="/reset-password" className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-genie-accent">
           <KeyRound size={14} /> Change password
         </Link>
         {slug && (
-          <Link href={`/app/${slug}/help`} className="flex items-center gap-2 rounded-md px-3 py-1.5 hover:bg-genie-accent">
+          <Link href={`/app/${slug}/help`} className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-genie-accent">
             <CircleHelp size={14} /> Help
           </Link>
         )}
@@ -273,7 +273,7 @@ export function HomeTopBar({ email, crumb, workspaces }: { email: string; crumb:
   useCloseMenus();
   return (
     <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
-      <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
+      <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-6">
         <Link href="/app?all=1" className="mr-1 flex h-7 w-7 items-center justify-center rounded-md bg-genie-green-deep text-white" aria-label={`${BRAND.name} — all workspaces`}>
           <Sparkles size={14} />
         </Link>
@@ -315,7 +315,7 @@ export function WorkspaceShell({
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <header className="sticky top-0 z-30 border-b border-genie-border bg-white">
-        <div className="mx-auto flex h-12 max-w-7xl items-center gap-2 px-4">
+        <div className="mx-auto flex h-16 max-w-7xl items-center gap-3 px-6">
           {/* The workspace name is the home link (Ask); on Ask it starts a fresh conversation. */}
           <Link
             href={`${base}/ask`}
@@ -349,13 +349,13 @@ export function WorkspaceShell({
         </div>
       )}
 
-      <div className="mx-auto flex w-full max-w-7xl flex-1 px-4">
+      <div className="mx-auto flex w-full max-w-7xl flex-1 px-6">
         {!collapsed && (
-          <aside className="sticky top-12 hidden h-[calc(100vh-3rem)] w-56 shrink-0 overflow-y-auto pr-4 md:block">
+          <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-64 shrink-0 overflow-y-auto pr-6 md:block">
             <Sidebar workspace={workspace} sources={sources} channels={channels} chats={chats} onNavigate={() => {}} />
           </aside>
         )}
-        <main className={`min-w-0 flex-1 py-4 ${collapsed ? "" : "md:pl-4"}`}>
+        <main className={`min-w-0 flex-1 py-6 ${collapsed ? "" : "md:pl-6"}`}>
           <div className={`flex items-center gap-2 ${page.bare ? "mb-1" : "mb-5"}`}>
             <button
               type="button"
