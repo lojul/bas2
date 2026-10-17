@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { WorkspaceShell, type SourceStatus } from "@/components/workspace-shell";
+import { type StatusItem, WorkspaceShell } from "@/components/workspace-shell";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { getWorkspace, listMyWorkspaces } from "@/lib/workspaces";
 
@@ -11,24 +11,29 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
   if (!workspace) notFound();
 
   const supabase = await createClient();
-  const [workspaces, { data: sources }] = await Promise.all([
+  const [workspaces, { data: sourceRows }, { data: tenant }] = await Promise.all([
     listMyWorkspaces(user.id),
+    supabase.from("sources").select("name, status").eq("tenant_id", workspace.id).order("created_at"),
     supabase
-      .from("sources")
-      .select("name, status")
-      .eq("tenant_id", workspace.id)
-      .order("created_at"),
+      .from("tenants")
+      .select("settings")
+      .eq("id", workspace.id)
+      .single<{ settings: { channels?: { slack?: { enabled?: boolean }; whatsapp?: { enabled?: boolean } } } | null }>(),
   ]);
-  const source: SourceStatus = sources?.length
-    ? { name: sources.map((s) => s.name).join(", "), status: sources.some((s) => s.status === "error") ? "error" : "active" }
-    : null;
+  const sources: StatusItem[] = (sourceRows ?? []).map((s) => ({ name: s.name, state: s.status === "error" ? "error" : "on" }));
+  const ch = tenant?.settings?.channels ?? {};
+  const channels: StatusItem[] = [
+    ...(ch.slack ? [{ name: "Slack", state: ch.slack.enabled === false ? "off" : "on" } as StatusItem] : []),
+    ...(ch.whatsapp ? [{ name: "WhatsApp", state: ch.whatsapp.enabled === false ? "off" : "on" } as StatusItem] : []),
+  ];
 
   return (
     <WorkspaceShell
       workspace={{ slug: workspace.slug, name: workspace.name, role: workspace.role }}
       workspaces={workspaces.map((w) => ({ slug: w.slug, name: w.name, role: w.role }))}
       email={user.email ?? ""}
-      source={source}
+      sources={sources}
+      channels={channels}
     >
       {children}
     </WorkspaceShell>
