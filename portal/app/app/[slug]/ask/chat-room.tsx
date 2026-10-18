@@ -214,8 +214,9 @@ export function ChatRoom({
         return;
       }
       if (!chatId) {
+        // No router.refresh() here: it cancels this navigation and leaves "Starting the chat…" up for
+        // good. createChat already revalidated the page, so the sidebar lists the new chat.
         router.push(`/app/${slug}/ask?chat=${id}`);
-        router.refresh();
         return;
       }
       putProposals(res.proposals);
