@@ -192,7 +192,7 @@ function Sidebar({
                     {chats.map((c) =>
                       confirming === c.id ? (
                         <div key={c.id} className="flex items-center gap-2 rounded-md bg-red-50 px-2.5 py-1.5 text-sm">
-                          <span className="min-w-0 flex-1 truncate text-red-800">Delete “{c.title}”?</span>
+                          <span className="min-w-0 flex-1 truncate text-red-800">Delete chat?</span>
                           <button type="button" disabled={deleting} onClick={() => remove(c.id)} className="font-medium text-genie-danger hover:underline">
                             Yes
                           </button>
