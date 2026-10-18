@@ -119,6 +119,58 @@ function StatusList({ title, items }: { title: string; items: StatusItem[] }) {
   );
 }
 
+// Confirm before deleting a saved chat: a small centred dialog (user 2026-10-18, instead of an inline
+// "Yes / No" in the sidebar row).
+function DeleteChatDialog({
+  chat,
+  busy,
+  error,
+  onCancel,
+  onDelete,
+}: {
+  chat: SidebarChat;
+  busy: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onDelete: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button type="button" className="absolute inset-0 cursor-default bg-black/30" aria-label="Cancel" onClick={onCancel} />
+      <div role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" className="relative w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
+        <h2 id="delete-chat-title" className="text-base font-semibold text-genie-ink">
+          Delete chat?
+        </h2>
+        <p className="mt-2 text-sm text-genie-muted">
+          <span className="font-medium text-genie-ink">{chat.title}</span> will be deleted
+          {chat.visibility === "team" ? " for everyone in the workspace" : ""}. This can&apos;t be undone.
+        </p>
+        {error && <p className="mt-3 text-sm text-genie-danger">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" className="btn-secondary" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            autoFocus
+            disabled={busy}
+            onClick={onDelete}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md bg-genie-danger px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Sidebar({
   workspace,
   sources,
@@ -138,7 +190,7 @@ function Sidebar({
   const items = NAV.filter((n) => !n.managersOnly || canManage(workspace.role));
   const base = `/app/${workspace.slug}`;
   const router = useRouter();
-  const [confirming, setConfirming] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState<SidebarChat | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -149,8 +201,8 @@ function Sidebar({
     setDeleteError(null);
     const res = await deleteChat(workspace.slug, id).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
     setDeleting(false);
-    setConfirming(null);
     if (!res.ok) return setDeleteError(res.error ?? "Could not delete.");
+    setConfirming(null);
     if (openChat === id) router.push(`${base}/ask`);
   }
 
@@ -189,56 +241,48 @@ function Sidebar({
                     >
                       <Plus size={14} /> New chat
                     </Link>
-                    {chats.map((c) =>
-                      confirming === c.id ? (
-                        <div key={c.id} className="flex items-center gap-2 rounded-md bg-red-50 px-2.5 py-1.5 text-sm">
-                          <span className="min-w-0 flex-1 truncate text-red-800">Delete chat?</span>
-                          <button type="button" disabled={deleting} onClick={() => remove(c.id)} className="font-medium text-genie-danger hover:underline">
-                            Yes
-                          </button>
-                          <button type="button" onClick={() => setConfirming(null)} className="text-genie-muted hover:underline">
-                            No
-                          </button>
-                        </div>
-                      ) : (
-                        <div key={c.id} className="group relative">
-                          <Link
-                            href={`${base}/ask?chat=${c.id}`}
-                            onClick={onNavigate}
-                            title={c.visibility === "team" ? "Team chat" : "Private chat"}
-                            className={`flex items-center gap-2 rounded-md py-1.5 pl-2.5 text-sm ${c.canDelete ? "pr-8" : "pr-2.5"} ${
-                              openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
+                    {chats.map((c) => (
+                      <div key={c.id} className="group relative">
+                        <Link
+                          href={`${base}/ask?chat=${c.id}`}
+                          onClick={onNavigate}
+                          title={c.visibility === "team" ? "Team chat" : "Private chat"}
+                          className={`flex items-center gap-2 rounded-md py-1.5 pl-2.5 text-sm ${c.canDelete ? "pr-8" : "pr-2.5"} ${
+                            openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
+                          }`}
+                        >
+                          {c.visibility === "team" ? (
+                            <Users size={13} className="shrink-0 text-genie-muted" />
+                          ) : (
+                            <Lock size={13} className="shrink-0 text-genie-muted" />
+                          )}
+                          <span className="truncate">{c.title}</span>
+                        </Link>
+                        {c.canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDeleteError(null);
+                              setConfirming(c);
+                            }}
+                            aria-label={`Delete chat ${c.title}`}
+                            title="Delete chat"
+                            className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-genie-muted hover:bg-white hover:text-genie-danger focus:opacity-100 group-hover:opacity-100 ${
+                              openChat === c.id ? "opacity-100" : "opacity-0"
                             }`}
                           >
-                            {c.visibility === "team" ? (
-                              <Users size={13} className="shrink-0 text-genie-muted" />
-                            ) : (
-                              <Lock size={13} className="shrink-0 text-genie-muted" />
-                            )}
-                            <span className="truncate">{c.title}</span>
-                          </Link>
-                          {c.canDelete && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirming(c.id)}
-                              aria-label={`Delete chat ${c.title}`}
-                              title="Delete chat"
-                              className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-genie-muted hover:bg-white hover:text-genie-danger focus:opacity-100 group-hover:opacity-100 ${
-                                openChat === c.id ? "opacity-100" : "opacity-0"
-                              }`}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          )}
-                        </div>
-                      ),
-                    )}
-                    {deleteError && <p className="px-2.5 py-1 text-xs text-genie-danger">{deleteError}</p>}
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>,
                 ],
           )}
         </nav>
       </div>
+
+      {confirming && <DeleteChatDialog chat={confirming} busy={deleting} error={deleteError} onCancel={() => setConfirming(null)} onDelete={() => remove(confirming.id)} />}
 
       <StatusList title="Data sources" items={sources} />
       <StatusList title="Channels" items={channels} />
