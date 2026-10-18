@@ -1,5 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { type SidebarChat, type StatusItem, WorkspaceShell } from "@/components/workspace-shell";
+import { canManage } from "@/lib/roles";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { getWorkspace, listMyWorkspaces } from "@/lib/workspaces";
 
@@ -22,12 +23,14 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
     // Saved chats this person can see (team + own private), newest first, for the sidebar under Ask.
     supabase
       .from("chats")
-      .select("id, title, visibility")
+      .select("id, title, visibility, created_by")
       .eq("tenant_id", workspace.id)
       .order("last_message_at", { ascending: false })
       .limit(30)
-      .returns<SidebarChat[]>(),
+      .returns<(Omit<SidebarChat, "canDelete"> & { created_by: string | null })[]>(),
   ]);
+  // Same rule as deleteChat: the person who started the chat, or an owner/admin.
+  const chats: SidebarChat[] = (chatRows ?? []).map(({ created_by, ...c }) => ({ ...c, canDelete: created_by === user.id || canManage(workspace.role) }));
   const sources: StatusItem[] = (sourceRows ?? []).map((s) => ({ name: s.name, state: s.status === "error" ? "error" : "on" }));
   const ch = tenant?.settings?.channels ?? {};
   const channels: StatusItem[] = [
@@ -42,7 +45,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       email={user.email ?? ""}
       sources={sources}
       channels={channels}
-      chats={chatRows ?? []}
+      chats={chats}
     >
       {children}
     </WorkspaceShell>
