@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { deleteChat } from "@/app/app/[slug]/ask/actions";
 import {
   ArrowUpRight,
   Check,
@@ -17,6 +18,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
@@ -38,7 +40,7 @@ const ICONS: Record<NavKey, typeof MessagesSquare> = {
 
 export type ShellWorkspace = { slug: string; name: string; role: Role };
 // A saved chat, listed under Ask in the sidebar.
-export type SidebarChat = { id: string; title: string; visibility: "team" | "private" };
+export type SidebarChat = { id: string; title: string; visibility: "team" | "private"; canDelete: boolean };
 
 // One line in the sidebar status lists (data sources, channels).
 export type StatusItem = { name: string; state: "on" | "off" | "error" };
@@ -135,6 +137,22 @@ function Sidebar({
   const active = activeNav(pathname, workspace.slug);
   const items = NAV.filter((n) => !n.managersOnly || canManage(workspace.role));
   const base = `/app/${workspace.slug}`;
+  const router = useRouter();
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // deleteChat revalidates the page, so the list updates without a router.refresh() (which would
+  // cancel the push below).
+  async function remove(id: string) {
+    setDeleting(true);
+    setDeleteError(null);
+    const res = await deleteChat(workspace.slug, id).catch((e: unknown) => ({ ok: false, error: e instanceof Error ? e.message : String(e) }));
+    setDeleting(false);
+    setConfirming(null);
+    if (!res.ok) return setDeleteError(res.error ?? "Could not delete.");
+    if (openChat === id) router.push(`${base}/ask`);
+  }
 
   return (
     <div className="flex h-full flex-col gap-4 py-4">
@@ -171,24 +189,51 @@ function Sidebar({
                     >
                       <Plus size={14} /> New chat
                     </Link>
-                    {chats.map((c) => (
-                      <Link
-                        key={c.id}
-                        href={`${base}/ask?chat=${c.id}`}
-                        onClick={onNavigate}
-                        title={c.visibility === "team" ? "Team chat" : "Private chat"}
-                        className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm ${
-                          openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
-                        }`}
-                      >
-                        {c.visibility === "team" ? (
-                          <Users size={13} className="shrink-0 text-genie-muted" />
-                        ) : (
-                          <Lock size={13} className="shrink-0 text-genie-muted" />
-                        )}
-                        <span className="truncate">{c.title}</span>
-                      </Link>
-                    ))}
+                    {chats.map((c) =>
+                      confirming === c.id ? (
+                        <div key={c.id} className="flex items-center gap-2 rounded-md bg-red-50 px-2.5 py-1.5 text-sm">
+                          <span className="min-w-0 flex-1 truncate text-red-800">Delete “{c.title}”?</span>
+                          <button type="button" disabled={deleting} onClick={() => remove(c.id)} className="font-medium text-genie-danger hover:underline">
+                            Yes
+                          </button>
+                          <button type="button" onClick={() => setConfirming(null)} className="text-genie-muted hover:underline">
+                            No
+                          </button>
+                        </div>
+                      ) : (
+                        <div key={c.id} className="group relative">
+                          <Link
+                            href={`${base}/ask?chat=${c.id}`}
+                            onClick={onNavigate}
+                            title={c.visibility === "team" ? "Team chat" : "Private chat"}
+                            className={`flex items-center gap-2 rounded-md py-1.5 pl-2.5 text-sm ${c.canDelete ? "pr-8" : "pr-2.5"} ${
+                              openChat === c.id ? "bg-genie-accent font-medium text-genie-ink" : "text-genie-ink/80 hover:bg-genie-accent"
+                            }`}
+                          >
+                            {c.visibility === "team" ? (
+                              <Users size={13} className="shrink-0 text-genie-muted" />
+                            ) : (
+                              <Lock size={13} className="shrink-0 text-genie-muted" />
+                            )}
+                            <span className="truncate">{c.title}</span>
+                          </Link>
+                          {c.canDelete && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirming(c.id)}
+                              aria-label={`Delete chat ${c.title}`}
+                              title="Delete chat"
+                              className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1 text-genie-muted hover:bg-white hover:text-genie-danger focus:opacity-100 group-hover:opacity-100 ${
+                                openChat === c.id ? "opacity-100" : "opacity-0"
+                              }`}
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      ),
+                    )}
+                    {deleteError && <p className="px-2.5 py-1 text-xs text-genie-danger">{deleteError}</p>}
                   </div>,
                 ],
           )}
