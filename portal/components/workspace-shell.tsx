@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { deleteChat } from "@/app/app/[slug]/ask/actions";
@@ -140,7 +141,8 @@ function DeleteChatDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel]);
 
-  return (
+  // Portal to <body>: inside the sticky sidebar the backdrop would sit under the top bar and composer.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 cursor-default bg-black/30" aria-label="Cancel" onClick={onCancel} />
       <div role="dialog" aria-modal="true" aria-labelledby="delete-chat-title" className="relative w-full max-w-sm rounded-xl bg-white p-5 shadow-xl">
@@ -167,7 +169,8 @@ function DeleteChatDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
