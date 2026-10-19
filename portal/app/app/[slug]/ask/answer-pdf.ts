@@ -26,15 +26,35 @@ footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d6d6d6; colo
 
 export function downloadAnswerPdf(opts: { answerEl: HTMLElement; title: string; workspaceName: string }) {
   const body = opts.answerEl.cloneNode(true) as HTMLElement;
-  // Drop a closing question meant for the staff member ("Would you like me to create a lead…?").
-  const last = body.lastElementChild;
-  if (last?.tagName === "P" && last.textContent?.trim().endsWith("?") && body.children.length > 1) last.remove();
+  // Drop closing lines meant for the staff member ("Want me to prepare a lead…", "Would you like…?").
+  for (let i = 0; i < 2; i++) {
+    const last = body.lastElementChild;
+    const text = last?.textContent?.trim() ?? "";
+    if (last?.tagName !== "P" || body.children.length < 2) break;
+    if (!/\?$/.test(text) && !/^(want me|would you|shall i|should i|do you want|let me know|if you('d| would) like|tell me)/i.test(text)) break;
+    last.remove();
+  }
+  // Genie's own heading ("**Shortlist: …**" on a line of its own, within the first lines) is the page
+  // title; the lead-in to the staff member above it ("Here is the shortlist…") is left out.
+  const isHeading = (el: Element) =>
+    el.tagName === "P" &&
+    el.children.length === 1 &&
+    el.firstElementChild!.tagName === "STRONG" &&
+    el.textContent!.trim() === el.firstElementChild!.textContent!.trim() &&
+    el.textContent!.trim().length <= 120;
+  const headingEl = [...body.children].slice(0, 3).find(isHeading) ?? null;
+  const heading = headingEl?.textContent?.trim() ?? null;
+  if (headingEl) {
+    while (body.firstElementChild && body.firstElementChild !== headingEl) body.firstElementChild.remove();
+    headingEl.remove();
+  }
   // Tables scroll on screen; in print they take the full width.
   body.querySelectorAll("div").forEach((d) => d.removeAttribute("class"));
   body.querySelectorAll("[class]").forEach((el) => el.removeAttribute("class"));
 
   const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-  const title = opts.title.replace(/@genie\b/gi, "").replace(/\s+/g, " ").trim() || "Report";
+  const fromQuestion = opts.title.replace(/@genie\b/gi, "").replace(/["“”]/g, "").replace(/\s+/g, " ").trim();
+  const title = (heading ?? fromQuestion.charAt(0).toUpperCase() + fromQuestion.slice(1)) || "Report";
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>${CSS}</style></head><body>
 <header><span class="org">${esc(opts.workspaceName)}</span><span class="date">${esc(date)}</span></header>
 <h1>${esc(title)}</h1>
