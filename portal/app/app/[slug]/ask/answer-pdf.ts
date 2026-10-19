@@ -1,14 +1,14 @@
 // "Download PDF" under a Genie answer (user 2026-10-19): lays that one answer out as a clean page
 // (workspace name, title, date, the answer with its tables and source links, a check-before-sending
-// line) and opens the browser's print dialog, where "Save as PDF" makes the file. Made in the
-// browser from the answer on screen, so nothing new is stored in Genie.
+// line). Genie's server turns it into a .pdf file (/api/pdf, headless Chrome); if that fails, the
+// browser's print dialog ("Save as PDF") is the fallback. Nothing new is stored in Genie.
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
 const CSS = `
 @page { margin: 16mm 14mm; }
 * { box-sizing: border-box; }
-body { font: 11pt/1.5 -apple-system, "Segoe UI", "Helvetica Neue", Arial, "PingFang HK", "Microsoft JhengHei", sans-serif; color: #1f1f1f; margin: 0; }
+body { font: 11pt/1.5 -apple-system, "Segoe UI", "Helvetica Neue", Arial, "Open Sans", "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", "Noto Sans SC", sans-serif; color: #1f1f1f; margin: 0; }
 header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 2px solid #1f1f1f; padding-bottom: 6px; margin-bottom: 14px; }
 header .org { font-weight: 600; font-size: 12pt; }
 header .date { color: #666; font-size: 9.5pt; }
@@ -24,7 +24,7 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
 footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d6d6d6; color: #666; font-size: 8.5pt; }
 `;
 
-export function downloadAnswerPdf(opts: { answerEl: HTMLElement; title: string; workspaceName: string }) {
+function buildPage(opts: { answerEl: HTMLElement; title: string; workspaceName: string }) {
   const body = opts.answerEl.cloneNode(true) as HTMLElement;
   // Notes for the staff member go below a "---" line at the end (Genie is told so): leave them out.
   const rules = body.querySelectorAll("hr");
@@ -71,6 +71,11 @@ ${body.innerHTML}
 <footer>Prepared on ${esc(date)} from ${esc(opts.workspaceName)}'s records and documents. Please check availability, rents and terms before relying on them.</footer>
 </body></html>`;
 
+  return { html, title };
+}
+
+// Fallback: print the page from a hidden frame (the browser's "Save as PDF").
+function printPage(html: string) {
   // A hidden frame keeps the print to this one page and avoids pop-up blockers.
   const frame = document.createElement("iframe");
   frame.setAttribute("aria-hidden", "true");
@@ -89,4 +94,29 @@ ${body.innerHTML}
     win.print();
   }, 250);
   setTimeout(() => frame.isConnected && frame.remove(), 5 * 60 * 1000);
+}
+
+// "North Point Office Shortlist – 2026-10-19.pdf"
+function fileName(title: string) {
+  const clean = title.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80) || "Genie";
+  return `${clean} – ${new Date().toISOString().slice(0, 10)}.pdf`;
+}
+
+export async function downloadAnswerPdf(opts: { answerEl: HTMLElement; title: string; workspaceName: string; slug: string }) {
+  const { html, title } = buildPage(opts);
+  try {
+    const res = await fetch("/api/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: opts.slug, html }) });
+    if (!res.ok || res.headers.get("content-type") !== "application/pdf") throw new Error(`PDF ${res.status}`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName(title);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    console.error("Download PDF failed, printing instead", e);
+    printPage(html);
+  }
 }

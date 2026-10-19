@@ -98,9 +98,10 @@ function Message({
   meId: string;
   team: boolean;
   cards?: React.ReactNode;
-  pdf?: { title: string; workspaceName: string };
+  pdf?: { title: string; workspaceName: string; slug: string };
 }) {
   const answerRef = useRef<HTMLDivElement>(null);
+  const [making, setMaking] = useState(false);
   if (m.role === "assistant") {
     return (
       <div className="flex gap-3">
@@ -127,11 +128,17 @@ function Message({
               {pdf && !m.meta?.error && (
                 <button
                   type="button"
-                  onClick={() => answerRef.current && downloadAnswerPdf({ answerEl: answerRef.current, ...pdf })}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-genie-ink hover:bg-genie-accent"
-                  title="Lay this answer out as a page and save it as a PDF"
+                  disabled={making}
+                  onClick={async () => {
+                    if (!answerRef.current) return;
+                    setMaking(true);
+                    await downloadAnswerPdf({ answerEl: answerRef.current, ...pdf });
+                    setMaking(false);
+                  }}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-genie-ink hover:bg-genie-accent disabled:opacity-60"
+                  title="Save this answer as a PDF file"
                 >
-                  <FileDown size={13} /> Download PDF
+                  <FileDown size={13} className={making ? "animate-pulse" : ""} /> {making ? "Making PDF…" : "Download PDF"}
                 </button>
               )}
             </div>
@@ -365,7 +372,7 @@ export function ChatRoom({
                 m={m}
                 meId={me.id}
                 team={team}
-                pdf={question && /pdf/i.test(question) ? { title: question.split("\n")[0].slice(0, 120), workspaceName } : undefined}
+                pdf={question && /pdf/i.test(question) ? { title: question.split("\n")[0].slice(0, 120), workspaceName, slug } : undefined}
                 cards={m.meta?.proposals
                   ?.filter((id) => proposals[id])
                   .map((id) => (
