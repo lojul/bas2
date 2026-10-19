@@ -26,6 +26,13 @@ footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d6d6d6; colo
 
 export function downloadAnswerPdf(opts: { answerEl: HTMLElement; title: string; workspaceName: string }) {
   const body = opts.answerEl.cloneNode(true) as HTMLElement;
+  // Notes for the staff member go below a "---" line at the end (Genie is told so): leave them out.
+  const rules = body.querySelectorAll("hr");
+  const rule = rules[rules.length - 1];
+  if (rule && rule.parentElement === body) {
+    while (rule.nextSibling) rule.nextSibling.remove();
+    rule.remove();
+  }
   // Drop closing lines meant for the staff member ("Want me to prepare a lead…", "Would you like…?").
   for (let i = 0; i < 2; i++) {
     const last = body.lastElementChild;
