@@ -356,24 +356,24 @@ export function ChatRoom({
         </div>
         <div className="space-y-5 pb-6">
           {messages.length === 0 && !status && <p className="text-sm text-genie-muted">No messages yet.</p>}
-          {messages.map((m, i) => (
-            <Message
-              key={m.id}
-              m={m}
-              meId={me.id}
-              team={team}
-              pdf={
-                m.role === "assistant"
-                  ? { title: messages.slice(0, i).findLast((x) => x.role === "user")?.content.split("\n")[0].slice(0, 120) ?? view.title, workspaceName }
-                  : undefined
-              }
-              cards={m.meta?.proposals
-                ?.filter((id) => proposals[id])
-                .map((id) => (
-                  <ProposalCard key={id} slug={slug} view={proposals[id]} onChange={(v) => putProposals([v])} />
-                ))}
-            />
-          ))}
+          {messages.map((m, i) => {
+            // Download PDF only under an answer to a question that asked for a PDF (user 2026-10-19).
+            const question = m.role === "assistant" ? messages.slice(0, i).findLast((x) => x.role === "user")?.content : undefined;
+            return (
+              <Message
+                key={m.id}
+                m={m}
+                meId={me.id}
+                team={team}
+                pdf={question && /pdf/i.test(question) ? { title: question.split("\n")[0].slice(0, 120), workspaceName } : undefined}
+                cards={m.meta?.proposals
+                  ?.filter((id) => proposals[id])
+                  .map((id) => (
+                    <ProposalCard key={id} slug={slug} view={proposals[id]} onChange={(v) => putProposals([v])} />
+                  ))}
+              />
+            );
+          })}
           {status && (
             <div className="flex items-center gap-3 text-sm text-genie-muted">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-genie-border bg-white">
