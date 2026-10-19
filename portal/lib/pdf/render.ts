@@ -19,6 +19,10 @@ async function installFonts() {
   if (FONTS.every((f) => existsSync(join(dir, f)))) return;
   await mkdir(dir, { recursive: true });
   await Promise.all(FONTS.map((f) => copyFile(join(process.cwd(), "assets", "fonts", f), join(dir, f))));
+  // TEMP (2026-10-19): find out why Chrome doesn't use the copied fonts.
+  const { readdirSync, statSync, readFileSync } = await import("node:fs");
+  const walk = (d: string): string[] => readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [`${join(d, n)} ${statSync(join(d, n)).size}`]));
+  console.log("pdf fonts", process.cwd(), process.env.FONTCONFIG_PATH, JSON.stringify(walk(dir)), existsSync(join(dir, "fonts.conf")) ? readFileSync(join(dir, "fonts.conf"), "utf8").replace(/\s+/g, " ") : "no fonts.conf");
 }
 
 async function launch() {
