@@ -41,19 +41,21 @@ export function downloadAnswerPdf(opts: { answerEl: HTMLElement; title: string; 
     if (!/\?$/.test(text) && !/^(want me|would you|shall i|should i|do you want|let me know|if you('d| would) like|tell me)/i.test(text)) break;
     last.remove();
   }
-  // Genie's own heading ("**Shortlist: …**" on a line of its own, within the first lines) is the page
-  // title; the lead-in to the staff member above it ("Here is the shortlist…") is left out.
-  const isHeading = (el: Element) =>
-    el.tagName === "P" &&
-    el.children.length === 1 &&
-    el.firstElementChild!.tagName === "STRONG" &&
-    el.textContent!.trim() === el.firstElementChild!.textContent!.trim() &&
-    el.textContent!.trim().length <= 120;
-  const headingEl = [...body.children].slice(0, 3).find(isHeading) ?? null;
-  const heading = headingEl?.textContent?.trim() ?? null;
+  // Genie's own heading — a paragraph that starts with bold text ("**Shortlist: …**", maybe followed by a
+  // line like "Prepared by …") — is the page title. It may come after one plain lead-in paragraph to the
+  // staff member ("Here is the shortlist…"), which is left out. Nothing else (tables, lists) is removed.
+  const startsBold = (el: Element | undefined): boolean =>
+    !!el && el.tagName === "P" && el.firstChild?.nodeName === "STRONG" && (el.firstChild.textContent ?? "").trim().length <= 120;
+  let heading: string | null = null;
+  const [c0, c1] = [body.children[0] as Element | undefined, body.children[1] as Element | undefined];
+  const headingEl = startsBold(c0) ? c0! : c0?.tagName === "P" && !c0.querySelector("strong") && startsBold(c1) ? c1! : null;
   if (headingEl) {
-    while (body.firstElementChild && body.firstElementChild !== headingEl) body.firstElementChild.remove();
-    headingEl.remove();
+    if (headingEl === c1) c0!.remove();
+    const strong = headingEl.firstChild!;
+    heading = (strong.textContent ?? "").trim().replace(/:$/, "");
+    strong.remove();
+    while (headingEl.firstChild && (headingEl.firstChild.nodeName === "BR" || !headingEl.firstChild.textContent?.trim())) headingEl.firstChild.remove();
+    if (!headingEl.textContent?.trim()) headingEl.remove();
   }
   // Tables scroll on screen; in print they take the full width.
   body.querySelectorAll("div").forEach((d) => d.removeAttribute("class"));
