@@ -88,6 +88,7 @@ export default async function AskPage({ params, searchParams }: PageProps<"/app/
         greeting="Hi, how can I help?"
         suggestions={suggestions}
         initialQuestion={typeof q === "string" ? q.slice(0, 500) : ""}
+        workspaceName={workspace.name}
       />
     </div>
   );

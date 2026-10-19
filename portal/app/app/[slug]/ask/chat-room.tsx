@@ -2,11 +2,12 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowUp, Building2, FileText, Lightbulb, Lock, Sparkles, Trash2, UserRound, Users } from "lucide-react";
+import { ArrowUp, Building2, FileDown, FileText, Lightbulb, Lock, Sparkles, Trash2, UserRound, Users } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
 import type { ProposalView } from "@/lib/odoo/changes";
 import { type ChatMessage, createChat, deleteChat, loadProposals, postMessage } from "./actions";
 import { Answer } from "./answer";
+import { downloadAnswerPdf } from "./answer-pdf";
 import { ProposalCard } from "./proposal-card";
 
 // Ask with saved chats (decided 2026-10-17), in the style of Microsoft Copilot. The chat list lives in
@@ -91,12 +92,15 @@ function Message({
   meId,
   team,
   cards,
+  pdf,
 }: {
   m: ChatMessage;
   meId: string;
   team: boolean;
   cards?: React.ReactNode;
+  pdf?: { title: string; workspaceName: string };
 }) {
+  const answerRef = useRef<HTMLDivElement>(null);
   if (m.role === "assistant") {
     return (
       <div className="flex gap-3">
@@ -104,12 +108,32 @@ function Message({
           <Sparkles size={14} />
         </span>
         <div className={`min-w-0 flex-1 ${m.meta?.error ? "rounded-lg bg-red-50 px-3 py-2 text-red-800" : ""}`}>
-          {m.meta?.error ? m.content : <Answer text={m.content} />}
+          {m.meta?.error ? (
+            m.content
+          ) : (
+            <div ref={answerRef}>
+              <Answer text={m.content} />
+            </div>
+          )}
           {cards}
-          {m.meta?.model && (
-            <div className="mt-2 text-xs text-genie-muted">
-              {m.meta.model} · {m.meta.key_source === "byok" ? "your key" : "platform key"}
-              {m.meta.tools?.length ? ` · looked up: ${m.meta.tools.join(", ")}` : ""}
+          {(m.meta?.model || (pdf && !m.meta?.error)) && (
+            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-genie-muted">
+              {m.meta?.model && (
+                <span>
+                  {m.meta.model} · {m.meta.key_source === "byok" ? "your key" : "platform key"}
+                  {m.meta.tools?.length ? ` · looked up: ${m.meta.tools.join(", ")}` : ""}
+                </span>
+              )}
+              {pdf && !m.meta?.error && (
+                <button
+                  type="button"
+                  onClick={() => answerRef.current && downloadAnswerPdf({ answerEl: answerRef.current, ...pdf })}
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-genie-ink hover:bg-genie-accent"
+                  title="Lay this answer out as a page and save it as a PDF"
+                >
+                  <FileDown size={13} /> Download PDF
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -137,6 +161,7 @@ export function ChatRoom({
   greeting,
   suggestions,
   initialQuestion = "",
+  workspaceName,
 }: {
   slug: string;
   me: { id: string; email: string };
@@ -147,6 +172,7 @@ export function ChatRoom({
   greeting: string;
   suggestions: Suggestion[];
   initialQuestion?: string;
+  workspaceName: string;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
@@ -330,12 +356,17 @@ export function ChatRoom({
         </div>
         <div className="space-y-5 pb-6">
           {messages.length === 0 && !status && <p className="text-sm text-genie-muted">No messages yet.</p>}
-          {messages.map((m) => (
+          {messages.map((m, i) => (
             <Message
               key={m.id}
               m={m}
               meId={me.id}
               team={team}
+              pdf={
+                m.role === "assistant"
+                  ? { title: messages.slice(0, i).findLast((x) => x.role === "user")?.content.split("\n")[0].slice(0, 120) ?? view.title, workspaceName }
+                  : undefined
+              }
               cards={m.meta?.proposals
                 ?.filter((id) => proposals[id])
                 .map((id) => (
