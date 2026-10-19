@@ -12,7 +12,8 @@ import puppeteer from "puppeteer-core";
 const FONTS = ["NotoSansTC.ttf", "NotoSansSC.ttf"];
 
 // The server Chrome only ships Latin fonts. Its font config also reads /tmp/fonts, so the Chinese
-// fonts kept in the repo (assets/fonts) are copied there once per server instance.
+// fonts kept in the repo (assets/fonts) are copied there once per server instance — after
+// executablePath(), which skips unpacking its own fonts (and fonts.conf) if /tmp/fonts already exists.
 async function installFonts() {
   const dir = join(tmpdir(), "fonts");
   if (FONTS.every((f) => existsSync(join(dir, f)))) return;
@@ -22,10 +23,11 @@ async function installFonts() {
 
 async function launch() {
   if (process.env.VERCEL) {
+    const executablePath = await chromium.executablePath();
     await installFonts();
     return puppeteer.launch({
       args: await puppeteer.defaultArgs({ args: chromium.args, headless: "shell" }),
-      executablePath: await chromium.executablePath(),
+      executablePath,
       headless: "shell",
     });
   }
