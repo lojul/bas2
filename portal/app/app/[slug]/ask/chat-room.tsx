@@ -152,7 +152,10 @@ export function ChatRoom({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [input, setInput] = useState(initialQuestion);
   const [visibility, setVisibility] = useState<"team" | "private">("private");
-  const [thinking, setThinking] = useState(false);
+  // What Genie is doing, shown as Genie's turn in the conversation ("Starting the chat…", "Looking it up…").
+  const [status, setStatus] = useState<string | null>(null);
+  // A new chat being started: the conversation shows right away, before the chat exists.
+  const [draft, setDraft] = useState<ChatSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [pending, start] = useTransition();
@@ -160,7 +163,8 @@ export function ChatRoom({
   const putProposals = (list: ProposalView[]) => setProposals((cur) => ({ ...cur, ...Object.fromEntries(list.map((p) => [p.id, p])) }));
   const bottom = useRef<HTMLDivElement>(null);
   const chatId = chat?.id ?? null;
-  const team = chat?.visibility === "team";
+  const view = chat ?? draft;
+  const team = view?.visibility === "team";
 
   // Live: messages from the other members (and Genie's answers to them) appear without a refresh.
   useEffect(() => {
@@ -182,51 +186,65 @@ export function ChatRoom({
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, thinking]);
-
-  const add = (list: (ChatMessage | null)[]) =>
-    setMessages((cur) => [...cur, ...list.filter((m): m is ChatMessage => !!m && !cur.some((x) => x.id === m.id))]);
+  }, [messages.length, status]);
 
   function send(text: string) {
     const content = text.trim();
     if (!content || pending) return;
     setError(null);
     setInput("");
+    // The message shows in the conversation at once; replaced by the saved one when it comes back.
+    const temp: ChatMessage = {
+      id: `pending-${Date.now()}`,
+      role: "user",
+      author_id: me.id,
+      author_email: me.email,
+      content,
+      meta: {},
+      created_at: new Date().toISOString(),
+    };
+    setMessages((cur) => [...cur, temp]);
+    if (!chatId) {
+      setDraft({ id: "", title: content.split("\n")[0].slice(0, 60), visibility, created_by: me.id });
+      setStatus("Starting the chat…");
+    }
+    const fail = (message: string) => {
+      setMessages((cur) => cur.filter((m) => m.id !== temp.id));
+      setStatus(null);
+      setDraft(null);
+      setError(message);
+      setInput(content);
+    };
     start(async () => {
       let id = chatId;
       if (!id) {
         // First message of a new chat: the chat is named after it.
         const created = await createChat(slug, content.split("\n")[0].slice(0, 60), visibility);
-        if (!created.ok) {
-          setError(created.error);
-          setInput(content);
-          return;
-        }
+        if (!created.ok) return fail(created.error);
         id = created.id;
       }
       const willAsk = !chatId ? visibility === "private" || /@genie\b/i.test(content) : !team || /@genie\b/i.test(content);
-      setThinking(willAsk);
+      if (willAsk) setStatus("Looking it up in your data sources…");
       const res = await postMessage(slug, id, content);
-      setThinking(false);
-      if (!res.ok) {
-        setError(res.error);
-        setInput(content);
-        return;
-      }
+      if (!res.ok) return fail(res.error);
+      setStatus(null);
+      putProposals(res.proposals);
+      setMessages((cur) => {
+        const rest = cur.filter((m) => m.id !== temp.id && m.id !== res.mine.id);
+        return [...rest, res.mine, ...(res.answer && !rest.some((m) => m.id === res.answer!.id) ? [res.answer] : [])];
+      });
       if (!chatId) {
-        // No router.refresh() here: it cancels this navigation and leaves "Starting the chat…" up for
-        // good. createChat already revalidated the page, so the sidebar lists the new chat.
+        // No router.refresh() here: it cancels this navigation and the page never moves on.
+        // createChat already revalidated the page, so the sidebar lists the new chat.
         router.push(`/app/${slug}/ask?chat=${id}`);
         return;
       }
-      putProposals(res.proposals);
-      add([res.mine, res.answer]);
       router.refresh();
     });
   }
 
   // New chat: greeting, Private/Team, big box, suggestions.
-  if (!chat) {
+  if (!view) {
     return (
       <div className="flex">
         <div className="mx-auto flex min-h-[60vh] max-w-3xl flex-1 flex-col justify-center gap-5 py-6">
@@ -268,7 +286,6 @@ export function ChatRoom({
               );
             })}
           </div>
-          {pending && <p className="animate-pulse text-center text-sm text-genie-muted">Starting the chat…</p>}
         </div>
       </div>
     );
@@ -279,13 +296,14 @@ export function ChatRoom({
       <div className="mx-auto flex max-w-3xl flex-1 flex-col">
         <div className="mb-4 flex items-center justify-between gap-3 border-b border-genie-border pb-3">
           <div className="min-w-0">
-            <h2 className="truncate text-lg font-semibold">{chat.title}</h2>
+            <h2 className="truncate text-lg font-semibold">{view.title}</h2>
             <p className="flex items-center gap-1.5 text-xs text-genie-muted">
               {team ? <Users size={12} /> : <Lock size={12} />}
               {team ? "Team chat — everyone in the workspace · write @Genie to ask Genie" : "Private — only you · Genie answers every message"}
             </p>
           </div>
           {canDelete &&
+            chat &&
             (confirmDelete ? (
               <span className="flex shrink-0 items-center gap-2 text-sm">
                 <span className="text-genie-muted">Delete this chat for everyone?</span>
@@ -311,7 +329,7 @@ export function ChatRoom({
             ))}
         </div>
         <div className="space-y-5 pb-6">
-          {messages.length === 0 && <p className="text-sm text-genie-muted">No messages yet.</p>}
+          {messages.length === 0 && !status && <p className="text-sm text-genie-muted">No messages yet.</p>}
           {messages.map((m) => (
             <Message
               key={m.id}
@@ -325,12 +343,12 @@ export function ChatRoom({
                 ))}
             />
           ))}
-          {thinking && (
+          {status && (
             <div className="flex items-center gap-3 text-sm text-genie-muted">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-genie-border bg-white">
                 <Sparkles size={14} className="animate-pulse" />
               </span>
-              Looking it up in your data sources…
+              {status}
             </div>
           )}
           <div ref={bottom} />
