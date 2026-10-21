@@ -46,7 +46,7 @@ export function OdooForm({ slug, existing }: { slug: string; existing?: OdooExis
             placeholder="Paste the Odoo API key"
             saved={existing ? { slug, secretName: existing.secretName } : null}
           />
-          <p className="mt-1 text-xs text-genie-muted">In Odoo: your avatar → Preferences → Account Security → New API Key.</p>
+          <p className="mt-1 text-xs text-genie-muted">In Odoo: your avatar → Preferences → Account Security → New API Key. Scope &quot;RPC&quot; reads and allows changes; &quot;MCP&quot; only reads.</p>
         </div>
         {/* Odoo Online (<name>.odoo.com) needs no database name; only self-hosted Odoo asks for it. */}
         {needsDb && (

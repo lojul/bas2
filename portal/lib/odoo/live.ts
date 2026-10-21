@@ -1,5 +1,5 @@
 import "server-only";
-import { OdooClient, type OdooConfig, type OdooMode } from "./client";
+import { OdooClient, modeOfKind, type OdooConfig } from "./client";
 import { ODOO_MODEL_CHOICES } from "./models";
 
 // Genie's tools over a live Odoo (decided 2026-10-16: Genie stores no copy of customer data).
@@ -29,8 +29,7 @@ export async function openLiveOdoo(
   apiKey: string,
 ): Promise<LiveOdoo> {
   const cfg: OdooConfig = { url: source.config.url, db: source.config.db, login: source.config.login ?? undefined, apiKey };
-  const mode: OdooMode = source.kind === "odoo_json2" ? "json2" : "jsonrpc";
-  return { name: source.name, url: source.config.url, models: source.config.models, odoo: await OdooClient.open(cfg, mode) };
+  return { name: source.name, url: source.config.url, models: source.config.models, odoo: await OdooClient.open(cfg, modeOfKind(source.kind)) };
 }
 
 // Field descriptions change rarely; keep them for 10 minutes per Odoo address and model.

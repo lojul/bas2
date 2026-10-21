@@ -41,6 +41,7 @@ Update this page when an item is tested, decided or done.
 
 | Date | What |
 |---|---|
+| 2026-10-21 | Odoo connected with an MCP key (read only), for workspaces that won't give an RPC key |
 | 2026-10-19 | Download PDF under answers to a PDF request, rendered on Genie's server (Chinese fonts bundled) |
 | 2026-10-18 | Delete a chat from the sidebar (confirm dialog); new chat opens at once |
 | 2026-10-17 | Changes in Odoo from Ask; saved team/private chats; WhatsApp on the Twilio Sandbox; invitation history |
