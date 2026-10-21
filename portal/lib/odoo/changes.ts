@@ -59,11 +59,13 @@ export async function changeSettingsFor(tenantId: string) {
 }
 
 // The Odoo connection used for changes: same Odoo address, the Genie user's own key, JSON-2 only.
+// Reading may use an MCP key (Odoo 19+); the write key must have Scope "RPC".
+const WRITABLE_KINDS = ["odoo_json2", "odoo_mcp"];
+
 export async function writeClient(tenantId: string, keyOverride?: string) {
   const { admin, source } = await loadContext(tenantId);
   if (!source?.config.url) throw new Error("Odoo is not switched on for this workspace.");
-  if (source.kind === "odoo_mcp") throw new Error("Odoo is connected with an MCP key, which can only read. Changes need a key with Scope \"RPC\".");
-  if (source.kind !== "odoo_json2") throw new Error("Changes need Odoo 19 or later (the JSON-2 API).");
+  if (!WRITABLE_KINDS.includes(source.kind)) throw new Error("Changes need Odoo 19 or later (the JSON-2 API).");
   let key = keyOverride;
   if (!key) {
     const { data } = await admin.rpc("get_tenant_secret", { p_tenant_id: tenantId, p_name: ODOO_WRITE_SECRET });
@@ -127,7 +129,7 @@ export type Actor = { userId: string; email: string; role: Role; chatId: string 
 export async function changeToolsFor(tenantId: string, actor: Actor | null) {
   if (!actor) return { tools: [], allowedFields: [] as string[] };
   const { settings, source } = await loadContext(tenantId);
-  if (!settings.enabled || source?.kind !== "odoo_json2") return { tools: [], allowedFields: [] as string[] };
+  if (!settings.enabled || !source || !WRITABLE_KINDS.includes(source.kind)) return { tools: [], allowedFields: [] as string[] };
   const allowed = CHANGE_ACTIONS.filter((a) => {
     const s = actionOn(settings, a.id);
     return s.on && roleAllowed(actor.role, s.who);

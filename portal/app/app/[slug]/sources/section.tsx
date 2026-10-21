@@ -50,17 +50,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
 
   // "Changes in Odoo" card (user decision 2026-10-17): off by default, Ask only, Confirm every change.
   let changes: React.ReactNode = null;
-  if (odoo?.kind === "odoo_mcp") {
-    changes = (
-      <section className="card">
-        <h3 className="font-medium">Changes in Odoo</h3>
-        <p className="mt-1 text-sm text-genie-muted">
-          Not available: Odoo is connected with an MCP key, which can only read. To let {BRAND.name}{" "}draft changes, connect Odoo with a key
-          made with Scope &quot;RPC&quot;.
-        </p>
-      </section>
-    );
-  } else if (odoo) {
+  if (odoo) {
     const [{ data: tenant }, { count: keyCount }] = await Promise.all([
       supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { odoo_changes?: ChangeSettings } | null }>(),
       supabase.from("tenant_secrets").select("id", { count: "exact", head: true }).eq("tenant_id", workspace.id).eq("name", ODOO_WRITE_SECRET),
@@ -114,7 +104,7 @@ export async function SourcesSection({ slug }: { slug: string }) {
                   <p className="text-sm">
                     <span className="text-genie-muted">{BRAND.name}{" "}can read:</span> {(odoo.config.models ?? []).map(label).join(", ")}
                   </p>
-                  {odoo.kind === "odoo_mcp" && <p className="text-sm text-genie-muted">Connected with an MCP key (read only).</p>}
+                  {odoo.kind === "odoo_mcp" && <p className="text-sm text-genie-muted">Connected with an MCP key (reads only; changes use the RPC key under Changes in Odoo).</p>}
                   {odoo.last_error && <p className="text-sm text-genie-danger">Last check failed: {odoo.last_error}</p>}
                 </>
               }

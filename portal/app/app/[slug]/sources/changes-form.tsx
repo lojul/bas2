@@ -81,7 +81,7 @@ export function OdooChangesCard(p: ChangesCardProps) {
             <SecretInput id="write_key" name="write_key" required={!p.keySaved} placeholder="Paste the API key" saved={p.keySaved ? { slug: p.slug, secretName: "odoo_write_key" } : null} />
             <p className="mt-1 text-xs text-genie-muted">
               In Odoo: Settings → Users → New user &quot;Genie&quot; (internal user; Sales: User — own documents or all, Contacts: Creation). Then log in as
-              that user → My Profile → Account Security → New API key. Changes are made with this user&apos;s rights only. Reading still uses the key in the
+              that user → My Profile → Account Security → New API key, Scope &quot;RPC&quot;. Changes are made with this user&apos;s rights only. Reading still uses the key in the
               Odoo card above.
             </p>
           </div>
