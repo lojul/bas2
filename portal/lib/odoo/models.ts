@@ -8,6 +8,9 @@ export const ODOO_MODEL_CHOICES: OdooModelChoice[] = [
   { model: "x_c21_listing", label: "Listings", hint: "Property listings (C21's 放盤管理 app)" },
 ];
 
+// Source kinds for Odoo: JSON-2 (Odoo 19+), the older JSON-RPC, and an MCP-scoped key (read only).
+export const ODOO_KINDS = ["odoo_json2", "odoo_xmlrpc", "odoo_mcp"];
+
 // Odoo Online addresses (<name>.odoo.com) use <name> as the database name.
 export function guessOdooDb(url: string): string | null {
   try {

@@ -24,6 +24,7 @@ editing an old one. Full early reasoning (connector catalogue, pricing): tab "Sa
 | 2026-10-15 | **Supabase** (Postgres, Auth, Vault, Realtime, pg_cron), one shared schema, `tenant_id` on every row, row-level security; region ap-southeast-1 (Singapore) | Closest region to HK; isolation enforced by the database |
 | 2026-10-15 | `portal/` replaces the old genie dashboard at genie.infiniduo.com; C21 gets a workspace in it | One product, not two |
 | 2026-10-15 | **Odoo is optional**; no connector is mandatory. Odoo 19/20 through the JSON-2 API; XML-RPC (Odoo 18 and older) only if a paying customer needs it | Sell beyond Odoo users. XML-RPC is deprecated since Odoo 19 |
+| 2026-10-21 | Odoo can also be connected with an **MCP-scoped key** (Odoo 20 "Scope: MCP"): Genie reads through Odoo's `/mcp` tools (search, count, field list); source kind `odoo_mcp` | User request for Infinity Duo's workspace (no RPC key). Read only: Changes in Odoo need an RPC key. `connect` tries JSON-2, then MCP, then the older API |
 | 2026-10-15 | Genie doesn't depend on C21: C21 joins as an ordinary workspace by connecting its own Odoo; no C21 data is copied into our systems or demos | C21 is the first live workspace (2026-10-16). Don't copy C21's contacts, owners or listings into a demo (PDPO); reuse C21 flyers/floor plans only with C21's written OK |
 | 2026-10-15 | Meter messages, tokens, tool calls (and later OCR pages) per workspace from day one; Stripe Billing + customer portal | Billing can start without a data backfill |
 

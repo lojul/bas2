@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getUser } from "@/lib/supabase/server";
-import { OdooClient, OdooError, normaliseUrl } from "@/lib/odoo/client";
+import { OdooClient, OdooError, kindOfMode, modeOfKind, normaliseUrl, type OdooMode } from "@/lib/odoo/client";
 import { ODOO_MODEL_CHOICES, guessOdooDb } from "@/lib/odoo/models";
 import { normaliseSearchEndpoint, testSearch } from "@/lib/search/azure";
 import { canManage, getWorkspace } from "@/lib/workspaces";
@@ -83,7 +83,7 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
 
   // No picking: Genie reads every known kind of data this Odoo user can read (contacts, leads,
   // C21 listings), plus any extra models typed under "Other Odoo data".
-  let mode: string;
+  let mode: OdooMode;
   let models: string[];
   try {
     const odoo = await OdooClient.connect({ url, db, login, apiKey });
@@ -124,7 +124,7 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
     {
       tenant_id: workspace.id,
       name,
-      kind: mode === "json2" ? "odoo_json2" : "odoo_xmlrpc",
+      kind: kindOfMode(mode),
       config: { url, db, login: login ?? null, models, extra_models: extra, secret_name: secretName },
       secret_id: secretId,
       created_by: user.id,
@@ -134,7 +134,8 @@ export async function connectOdoo(_prev: FormState, formData: FormData): Promise
   if (error) return { error: `Could not save the source: ${error.message}` };
   revalidatePath(`/app/${slug}`, "layout");
   const labels = models.map((m) => ODOO_MODEL_CHOICES.find((c) => c.model === m)?.label ?? m).join(", ");
-  return { ok: `${target.existing ? "Saved" : "Odoo is on"} — Genie can read ${labels}, live. Nothing is copied into Genie.` };
+  const mcpNote = mode === "mcp" ? " (MCP key: read only)" : "";
+  return { ok: `${target.existing ? "Saved" : "Odoo is on"} — Genie can read ${labels}, live${mcpNote}. Nothing is copied into Genie.` };
 }
 
 export async function removeSource(formData: FormData) {
@@ -244,7 +245,7 @@ export async function testSource(_prev: FormState, formData: FormData): Promise<
     if (source.kind.startsWith("odoo")) {
       const odoo = await OdooClient.open(
         { url: source.config.url ?? "", db: source.config.db ?? "", login: source.config.login ?? undefined, apiKey: key as string },
-        source.kind === "odoo_json2" ? "json2" : "jsonrpc",
+        modeOfKind(source.kind),
       );
       const counts = await Promise.all(
         (source.config.models ?? []).map(async (m) => {

@@ -1,4 +1,5 @@
 import "server-only";
+import { ODOO_KINDS } from "@/lib/odoo/models";
 import { type LiveOdoo, liveFindContact, liveGetRecord, liveSearchRecords, liveWorkspaceInfo, openLiveOdoo } from "@/lib/odoo/live";
 import { type LiveSearch, liveGetDocument, liveIndexInfo, liveSearchKnowledge } from "@/lib/search/azure";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -34,7 +35,7 @@ export async function liveSourcesFor(tenantId: string): Promise<LiveSources | nu
     .from("sources")
     .select("name, kind, config")
     .eq("tenant_id", tenantId)
-    .in("kind", ["odoo_json2", "odoo_xmlrpc", "azure_search"])
+    .in("kind", [...ODOO_KINDS, "azure_search"])
     .neq("status", "paused")
     .order("created_at")
     .returns<SourceRow[]>();

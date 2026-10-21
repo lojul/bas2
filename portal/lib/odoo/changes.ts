@@ -2,7 +2,7 @@ import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Role } from "@/lib/roles";
 import { OdooClient } from "./client";
-import { ODOO_MODEL_CHOICES } from "./models";
+import { ODOO_KINDS, ODOO_MODEL_CHOICES } from "./models";
 
 // Changes in Odoo from Ask (user decision 2026-10-17). Genie never writes on its own: a tool call
 // only creates a *draft* (odoo_actions row); a person presses Confirm, and only then the server writes
@@ -48,7 +48,7 @@ async function loadContext(tenantId: string) {
   const admin = createAdminClient();
   const [{ data: tenant }, { data: source }] = await Promise.all([
     admin.from("tenants").select("settings").eq("id", tenantId).single<{ settings: { odoo_changes?: ChangeSettings } | null }>(),
-    admin.from("sources").select("kind, config").eq("tenant_id", tenantId).in("kind", ["odoo_json2", "odoo_xmlrpc"]).neq("status", "paused").limit(1).maybeSingle<SourceRow>(),
+    admin.from("sources").select("kind, config").eq("tenant_id", tenantId).in("kind", ODOO_KINDS).neq("status", "paused").limit(1).maybeSingle<SourceRow>(),
   ]);
   return { admin, settings: tenant?.settings?.odoo_changes ?? {}, source };
 }
@@ -62,6 +62,7 @@ export async function changeSettingsFor(tenantId: string) {
 export async function writeClient(tenantId: string, keyOverride?: string) {
   const { admin, source } = await loadContext(tenantId);
   if (!source?.config.url) throw new Error("Odoo is not switched on for this workspace.");
+  if (source.kind === "odoo_mcp") throw new Error("Odoo is connected with an MCP key, which can only read. Changes need a key with Scope \"RPC\".");
   if (source.kind !== "odoo_json2") throw new Error("Changes need Odoo 19 or later (the JSON-2 API).");
   let key = keyOverride;
   if (!key) {
