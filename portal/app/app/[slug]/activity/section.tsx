@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { CHANGE_ACTIONS, type ChangeAction } from "@/lib/odoo/changes";
+import { ODOO_KINDS } from "@/lib/odoo/models";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { canManage, getWorkspace } from "@/lib/workspaces";
 
@@ -40,7 +41,7 @@ export async function ActivitySection({ slug }: { slug: string }) {
       .order("created_at", { ascending: false })
       .limit(200)
       .returns<Row[]>(),
-    supabase.from("sources").select("config").eq("tenant_id", workspace.id).in("kind", ["odoo_json2", "odoo_xmlrpc"]).limit(1).maybeSingle<{ config: { url?: string } }>(),
+    supabase.from("sources").select("config").eq("tenant_id", workspace.id).in("kind", ODOO_KINDS).limit(1).maybeSingle<{ config: { url?: string } }>(),
   ]);
   const url = source?.config.url;
   const label = (a: ChangeAction) => CHANGE_ACTIONS.find((x) => x.id === a)?.label ?? a;
