@@ -5,6 +5,9 @@ import { type Role, ROLE_LABEL, canManage, getWorkspace } from "@/lib/workspaces
 import { revokeInvitation } from "./actions";
 import { InviteForm, RenewInvite } from "./invite-form";
 import { MemberRow } from "./member-row";
+import { WhatsAppLinkCard } from "./whatsapp-link";
+import { maskPhone } from "@/lib/whatsapp/links";
+import type { WhatsAppSettings } from "@/lib/whatsapp/twilio";
 
 export const metadata: Metadata = { title: "Members" };
 
@@ -39,6 +42,14 @@ export default async function MembersPage({ params }: PageProps<"/app/[slug]/mem
     : { data: [] as Invitation[] };
   const { pending, history } = splitInvitations(invitations ?? []);
 
+  // WhatsApp links: my own (everyone), and the whole workspace's for owners/admins (RLS decides).
+  const [{ data: tenant }, { data: links }] = await Promise.all([
+    supabase.from("tenants").select("settings").eq("id", workspace.id).single<{ settings: { channels?: { whatsapp?: WhatsAppSettings } } | null }>(),
+    supabase.from("whatsapp_links").select("user_id, phone").eq("tenant_id", workspace.id).not("phone", "is", null).returns<{ user_id: string; phone: string }[]>(),
+  ]);
+  const waNumber = tenant?.settings?.channels?.whatsapp?.number ?? null;
+  const phoneOf = new Map((links ?? []).map((l) => [l.user_id, l.phone]));
+
   return (
     <div className="space-y-6">
       <p className="text-sm text-genie-muted">
@@ -55,12 +66,31 @@ export default async function MembersPage({ params }: PageProps<"/app/[slug]/mem
         </section>
       )}
 
+      {waNumber && (
+        <section className="card">
+          <h2 className="font-medium">Your WhatsApp</h2>
+          <div className="mt-2">
+            <WhatsAppLinkCard slug={slug} number={waNumber} linkedPhone={phoneOf.get(user.id) ?? null} />
+          </div>
+        </section>
+      )}
+
       <section>
         <h2 className="mb-2 font-medium">Members ({members.length})</h2>
         <ul className="divide-y divide-genie-border rounded-xl border border-genie-border bg-genie-card">
-          {members.map((m) => (
-            <MemberRow key={m.user_id} slug={slug} member={m} isSelf={m.user_id === user.id} myRole={workspace.role} />
-          ))}
+          {members.map((m) => {
+            const phone = phoneOf.get(m.user_id);
+            return (
+              <MemberRow
+                key={m.user_id}
+                slug={slug}
+                member={m}
+                isSelf={m.user_id === user.id}
+                myRole={workspace.role}
+                whatsapp={waNumber && phone ? maskPhone(phone) : null}
+              />
+            );
+          })}
         </ul>
       </section>
 

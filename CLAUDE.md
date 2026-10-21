@@ -25,6 +25,26 @@ Decisions to respect in every change (reasons in `docs/genie/decisions.md`):
 - **The product name lives only in `portal/lib/brand.ts`.**
 - Don't copy C21's live contacts, owners or listings into demos (PDPO).
 
+## Workspaces (live)
+
+Each workspace has its **own** set-up: Odoo, keys, Twilio account, Sandbox. Nothing is shared between them.
+
+| Slug | Odoo | WhatsApp (Twilio) |
+|---|---|---|
+| `c21` | C21's Odoo (same key for reading and writing) | Twilio account "My first Twilio account", SID `ACbfa5…`, Sandbox +14155238886 |
+| `infiniduo` | `https://admin-c21net-infiniduo.odoo.com` (Odoo 20, database `admin-c21net-infiniduo-main-40256688`, also at `…-main-40256688.dev.odoo.com`). Reads with an **MCP-scoped key** (source kind `odoo_mcp`), writes with an RPC key (`odoo_write_key`). Odoo user Julian (uid 5) | Its own Twilio login (julianlau@infiniduo.com), account "My First Twilio Account", SID `ACb426…`; Sandbox not yet switched on |
+
+## Working notes for Claude
+
+- Local `npm run build` needs env values: run it with placeholders from `portal/.env.example` (Vercel's build uses the real ones).
+- `gh pr create`: pass the body with `--body-file` (an apostrophe inside `$(cat <<'EOF' …)` breaks the shell).
+- Writing to `genie` through the Supabase MCP (e.g. creating a workspace for the user): `set_tenant_secret` needs
+  `select set_config('request.jwt.claims', '{"role":"service_role"}', true);` in the same transaction.
+- In a browser Claude can't type passwords or keys, and installing Odoo apps / changing user rights is left to the user.
+- The claude.ai "Twilio" connector is Twilio's docs server (`mcp.twilio.com/docs`), not account access; use the
+  Twilio console in Chrome.
+- Odoo's MCP server (`/mcp`) has read tools only (search, read_group, fields, models); its key is refused by JSON-2.
+
 ## Which folder to use
 
 | Folder | What it is | Deploys to | Status | Retires at |
