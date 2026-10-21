@@ -28,10 +28,10 @@ What Genie needs before a customer's IT department can approve it.
 
 | # | What | Today | Plan |
 |---|---|---|---|
-| 1 | **Reliable Odoo changes** | One change can take several Odoo calls (record, then the "Done by Genie" note). If Odoo saves but the reply times out, the draft is marked failed and dropped; asking again creates a **duplicate** | Operation key written with the change; check Odoo before marking failed; keep the draft until the outcome is known (diagram below) |
+| 1 | **Reliable Odoo changes** | One change can take several Odoo calls (record, then the "Done by Genie" note). If Odoo saves but the reply times out, the draft is marked failed and dropped; asking again creates a **duplicate** | After a timeout the outcome is **unknown**, not failed; no retry until Odoo's own time limit has passed and an operation-key search finds nothing (diagram below) |
 | 2 | **Tamper-evident Activity log** | `odoo_actions` is an ordinary table; the server could edit or delete a row | Insert-only events chained by hash (diagram below) |
 | 3 | **Isolation tests on every release** | `isolation_test.sql` is run by hand in the SQL editor | Run automatically on every PR touching migrations or `portal/lib`; cover every entry point (Ask, MCP key of workspace A asking for B's data, Slack/WhatsApp routed by slug) |
-| 4 | **The server decides the workspace** | Mostly true already | A written rule with a test: workspace, source and key always come from the server's own identity check, never from the browser, the AI's tool arguments or the message text. Include a prompt-injection case ("use workspace X's data") |
+| 4 | **The server decides the workspace** | Live sources, keys, Slack/WhatsApp/MCP and Odoo writes use the service-role client, which bypasses row-level security; only the entry point's workspace check keeps workspaces apart there | A written rule with tests: every service-role call takes its workspace from the entry point's identity check and filters by it, never from the browser, the AI's tool arguments or the message text. Tests per entry point, including a prompt-injection case ("use workspace X's data") |
 
 #### 1. Reliable Odoo changes: planned flow
 
@@ -42,24 +42,36 @@ sequenceDiagram
     participant OD as Customer's Odoo
 
     G->>OD: create record, operation key included in the same call
-    alt Odoo replies
+    alt Odoo replies with success
         OD-->>G: record id
         G->>G: done
-    else timeout or error
+    else Odoo replies with an error
+        G->>G: failed: nothing was saved, retry allowed
+    else timeout or lost connection
+        G->>G: unknown: no retry yet ("checking…")
+        Note over G,OD: the original request may still be running in Odoo
+        G->>G: wait until Odoo's hard request limit has passed
         G->>OD: search for the operation key
         alt found
             OD-->>G: record id
             G->>G: done: no duplicate
         else not found
-            G->>G: failed: draft kept, person can retry
+            G->>G: failed: retry allowed
         end
     end
 ```
 
+- **Why "unknown" and not "failed".** After a timeout the original request may still be running and commit later.
+  A search made too early finds nothing, a retry would then create a second record, and an operation key alone
+  doesn't prevent that. So Genie doesn't allow a retry until the request can no longer commit: Odoo kills any request
+  that runs past its hard time limit (`limit_time_real`; confirm the value per Odoo host, e.g. Odoo Online / Odoo.sh).
+  Only a search **after** that limit is final.
 - The key is the draft's id (`odoo_actions.id`), written to a field or the note/to-do text **in the same call** as the
   change, so Odoo saves both or neither.
+- A reply with an Odoo error means the transaction was rolled back, so retrying is safe at once.
 - Field updates can be repeated safely; creates, notes and to-dos can't, so those need the key.
-- No Odoo module is needed.
+- This needs no Odoo module. **Stronger option** for customers who allow a small Genie module: a field with a
+  database unique constraint on the operation key, so Odoo itself rejects a second create (atomic, no waiting).
 
 #### 2. Tamper-evident Activity log: planned design
 

@@ -88,7 +88,7 @@ Lookups the model asks for in the same step run in parallel. Each question logs 
 
 | Channel | Identity check | Then |
 |---|---|---|
-| Web (Ask) | Signed-in member (Supabase session cookie) | Agent runs as that member; tools run through `agent_tool()`, so the database checks membership |
+| Web (Ask) | Signed-in member (Supabase session cookie) and membership of the workspace | Agent runs for that workspace. Live tools read its sources and keys with the service-role client (`liveSourcesFor`), so the workspace check here is what keeps workspaces apart ([doc 3](3-data-and-security.md#how-workspaces-stay-apart)) |
 | Slack | Slack signature (HMAC-SHA256, 5-minute window) | Acknowledge at once; post "⏳ Looking it up…", then replace it with the answer |
 | WhatsApp | Twilio signature (HMAC-SHA1) | Text → answer sent through Twilio's Messages API. Photo/file → passed on unchanged to the company's document intake |
 | MCP | Workspace API key (`gnk_…`, only its hash is stored) | Read tools only; each call is metered |

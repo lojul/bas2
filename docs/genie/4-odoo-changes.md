@@ -80,7 +80,8 @@ Settings → Data sources → **Changes in Odoo** (stored in `tenants.settings.o
 ## Known weakness
 
 If Odoo saves the change but its reply times out, Genie marks the draft **failed** and drops it. Asking again
-then creates a **duplicate**. The fix (an operation key written with the change and checked before marking failed) is
-item 1 of [platform hardening](5-roadmap.md#platform-hardening).
+then creates a **duplicate**. The planned fix treats a timeout as "unknown" and allows a retry only once Odoo's own
+time limit has passed and a search for the change's operation key finds nothing: item 1 of
+[platform hardening](5-roadmap.md#platform-hardening).
 
 C21 has only one Odoo user, so the same key is pasted into both reading and writing for now.

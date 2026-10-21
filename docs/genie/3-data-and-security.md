@@ -73,21 +73,36 @@ erDiagram
 
 ## How workspaces stay apart
 
-Every request passes the same layers. A mistake in one layer is caught by the next.
+There are **two paths** into the data, and they are protected differently:
 
 ```mermaid
-flowchart LR
-    R["Request"] --> I["<b>Step 1</b><br/>Who is asking?<br/>session · Slack/Twilio signature ·<br/>MCP key hash"]
-    I --> W["<b>Step 2</b><br/>Server picks the workspace<br/>from that identity, never<br/>from the browser or the AI"]
-    W --> L["<b>Step 3</b><br/>Row-level security:<br/>every row has tenant_id,<br/>Postgres checks membership"]
-    L --> K["<b>Step 4</b><br/>Workspace's own key<br/>read from Vault"]
-    K --> C[("That customer's<br/>own system")]
+flowchart TB
+    R["Request"] --> I["Entry point checks who is asking<br/>Ask: session + membership of the workspace in the URL<br/>Slack / WhatsApp: signature checked with that workspace's secret<br/>MCP: key hash → its workspace"]
+    I --> W["The entry point fixes the workspace<br/>(never taken from the browser body,<br/>the AI's tool arguments or the message text)"]
+    W --> U
+    W --> S
+
+    subgraph USER["Member path"]
+        U["User's own Supabase session"] --> L["Row-level security<br/>Postgres checks membership<br/>on every row"]
+    end
+
+    subgraph SRV["Server path"]
+        S["Service-role client<br/>(SUPABASE_SECRET_KEY)<br/>⚠ bypasses row-level security"] --> K["Sources and keys of the<br/>workspace it was given<br/>e.g. liveSourcesFor(tenantId)"]
+    end
+
+    L --> DB[("Genie database")]
+    K --> C[("That workspace's<br/>own Odoo / index")]
 ```
 
-- **Row-level security** is on every table. Policies use `private.is_member`, `private.has_role` and
-  `private.can_see_chat`.
-- **The server's secret key** (`SUPABASE_SECRET_KEY`) is used only on the server: to read keys for live calls, to
-  handle Slack/WhatsApp/MCP requests that have no signed-in user, and to write Genie's answers and usage.
+- **Member path.** Pages, chats and settings read the database as the signed-in user. Row-level security is on every
+  table (policies use `private.is_member`, `private.has_role`, `private.can_see_chat`), so a wrong workspace id
+  returns nothing.
+- **Server path.** Reading sources and Vault keys for live calls (`portal/lib/live.ts`), Slack/WhatsApp/MCP
+  requests (no signed-in user), Odoo writes, and writing Genie's answers and usage all use the service-role client.
+  **Row-level security does not apply there.** The only guard is that the entry point resolved the right
+  workspace; a bug that passes the wrong `tenantId` would read another workspace's sources and keys. Every
+  service-role call must therefore take its workspace from the entry point's identity check, and filter by it.
+  Making this a tested rule is [platform hardening item 4](5-roadmap.md#platform-hardening).
 - **Isolation test:** `shared/supabase/tests/isolation_test.sql` creates test workspaces and checks they can't see
   each other. It is run by hand today; running it on every release is on the [roadmap](5-roadmap.md#platform-hardening).
 
@@ -112,7 +127,7 @@ access without touching reading.
 
 | Gap | Fix planned |
 |---|---|
-| Isolation test is manual | Run on every PR ([roadmap](5-roadmap.md#platform-hardening)) |
+| Isolation test is manual, and covers row-level security only | Run on every PR, including the service-role path through each entry point ([roadmap](5-roadmap.md#platform-hardening)) |
 | The change log is an ordinary table that the server could edit | Tamper-evident log ([roadmap](5-roadmap.md#platform-hardening)) |
 | Invite link = key | Emailed invites with a 6-digit code |
 | Anyone who can message the Slack bot or the WhatsApp number can ask | Link members to their Slack user / phone |
