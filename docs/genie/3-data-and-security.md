@@ -68,6 +68,7 @@ erDiagram
 | `api_keys` | MCP keys, **hash only** | Owner/admin |
 | `chats`, `chat_messages` | Saved Ask chats and messages | Team chat: members; private: author |
 | `odoo_actions` | Drafted and made Odoo changes | Owner/admin, or the requester |
+| `whatsapp_links` | Member ↔ WhatsApp number, **link-code hash** (10 minutes) | Own row; owner/admin see the workspace's; written by the server |
 | `usage_events` | Metering for billing | Written by the server |
 | `records`, `passages` | Old copy design, demo data only, not used for customers | — |
 
@@ -130,4 +131,4 @@ access without touching reading.
 | Isolation test is manual, and covers row-level security only | Run on every PR, including the service-role path through each entry point ([roadmap](5-roadmap.md#platform-hardening)) |
 | The change log is an ordinary table that the server could edit | Tamper-evident log ([roadmap](5-roadmap.md#platform-hardening)) |
 | Invite link = key | Emailed invites with a 6-digit code |
-| Anyone who can message the Slack bot or the WhatsApp number can ask | Link members to their Slack user / phone |
+| Anyone who can message the Slack bot can ask (WhatsApp: linked members only since 2026-10-21) | Link members to their Slack user |

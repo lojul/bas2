@@ -63,4 +63,6 @@ editing an old one. Full early reasoning (connector catalogue, pricing): tab "Sa
 
 | Date | Decision | Why / consequence |
 |---|---|---|
+| 2026-10-21 | Genie answers WhatsApp text **only from numbers linked to a member** (member sends "LINK <code>" from the phone; code hash only, 10 minutes). Photos/files keep going to the workspace's document intake unchanged | Anyone who knew the number could read the workspace's data. Links are needed for changes in Odoo from WhatsApp (next step). The member's phone number is Genie account data, not customer data |
+| 2026-10-21 | **Each workspace has its own channel set-up** (Twilio account, Sandbox, keys); nothing is shared between workspaces, e.g. C21 and Infinity Duo | User decision |
 | 2026-10-17 | Each customer uses **its own WhatsApp number**, never one shared "Genie" number | Meta bars general-purpose AI chatbots; task-bound bots over a company's own data are fine. See [research](research/whatsapp.md) |

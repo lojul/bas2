@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { BRAND } from "@/lib/brand";
 import { SITE_URL } from "@/lib/env";
 import type { SlackSettings } from "@/lib/slack/slack";
 import { createClient, getUser } from "@/lib/supabase/server";
@@ -87,7 +88,7 @@ export async function ChannelsSection({ slug }: { slug: string }) {
               <div>
                 <h3 className="font-medium">WhatsApp</h3>
                 {waEnabled ? (
-                  <p className="text-sm text-genie-green">On — text questions to {wa.number} are answered by Genie</p>
+                  <p className="text-sm text-genie-green">On — text questions to {wa.number} from members&apos; linked numbers (Members → Your WhatsApp) are answered by {BRAND.name}</p>
                 ) : (
                   <p className="text-sm text-genie-muted">Off — Genie doesn&apos;t answer on WhatsApp. Details are kept; switch on to resume.</p>
                 )}

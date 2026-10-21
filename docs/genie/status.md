@@ -11,6 +11,7 @@ Update this page when an item is tested, decided or done.
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
 | WhatsApp (Sandbox) | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text and a photo test |
+| WhatsApp (Infinity Duo) | Twilio console was down on 2026-10-21. In Infinity Duo's own Twilio account (login julianlau@infiniduo.com, SID `ACb426…`): switch on the Sandbox, "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/infiniduo/inbound`; paste SID + token in Genie → Infinity Duo → Channels; Members → Link WhatsApp |
 | WhatsApp (real number) | Decide C21's number and start Meta business verification ([research](research/whatsapp.md)) |
 | Changes in Odoo | Switched on for C21 (same key pasted for reading and writing). Test on Ask in a Private chat with "TEST …" records: create lead → Confirm → note → follow-up; check Settings → Activity; delete the TEST records in Odoo |
 | Team chat | Two members in one Team chat: live updates and an @Genie answer |
@@ -41,6 +42,7 @@ Update this page when an item is tested, decided or done.
 
 | Date | What |
 |---|---|
+| 2026-10-21 | WhatsApp answers only members' linked numbers (Members → Your WhatsApp → send "LINK <code>"); photos/files still forwarded to the document intake |
 | 2026-10-21 | Odoo connected with an MCP key for reading; Changes in Odoo with a separate RPC key. Infinity Duo workspace (`infiniduo`) uses both |
 | 2026-10-19 | Download PDF under answers to a PDF request, rendered on Genie's server (Chinese fonts bundled) |
 | 2026-10-18 | Delete a chat from the sidebar (confirm dialog); new chat opens at once |

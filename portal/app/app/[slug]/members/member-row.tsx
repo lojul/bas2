@@ -11,9 +11,10 @@ type Props = {
   member: { user_id: string; email: string; role: Role; joined_at: string };
   isSelf: boolean;
   myRole: Role;
+  whatsapp?: string | null; // masked linked number, e.g. "+852 •••• 4567"
 };
 
-export function MemberRow({ slug, member, isSelf, myRole }: Props) {
+export function MemberRow({ slug, member, isSelf, myRole, whatsapp }: Props) {
   const [roleState, roleAction] = useActionState(changeRole, undefined);
   const [removeState, removeAction] = useActionState(removeMember, undefined);
 
@@ -28,7 +29,10 @@ export function MemberRow({ slug, member, isSelf, myRole }: Props) {
           <div className="text-sm font-medium">
             {member.email} {isSelf && <span className="text-genie-muted">(you)</span>}
           </div>
-          <div className="text-xs text-genie-muted">Joined {new Date(member.joined_at).toLocaleDateString()}</div>
+          <div className="text-xs text-genie-muted">
+            Joined {new Date(member.joined_at).toLocaleDateString()}
+            {whatsapp && <> · WhatsApp {whatsapp}</>}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {canEdit && !isSelf ? (
