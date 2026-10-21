@@ -11,7 +11,7 @@ Update this page when an item is tested, decided or done.
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
 | WhatsApp (Sandbox) | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text and a photo test |
-| WhatsApp (Infinity Duo) | Twilio console was down on 2026-10-21. In Infinity Duo's own Twilio account (login julianlau@infiniduo.com, SID `ACb426…`): switch on the Sandbox, "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/infiniduo/inbound`; paste SID + token in Genie → Infinity Duo → Channels; Members → Link WhatsApp |
+| WhatsApp (Infinity Duo) | Sandbox on in Infinity Duo's own Twilio account (SID `ACb426…`), webhook set. Still to do: paste SID + Auth Token in Genie → Infinity Duo → Settings → Channels; phone sends `join orange-minute` to +1 415 523 8886; Members → Link WhatsApp; ask a question |
 | WhatsApp (real number) | Decide C21's number and start Meta business verification ([research](research/whatsapp.md)) |
 | Changes in Odoo | Switched on for C21 (same key pasted for reading and writing). Test on Ask in a Private chat with "TEST …" records: create lead → Confirm → note → follow-up; check Settings → Activity; delete the TEST records in Odoo |
 | Team chat | Two members in one Team chat: live updates and an @Genie answer |

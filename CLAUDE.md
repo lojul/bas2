@@ -32,7 +32,7 @@ Each workspace has its **own** set-up: Odoo, keys, Twilio account, Sandbox. Noth
 | Slug | Odoo | WhatsApp (Twilio) |
 |---|---|---|
 | `c21` | C21's Odoo (same key for reading and writing) | Twilio account "My first Twilio account", SID `ACbfa5…`, Sandbox +14155238886 |
-| `infiniduo` | `https://admin-c21net-infiniduo.odoo.com` (Odoo 20, database `admin-c21net-infiniduo-main-40256688`, also at `…-main-40256688.dev.odoo.com`). Reads with an **MCP-scoped key** (source kind `odoo_mcp`), writes with an RPC key (`odoo_write_key`). Odoo user Julian (uid 5) | Its own Twilio login (julianlau@infiniduo.com), account "My First Twilio Account", SID `ACb426…`; Sandbox not yet switched on |
+| `infiniduo` | `https://admin-c21net-infiniduo.odoo.com` (Odoo 20, database `admin-c21net-infiniduo-main-40256688`, also at `…-main-40256688.dev.odoo.com`). Reads with an **MCP-scoped key** (source kind `odoo_mcp`), writes with an RPC key (`odoo_write_key`). Odoo user Julian (uid 5) | Its own Twilio login (julianlau@infiniduo.com), account "My First Twilio Account", SID `ACb426…`; Sandbox on (join phrase `join orange-minute`), webhook → `/api/whatsapp/infiniduo/inbound` (set 2026-10-21) |
 
 ## Working notes for Claude
 
