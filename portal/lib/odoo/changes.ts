@@ -124,7 +124,8 @@ export async function updatableFields(tenantId: string) {
 // Tools offered to the AI (only the actions switched on and allowed for this member)
 // ---------------------------------------------------------------------------
 
-export type Actor = { userId: string; email: string; role: Role; chatId: string | null };
+// channel: where the member asked (Ask on the website by default); a WhatsApp draft is confirmed by replying YES.
+export type Actor = { userId: string; email: string; role: Role; chatId: string | null; channel?: "web" | "whatsapp" };
 
 export async function changeToolsFor(tenantId: string, actor: Actor | null) {
   if (!actor) return { tools: [], allowedFields: [] as string[] };
@@ -330,7 +331,7 @@ export async function proposeChange(tenantId: string, actor: Actor, action: Chan
   draft.lines = draft.lines.filter(([, v]) => v);
   const { data, error } = await admin
     .from("odoo_actions")
-    .insert({ tenant_id: tenantId, chat_id: actor.chatId, requested_by: actor.userId, requested_email: actor.email, action, model, record_id: recordId, draft })
+    .insert({ tenant_id: tenantId, chat_id: actor.chatId, requested_by: actor.userId, requested_email: actor.email, action, model, record_id: recordId, draft, channel: actor.channel ?? "web" })
     .select("id")
     .single();
   if (error || !data) throw new Error(`Could not prepare the change: ${error?.message}`);
@@ -338,7 +339,10 @@ export async function proposeChange(tenantId: string, actor: Actor, action: Chan
     draft_id: data.id,
     status: "waiting for confirmation",
     preview: Object.fromEntries(draft.lines),
-    instruction: "Nothing is saved yet. Tell the user to check the draft card below your answer and press Confirm (or Cancel). Do not say it has been created.",
+    instruction:
+      actor.channel === "whatsapp"
+        ? "Nothing is saved yet. Show the user the draft's details and tell them to reply YES to save it in Odoo or NO to cancel. Do not say it has been created."
+        : "Nothing is saved yet. Tell the user to check the draft card below your answer and press Confirm (or Cancel). Do not say it has been created.",
   };
 }
 
@@ -385,6 +389,7 @@ type Row = {
   requested_email: string | null;
   decided_email: string | null;
   error: string | null;
+  channel: "web" | "whatsapp";
   created_at: string;
 };
 
@@ -442,7 +447,7 @@ export async function decideChange(tenantId: string, id: string, me: Actor, conf
     await guard(tenantId, row.action, null);
     const { odoo } = await writeClient(tenantId);
     const d = row.draft!;
-    const stamp = `Done by Genie at the request of ${row.requested_email ?? "a member"}${row.requested_email !== me.email ? `, confirmed by ${me.email}` : ""} (Ask).`;
+    const stamp = `Done by Genie at the request of ${row.requested_email ?? "a member"}${row.requested_email !== me.email ? `, confirmed by ${me.email}` : ""} (${row.channel === "whatsapp" ? "WhatsApp" : "Ask"}).`;
     const salesperson = await odooUserByEmail(odoo, row.requested_email);
     if (row.action === "create_lead" || row.action === "create_contact") {
       const vals = { ...d.vals, ...(row.action === "create_lead" && salesperson ? { user_id: salesperson } : {}) };

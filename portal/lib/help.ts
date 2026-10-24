@@ -120,7 +120,7 @@ export const HELP_TOPICS: HelpTopic[] = [
           "An owner or admin switches it on in Settings → Data sources → Changes in Odoo, pastes the API key of a dedicated \"Genie\" Odoo user, and ticks what Genie may prepare: create a lead, create a contact, add a note, schedule a follow-up, update allowed fields. For each, choose who may ask (members and admins, or admins only). Viewers never can.",
           "On Ask, write for example: \"Create a lead for Chan Tai Man, 9123 4567, wants a 3-bed in Taikoo Shing\". Genie shows a draft card. Nothing is saved in Odoo until you press Confirm; Cancel throws it away; a draft expires after 24 hours.",
           "Only the person who asked, or an owner/admin, can confirm. The Odoo record gets a note \"Done by Genie at the request of …\", and the change is listed in Settings → Activity.",
-          "Changes work on Ask only for now. On Slack and WhatsApp Genie still only reads.",
+          "On WhatsApp (from a linked number) it works the same way: Genie replies with the draft — reply YES to save it in Odoo or NO to cancel. YES or NO applies to the drafts in Genie's latest reply. On Slack Genie still only reads.",
         ],
       },
       {
@@ -241,7 +241,7 @@ export const HELP_TOPICS: HelpTopic[] = [
         summary: "Account details and encrypted keys — not your business records.",
         body: [
           "Genie stores your account, workspace and team, the connection details of your data sources and AI keys (encrypted in a vault), and usage counts for billing. It does not keep a copy of your business records.",
-          "Records are read from your system when a question is asked and passed to the AI provider that writes the answer. Chats on Ask are kept for 90 days after the last message (team chats are visible to every member; private chats only to you), and can be deleted any time by the person who started them or an owner/admin.",
+          "Records are read from your system when a question is asked and passed to the AI provider that writes the answer. Chats on Ask are kept for 90 days after the last message (team chats are visible to every member; private chats only to you), and can be deleted any time by the person who started them or an owner/admin. On WhatsApp, Genie keeps a member's messages and its answers for 30 minutes so it can follow the conversation, then deletes them.",
           "Genie is hosted in Singapore; each workspace is kept apart from every other by the database itself.",
         ],
         link: { label: "Privacy Policy", path: "/privacy", abs: true },

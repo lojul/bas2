@@ -71,9 +71,9 @@ a note for staff and stays out of the PDF.
 
 | | Web (Ask) | Slack | WhatsApp | AI agents (MCP) |
 |---|---|---|---|---|
-| Who can ask | Signed-in members | Anyone who can message the workspace's bot | Phones that can reach the workspace's number | Holders of a workspace API key |
-| Remembers the conversation | Yes (saved chat) | Yes (reads the Slack thread back) | No, one question at a time | No |
-| Can change Odoo | Yes, with Confirm | Not yet | Not yet | No |
+| Who can ask | Signed-in members | Anyone who can message the workspace's bot | Members' linked numbers | Holders of a workspace API key |
+| Remembers the conversation | Yes (saved chat) | Yes (reads the Slack thread back) | Last 30 minutes | No |
+| Can change Odoo | Yes, with Confirm | Not yet | Yes, reply YES / NO | No |
 | Photos and files | — | — | Passed on unchanged to the company's document intake | — |
 
 ## What C21's workspace has today
