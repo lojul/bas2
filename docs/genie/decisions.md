@@ -13,6 +13,7 @@ editing an old one. Full early reasoning (connector catalogue, pricing): tab "Sa
 | 2026-10-16 | **No copy of customer data.** "We don't store stuff in Genie, we should not." Genie stores only accounts, workspaces, members, connection details, encrypted keys (Vault) and usage counts | Answers are always current; a privacy selling point (PDPO). Dropped: scheduled sync, embedding index over customer data, CSV upload into Genie. The old `records` table holds only synthetic demo data. The document add-on needs a design that reads files where they live |
 | 2026-10-17 | Exception 1: **saved chats** (`chats`, `chat_messages`), deleted 90 days after the last message, or earlier by the author / an owner or admin | Members share answers (Team chats). Privacy policy updated |
 | 2026-10-17 | Exception 2: **Odoo change drafts**: values for ≤ 24 h, then only who / what / which record for a year | People confirm drafts; the log shows what Genie changed |
+| 2026-10-24 | Exception 3: **WhatsApp memory** (`whatsapp_turns`): a member's WhatsApp messages and Genie's answers, used for 30 minutes and deleted every 5 minutes after that | User decision ("with memory"): Genie can ask for a missing detail and act on the reply, and YES / NO refers to the drafts in its latest answer. Privacy policy updated |
 | 2026-10-16 | Saved keys can be shown and copied by owners/admins (MCP keys stay hash-only) | User request. Privacy policy updated |
 
 ## Product and platform
@@ -63,6 +64,7 @@ editing an old one. Full early reasoning (connector catalogue, pricing): tab "Sa
 
 | Date | Decision | Why / consequence |
 |---|---|---|
+| 2026-10-24 | **Changes in Odoo from WhatsApp**: Genie replies with the draft; the member replies **YES** to save or **NO** to cancel (also 是/好/確認, 取消/唔要). Same switches, roles, daily limit and Activity log as Ask; the Odoo note says "(WhatsApp)" | User goal: control Odoo from WhatsApp |
 | 2026-10-21 | Genie answers WhatsApp text **only from numbers linked to a member** (member sends "LINK <code>" from the phone; code hash only, 10 minutes). Photos/files keep going to the workspace's document intake unchanged | Anyone who knew the number could read the workspace's data. Links are needed for changes in Odoo from WhatsApp (next step). The member's phone number is Genie account data, not customer data |
 | 2026-10-21 | **Each workspace has its own channel set-up** (Twilio account, Sandbox, keys); nothing is shared between workspaces, e.g. C21 and Infinity Duo | User decision |
 | 2026-10-17 | Each customer uses **its own WhatsApp number**, never one shared "Genie" number | Meta bars general-purpose AI chatbots; task-bound bots over a company's own data are fine. See [research](research/whatsapp.md) |

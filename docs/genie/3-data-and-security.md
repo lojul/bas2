@@ -39,7 +39,8 @@ privacy policy names them.
 | Odoo draft values | Until decided, at most 24 hours | pg_cron `genie-odoo-actions-cleanup`, hourly |
 | Odoo change log (who, what, which record) | 1 year | Same job |
 | Invite links | 7 days, single use, renewable | Expiry check |
-| WhatsApp messages, Slack threads | Not stored (Slack history is read back from Slack) | — |
+| WhatsApp messages | A linked member's messages and Genie's answers (`whatsapp_turns`), so Genie can follow the conversation | 30 minutes |
+| Slack threads | Not stored (read back from Slack) | — |
 
 ## Data model
 
@@ -69,6 +70,7 @@ erDiagram
 | `chats`, `chat_messages` | Saved Ask chats and messages | Team chat: members; private: author |
 | `odoo_actions` | Drafted and made Odoo changes | Owner/admin, or the requester |
 | `whatsapp_links` | Member ↔ WhatsApp number, **link-code hash** (10 minutes) | Own row; owner/admin see the workspace's; written by the server |
+| `whatsapp_turns` | A member's last WhatsApp messages and answers, ids of drafts in each answer; deleted after 30 minutes | Server only (no access for signed-in users) |
 | `usage_events` | Metering for billing | Written by the server |
 | `records`, `passages` | Old copy design, demo data only, not used for customers | — |
 

@@ -14,8 +14,8 @@ web, Slack or WhatsApp; outside AI agents use Genie's MCP server. Live, first wo
 
 Decisions to respect in every change (reasons in `docs/genie/decisions.md`):
 - **No copy of customer data.** Read the customer's systems live at question time. Genie stores only accounts,
-  workspaces, members, connection details, keys (Vault) and usage. Exceptions: saved chats (90 days) and Odoo change
-  drafts (values ≤ 24 h, who/what/which record 1 year). Any new exception needs the user's decision.
+  workspaces, members, connection details, keys (Vault) and usage. Exceptions: saved chats (90 days), Odoo change
+  drafts (values ≤ 24 h, who/what/which record 1 year) and WhatsApp memory (30 minutes). Any new exception needs the user's decision.
 - **The customer's system stays the system of record.** Changes in Odoo are drafts a person confirms; off by default.
 - **Multi-tenant on Supabase** (`genie`, ref `xhaqzwznduxoosqtcrrm`, Singapore): `tenant_id` on every row,
   row-level security on every table. Customer keys only in Vault, never in tables or code.

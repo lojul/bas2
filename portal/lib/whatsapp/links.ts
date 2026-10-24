@@ -58,7 +58,7 @@ export async function unlink(tenantId: string, userId: string) {
   if (error) throw new Error(error.message);
 }
 
-export async function memberByPhone(tenantId: string, phone: string): Promise<{ userId: string; role: Role } | null> {
+export async function memberByPhone(tenantId: string, phone: string): Promise<{ userId: string; role: Role; email: string } | null> {
   const admin = createAdminClient();
   const { data: link } = await admin.from("whatsapp_links").select("user_id").eq("tenant_id", tenantId).eq("phone", phone).maybeSingle<{ user_id: string }>();
   if (!link) return null;
@@ -68,7 +68,10 @@ export async function memberByPhone(tenantId: string, phone: string): Promise<{ 
     .eq("tenant_id", tenantId)
     .eq("user_id", link.user_id)
     .maybeSingle<{ role: Role }>();
-  return member ? { userId: link.user_id, role: member.role } : null;
+  if (!member) return null;
+  // The email goes on Odoo changes ("Done by Genie at the request of …") and picks the salesperson.
+  const { data: user } = await admin.auth.admin.getUserById(link.user_id);
+  return { userId: link.user_id, role: member.role, email: user?.user?.email ?? "" };
 }
 
 // "+85291234567" → "+852 •••• 4567" for lists.

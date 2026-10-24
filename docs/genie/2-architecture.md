@@ -119,7 +119,7 @@ Anthropic, OpenAI or Google models. Azure OpenAI keys can be saved but aren't us
 | `find_contact` | People/companies by name, email or phone digits | ✓ | ✓ | ✓ |
 | `search_knowledge` | Passages from the company's document index | ✓ | ✓ | ✓ |
 | `workspace_info` | Workspace name, sources, record types | — | — | ✓ |
-| Change tools (create lead/contact, note, follow-up, update fields) | Make a **draft** only | ✓ when switched on | — | — |
+| Change tools (create lead/contact, note, follow-up, update fields) | Make a **draft** only | ✓ when switched on | WhatsApp ✓ (reply YES / NO); Slack — | — |
 
 ## Answer PDF
 

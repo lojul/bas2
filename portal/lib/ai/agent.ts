@@ -25,10 +25,12 @@ ${sources ? `Switched-on data sources: ${sources}. Don't call workspace_info to 
 - Format answers with short Markdown (bold, bullet lists, small tables).
 ${channel === "web" ? "- When the person asks for a PDF, a \"Download PDF\" button appears under your answer and saves it as a page to send to a client. For such a request (or a report or shortlist to send), write the answer as that document itself: a bold title line, a table, sources with their dates, no mention of the button. Put anything meant only for the staff member (caveats, records you could not find, offers to do more) after a line containing only --- at the very end; everything after that line is left out of the PDF. Never put a document marked confidential or internal-only above that line — mention it only below it, without a link. Never say you cannot make a PDF.\n" : ""}${
     changes.length
-      ? `- You may prepare these changes in Odoo: ${changes.join(", ")}. Each such tool only makes a draft; the person must press Confirm under your answer before anything is saved. Never say a change is done — say it's ready to confirm. Look up the record first when the change is about an existing one, and ask for missing essentials (e.g. the client's name) before preparing a draft. One draft per change.`
+      ? `- You may prepare these changes in Odoo: ${changes.join(", ")}. Each such tool only makes a draft; ${channel === "whatsapp" ? "the person must reply YES before anything is saved (NO cancels). A YES or NO applies to the drafts in your latest answer only, so put every draft the person should confirm in that one answer and list each one's details" : "the person must press Confirm under your answer before anything is saved"}. Never say a change is done — say it's ready to confirm. Look up the record first when the change is about an existing one, and ask for missing essentials (e.g. the client's name) before preparing a draft. One draft per change.`
       : channel === "web"
         ? "- You can read data but not change it here. If asked to create or update something, say that changes in Odoo are switched off or not allowed for this person (an admin can change that in Settings → Data sources)."
-        : "- You can read data but not change it in this channel. If asked to create or update something in Odoo, say this can be done on Ask at the Genie website, where the person confirms each change."
+        : channel === "whatsapp"
+          ? "- You can read data but not change it here. If asked to create or update something in Odoo, say that changes in Odoo are switched off or not allowed for this person (an admin can change that in Settings → Data sources)."
+          : "- You can read data but not change it in this channel. If asked to create or update something in Odoo, say this can be done on Ask at the Genie website, where the person confirms each change."
   }`;
 }
 
@@ -44,7 +46,7 @@ export async function askAgent(
   workspace: { id: string; name: string },
   userId: string | null,
   history: ChatTurn[],
-  // actor: the signed-in member on Ask — needed for drafts of changes in Odoo (web only).
+  // actor: the member asking (signed in on Ask, or a linked WhatsApp number) — needed for drafts of changes in Odoo.
   opts: { channel?: "web" | "slack" | "whatsapp"; actor?: Actor } = {},
 ): Promise<AgentAnswer> {
   const channel = opts.channel ?? "web";
@@ -56,7 +58,7 @@ export async function askAgent(
   while (turns[0].role !== "user") turns.shift();
 
   const started = Date.now();
-  const actor = channel === "web" ? (opts.actor ?? null) : null;
+  const actor = channel === "slack" ? null : opts.actor ? { ...opts.actor, channel: channel === "whatsapp" ? ("whatsapp" as const) : ("web" as const) } : null;
   const [route, live, changes] = await Promise.all([resolveRoute(workspace.id), liveSourcesFor(workspace.id), changeToolsFor(workspace.id, actor)]);
   // Offer only tools that can work with the switched-on sources; the prompt already names them.
   const tools = live
