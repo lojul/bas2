@@ -11,7 +11,7 @@ Update this page when an item is tested, decided or done.
 |---|---|
 | Slack | Request URL `https://genie.infiniduo.com/api/slack/c21/events` set in the Slack app ("Verified"), then one @mention test |
 | WhatsApp (Sandbox) | Twilio Sandbox "When a message comes in" → `https://genie.infiniduo.com/api/whatsapp/c21/inbound` (POST), then a text and a photo test |
-| WhatsApp (Infinity Duo) | Sandbox on in Infinity Duo's own Twilio account (SID `ACb426…`), webhook set. Still to do: paste SID + Auth Token in Genie → Infinity Duo → Settings → Channels; phone sends `join orange-minute` to +1 415 523 8886; Members → Link WhatsApp; ask a question; then "Create a lead for TEST Chan, 9123 4567" → YES → check Odoo and Settings → Activity |
+| WhatsApp (Infinity Duo) | Sandbox on in Infinity Duo's own Twilio account (SID `ACb426…`), webhook set; SID + Auth Token saved in Genie and checked with Twilio (2026-10-24). Still to do: phone sends `join orange-minute` to +1 415 523 8886; Members → Link WhatsApp; ask a question; then "Create a lead for TEST Chan, 9123 4567" → YES → check Odoo and Settings → Activity |
 | WhatsApp (Infinity Duo real number) | User prefers a **HK mobile number**: a new HK SIM (never used on WhatsApp) registered as a Twilio WhatsApp sender ("own number"); needs the Twilio account upgraded from trial and a Meta Business Portfolio |
 | WhatsApp (real number) | Decide C21's number and start Meta business verification ([research](research/whatsapp.md)) |
 | Changes in Odoo | Switched on for C21 (same key pasted for reading and writing). Test on Ask in a Private chat with "TEST …" records: create lead → Confirm → note → follow-up; check Settings → Activity; delete the TEST records in Odoo |
