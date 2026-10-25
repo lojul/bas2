@@ -32,7 +32,7 @@ Each workspace has its **own** set-up: Odoo, keys, Twilio account, Sandbox. Noth
 | Slug | Odoo | WhatsApp (Twilio) |
 |---|---|---|
 | `c21` | C21's Odoo (same key for reading and writing) | Twilio account "My first Twilio account", SID `ACbfa5…`, Sandbox +14155238886 |
-| `infiniduo` | `https://admin-c21net-infiniduo.odoo.com` (Odoo 20, database `admin-c21net-infiniduo-main-40256688`, also at `…-main-40256688.dev.odoo.com`). Reads with an **MCP-scoped key** (source kind `odoo_mcp`), writes with an RPC key (`odoo_write_key`). Odoo user Julian (uid 5) | Its own Twilio login (julianlau@infiniduo.com), account "My First Twilio Account", SID `ACb426…`; Sandbox on (join phrase `join orange-minute`), webhook → `/api/whatsapp/infiniduo/inbound` (set 2026-10-21) |
+| `infiniduo` | `https://admin-c21net-infiniduo.odoo.com` (Odoo 20, database `admin-c21net-infiniduo-main-40256688`, also at `…-main-40256688.dev.odoo.com`). Reads with an **MCP-scoped key** (source kind `odoo_mcp`), writes with an RPC key (`odoo_write_key`). Odoo user Julian (uid 5) | Its own Twilio login (julianlau@infiniduo.com), account "My First Twilio Account", SID `ACb426…`; Sandbox on (join phrase `join orange-minute`), webhook → `/api/whatsapp/infiniduo/inbound` (set 2026-10-21); SID + Auth Token saved in Genie and WhatsApp switched on (2026-10-24). Changes in Odoo on. Next: a **HK mobile number** (new SIM, registered as a Twilio WhatsApp sender) |
 
 ## Working notes for Claude
 
@@ -44,6 +44,13 @@ Each workspace has its **own** set-up: Odoo, keys, Twilio account, Sandbox. Noth
 - The claude.ai "Twilio" connector is Twilio's docs server (`mcp.twilio.com/docs`), not account access; use the
   Twilio console in Chrome.
 - Odoo's MCP server (`/mcp`) has read tools only (search, read_group, fields, models); its key is refused by JSON-2.
+- Applying a migration without the Supabase MCP: open the SQL Editor
+  (`supabase.com/dashboard/project/xhaqzwznduxoosqtcrrm/sql/new`) in Chrome (the user signs in), set the text with
+  `window.monaco.editor.getModels()[0].setValue(sql)`, click Run, and add the `schema_migrations` row
+  (`shared/README.md`). Apply it **before** merging code that uses the new columns.
+- The Chrome extension can't act on twilio.com pages (no site permission), but it can read the page text and URL
+  (the URL holds the Account SID). The user pastes Auth Tokens.
+- Genie on WhatsApp: linked members only; changes in Odoo by replying YES / NO; 30-minute memory (`whatsapp_turns`).
 
 ## Which folder to use
 
