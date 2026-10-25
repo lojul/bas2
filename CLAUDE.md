@@ -6,6 +6,7 @@ to look. Created on 2026-10-08 by importing the existing repositories with their
 **Start here: [`docs/genie/README.md`](docs/genie/README.md)**: Genie design docs (product, architecture, data and
 security, Odoo changes, roadmap, operations). Current status and open items: [`docs/genie/status.md`](docs/genie/status.md).
 Decisions with reasons: [`docs/genie/decisions.md`](docs/genie/decisions.md).
+What changed when: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Genie in brief
 
@@ -88,7 +89,7 @@ developer's project: reference only, never copy code without their agreement); `
 - Delete a `legacy/` folder only when its Genie replacement has passed its gate.
 - Never commit `.env`, `local.settings.json` or keys (see `.gitignore`). Legacy secrets live in Azure app settings /
   Key Vault; Genie customer keys live in Supabase Vault.
-- Keep the docs current: when a change ships, update `docs/genie/status.md` (and the design doc it affects); record
+- Keep the docs current: when a change ships, add a line to `CHANGELOG.md`, update `docs/genie/status.md` (and the design doc it affects); record
   new decisions in `docs/genie/decisions.md`, not in this file.
 
 ## Secrets
